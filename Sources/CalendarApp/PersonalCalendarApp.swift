@@ -68,7 +68,8 @@ struct PersonalCalendarApp: App {
                         searchIndex: environment.searchIndex,
                         focusRegistry: editorFocusRegistry,
                         transitionCoordinator: transitionCoordinator,
-                        terminationCoordinator: terminationCoordinator
+                        terminationCoordinator: terminationCoordinator,
+                        decompositionPlanner: environment.decompositionPlanner
                     )
                     .task { await environment.store.load() }
                 } else {

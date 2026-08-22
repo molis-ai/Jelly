@@ -16,6 +16,10 @@ struct AppEnvironmentWorkspaceCutoverTests {
         #expect(environment.features == .production)
         #expect(environment.features.notes == true)
         #expect(environment.features.inspiration == true)
+        let plannerName = String(describing: type(of: environment.decompositionPlanner))
+        #expect(!plannerName.localizedCaseInsensitiveContains("scripted"))
+        #expect(!plannerName.localizedCaseInsensitiveContains("mock"))
+        #expect(!plannerName.localizedCaseInsensitiveContains("fixture"))
     }
 
     @Test func liveEnvironmentComposesOneWorkspaceStoreFromTheResolvedDataDirectory() async throws {

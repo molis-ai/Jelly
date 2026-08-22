@@ -11,6 +11,7 @@ struct AppEnvironment {
     /// The production application stays calendar-only until a module has its
     /// complete real loop. Feature state is deliberately not user preference data.
     let features: WorkspaceFeatures
+    let decompositionPlanner: any DecompositionPlanning
 
     static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -34,7 +35,8 @@ struct AppEnvironment {
             store: WorkspaceStore(initialState: seed, repository: repository, journal: journal),
             dataURLs: dataURLs,
             searchIndex: WorkspaceSearchIndex(fileURL: dataURLs.searchIndex),
-            features: .production
+            features: .production,
+            decompositionPlanner: LiveDecompositionPlanner.make()
         )
     }
 
