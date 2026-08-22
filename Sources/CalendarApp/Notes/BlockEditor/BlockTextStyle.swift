@@ -34,12 +34,13 @@ enum BlockTextStyle {
 
         let baseFont = baseFont(for: block.kind)
         attributed.addAttributes(
-            blockAttributes(
-                for: block,
-                appearance: appearance,
-                completionDescriptionWidth: completionDescriptionWidth
-            ),
+            blockAttributes(for: block, appearance: appearance),
             range: fullRange
+        )
+        applyTrailingCompletionReserve(
+            to: attributed,
+            block: block,
+            completionDescriptionWidth: completionDescriptionWidth
         )
         var cursor = 0
         for span in block.inlineContent.spans {
@@ -166,10 +167,49 @@ enum BlockTextStyle {
         return style
     }
 
+    static func paragraphRange(in string: NSString, atUTF16Offset location: Int) -> NSRange? {
+        guard string.length > 0 else { return nil }
+        let clamped = min(max(0, location), string.length - 1)
+        var start = 0
+        var end = 0
+        var contentsEnd = 0
+        string.getParagraphStart(
+            &start,
+            end: &end,
+            contentsEnd: &contentsEnd,
+            for: NSRange(location: clamped, length: 0)
+        )
+        let length = end - start
+        guard length > 0 else { return nil }
+        return NSRange(location: start, length: length)
+    }
+
+    private static func applyTrailingCompletionReserve(
+        to attributed: NSMutableAttributedString,
+        block: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) {
+        guard TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+            for: block,
+            width: completionDescriptionWidth
+        ) != nil else { return }
+        guard let range = paragraphRange(
+            in: attributed.string as NSString,
+            atUTF16Offset: attributed.length - 1
+        ) else { return }
+        attributed.addAttribute(
+            .paragraphStyle,
+            value: paragraphStyle(
+                for: block,
+                completionDescriptionWidth: completionDescriptionWidth
+            ),
+            range: range
+        )
+    }
+
     private static func blockAttributes(
         for block: DocumentBlock,
-        appearance: CalendarSemanticAppearance?,
-        completionDescriptionWidth: CGFloat
+        appearance: CalendarSemanticAppearance?
     ) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: baseFont(for: block.kind),
@@ -178,8 +218,8 @@ enum BlockTextStyle {
             .jellyBlockKind: block.kind.rawValue
         ]
         attributes[.paragraphStyle] = paragraphStyle(
-            for: block,
-            completionDescriptionWidth: completionDescriptionWidth
+            for: block.kind,
+            indentLevel: block.indentLevel
         )
         if block.kind == .code {
             attributes[.backgroundColor] = codeBackground(appearance: appearance)

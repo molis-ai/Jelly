@@ -34,6 +34,61 @@ struct TaskBlockCompletionDescriptionPresentationTests {
         #expect(abs(style.paragraphSpacing - reserved) < 0.5)
     }
 
+    @Test func completionReserveAppliesOnlyAfterTheLastTitleParagraph() throws {
+        let title = "第一行\n第二行"
+        let description = "拿到明确时间"
+        let block = try DocumentBlock.task(text: title, completionDescription: description)
+        let projection = BlockDocumentTextProjection(
+            document: .init(blocks: [block]),
+            appearance: CalendarTheme.light,
+            completionDescriptionWidth: 320
+        )
+        #expect(projection.attributedString.string == title)
+        let reserved = TaskCompletionDescriptionMetrics.measuredHeight(
+            for: description,
+            width: 320
+        ) + TaskCompletionDescriptionMetrics.topGap + TaskCompletionDescriptionMetrics.bottomGap
+        let firstStyle = try completionParagraphStyle(in: projection.attributedString, at: 0)
+        let lastStyle = try completionParagraphStyle(
+            in: projection.attributedString,
+            at: completionLastParagraphLocation(in: title)
+        )
+        #expect(firstStyle.paragraphSpacing == 0)
+        #expect(abs(lastStyle.paragraphSpacing - reserved) < 0.5)
+    }
+
+    @Test func emptyTitleCompletionReserveAppliesOnlyBeforeTheNextBlockFirstParagraph() throws {
+        let description = "拿到明确上门时间"
+        let task = try DocumentBlock.task(text: "", completionDescription: description)
+        let next = DocumentBlock(
+            id: BlockID(),
+            kind: .paragraph,
+            inlineContent: .plain("第一段\n第二段"),
+            taskState: nil,
+            indentLevel: 0
+        )
+        let projection = BlockDocumentTextProjection(
+            document: .init(blocks: [task, next]),
+            appearance: CalendarTheme.light,
+            completionDescriptionWidth: 320
+        )
+        #expect(projection.attributedString.string == "\n第一段\n第二段")
+        let reserved = try #require(
+            TaskCompletionDescriptionMetrics.reservedParagraphSpacing(for: task, width: 320)
+        )
+        let nextStart = projection.segments[1].contentRange.location
+        let firstStyle = try completionParagraphStyle(
+            in: projection.attributedString,
+            at: nextStart
+        )
+        let secondStyle = try completionParagraphStyle(
+            in: projection.attributedString,
+            at: nextStart + ("第一段\n" as NSString).length
+        )
+        #expect(abs(firstStyle.paragraphSpacingBefore - reserved) < 0.5)
+        #expect(secondStyle.paragraphSpacingBefore == 0)
+    }
+
     @Test func removingCompletionDescriptionClearsReservedParagraphSpacing() throws {
         let id = BlockID()
         let withDescription = try DocumentBlock.task(
@@ -160,6 +215,75 @@ struct TaskBlockCompletionDescriptionPresentationTests {
             first: true
         ))
         #expect(label.frame.maxY <= nextLine.minY + 0.5)
+    }
+
+    @Test @MainActor func multilineTitleKeepsCompletionReserveAfterTheLastTitleLineOnly() throws {
+        _ = NSApplication.shared
+        let taskID = BlockID()
+        let nextID = BlockID()
+        let description = String(repeating: "确认物业上门时间并拿到书面答复", count: 3)
+        let task = try DocumentBlock.task(
+            id: taskID,
+            text: "第一行\n第二行",
+            completionDescription: description
+        )
+        let next = DocumentBlock(
+            id: nextID,
+            kind: .paragraph,
+            inlineContent: .plain("下一件事"),
+            taskState: nil,
+            indentLevel: 0
+        )
+        let fixture = completionDescriptionFixture(
+            blocks: [task, next],
+            selection: completionDescriptionCaret(taskID, 0)
+        )
+        fixture.host.frame = .init(x: 0, y: 0, width: 360, height: 320)
+        fixture.host.layoutSubtreeIfNeeded()
+
+        let firstTitleLine = try #require(completionDescriptionLineFragment(
+            in: fixture.view,
+            blockID: taskID,
+            first: true
+        ))
+        let lastTitleLine = try #require(completionDescriptionLineFragment(
+            in: fixture.view,
+            blockID: taskID,
+            first: false
+        ))
+        let nextLine = try #require(completionDescriptionLineFragment(
+            in: fixture.view,
+            blockID: nextID,
+            first: true
+        ))
+        let label = try #require(completionDescriptionLabel(in: fixture.host, blockID: taskID))
+        let internalGap = lastTitleLine.minY - firstTitleLine.maxY
+        let reservedGap = nextLine.minY - lastTitleLine.maxY
+        #expect(fixture.view.string == "第一行\n第二行\n下一件事")
+        #expect(internalGap < 20)
+        #expect(reservedGap > internalGap + 20)
+        #expect(label.frame.minY >= lastTitleLine.maxY - 0.5)
+        #expect(label.frame.maxY <= nextLine.minY + 0.5)
+    }
+
+    @Test @MainActor func terminalEmptyTaskLongChineseDescriptionExpandsHostHeightAtNarrowWidth() throws {
+        _ = NSApplication.shared
+        let long = String(repeating: "确认物业上门时间并拿到书面答复", count: 8)
+        let task = try DocumentBlock.task(text: "", completionDescription: long)
+        let fixture = completionDescriptionFixture(
+            blocks: [task],
+            selection: completionDescriptionCaret(task.id, 0)
+        )
+        fixture.host.frame = .init(x: 0, y: 0, width: 360, height: 80)
+        fixture.host.layoutSubtreeIfNeeded()
+
+        let label = try #require(completionDescriptionLabel(in: fixture.host, blockID: task.id))
+        let requiredHeight = label.frame.maxY + TaskCompletionDescriptionMetrics.bottomGap
+        #expect(fixture.view.string.isEmpty)
+        #expect(fixture.view.string.contains(long) == false)
+        #expect(requiredHeight > 80)
+        #expect(fixture.host.intrinsicContentSize.height + 0.5 >= requiredHeight)
+        #expect(fixture.view.measuredContentHeight(for: 360) + 0.5 < requiredHeight)
     }
 
     @Test @MainActor func longChineseCompletionDescriptionGrowsAtNarrowWidthAndPushesNextBlock() throws {
@@ -393,4 +517,29 @@ private func completionDescriptionGeometry(
 
 private func continuousCompletionText(_ block: DocumentBlock) -> String {
     block.inlineContent.spans.map(\.text).joined()
+}
+
+private func completionParagraphStyle(
+    in attributed: NSAttributedString,
+    at location: Int
+) throws -> NSParagraphStyle {
+    try #require(attributed.attribute(
+        .paragraphStyle,
+        at: location,
+        effectiveRange: nil
+    ) as? NSParagraphStyle)
+}
+
+private func completionLastParagraphLocation(in text: String) -> Int {
+    let ns = text as NSString
+    var start = 0
+    var end = 0
+    var contentsEnd = 0
+    ns.getParagraphStart(
+        &start,
+        end: &end,
+        contentsEnd: &contentsEnd,
+        for: NSRange(location: max(0, ns.length - 1), length: 0)
+    )
+    return start
 }

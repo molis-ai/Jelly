@@ -75,6 +75,13 @@ final class TaskBlockCompletionDescriptionOverlay: NSView {
         if updateFramesImmediately { updateFrames() }
     }
 
+    func requiredContentHeight() -> CGFloat {
+        labels.values.reduce(0) { current, label in
+            guard !label.isHidden, !label.frame.isEmpty else { return current }
+            return max(current, label.frame.maxY + TaskCompletionDescriptionMetrics.bottomGap)
+        }
+    }
+
     func updateFrames() {
         guard let textView, let textContainer = textView.textContainer else { return }
         textView.layoutManager?.ensureLayout(for: textContainer)

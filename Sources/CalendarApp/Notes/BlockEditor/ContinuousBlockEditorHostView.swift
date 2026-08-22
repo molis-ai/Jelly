@@ -106,11 +106,15 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
 
     private func updateMeasuredHeight(width: CGFloat) {
         measuredWidth = width
-        let next = max(80, textView.measuredContentHeight(for: width))
-        guard abs(next - measuredHeight) > 0.5 else {
-            taskCompletionDescriptionOverlay.updateFrames()
-            return
-        }
+        let textHeight = max(80, textView.measuredContentHeight(for: width))
+        let layoutHeight = max(textHeight, bounds.height, measuredHeight)
+        textView.frame.size.height = layoutHeight
+        taskCheckboxOverlay.frame.size.height = layoutHeight
+        taskCompletionDescriptionOverlay.frame.size.height = layoutHeight
+        taskCheckboxOverlay.updateFrames()
+        taskCompletionDescriptionOverlay.updateFrames()
+        let next = max(textHeight, taskCompletionDescriptionOverlay.requiredContentHeight())
+        guard abs(next - measuredHeight) > 0.5 else { return }
         measuredHeight = next
         textView.frame.size.height = next
         taskCheckboxOverlay.frame.size.height = next

@@ -161,10 +161,14 @@ struct BlockDocumentTextProjection: Equatable {
               let extra = TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
                   for: previous,
                   width: completionDescriptionWidth
+              ),
+              let range = BlockTextStyle.paragraphRange(
+                  in: attributed.string as NSString,
+                  atUTF16Offset: 0
               ) else { return }
         let existing = attributed.attribute(
             .paragraphStyle,
-            at: 0,
+            at: range.location,
             effectiveRange: nil
         ) as? NSParagraphStyle
         let style = (existing?.mutableCopy() as? NSMutableParagraphStyle)
@@ -177,7 +181,7 @@ struct BlockDocumentTextProjection: Equatable {
         attributed.addAttribute(
             .paragraphStyle,
             value: style,
-            range: NSRange(location: 0, length: attributed.length)
+            range: range
         )
     }
 
