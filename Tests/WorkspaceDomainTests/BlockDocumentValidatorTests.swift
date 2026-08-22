@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import WorkspaceDomain
@@ -214,6 +215,32 @@ struct BlockDocumentValidatorTests {
             == TaskBlockState(completedAt: nil, completionDescription: "结果"))
     }
 
+    @Test func nilCompletionDescriptionKeepsLegacyTaskBlockJSONBytes() throws {
+        let encoder = JSONEncoder.workspaceDeterministic
+        func encode<T: Encodable>(_ value: T) throws -> String {
+            String(decoding: try encoder.encode(value), as: UTF8.self)
+        }
+
+        let incomplete = TaskBlockState(completedAt: nil, completionDescription: nil)
+        let incompleteJSON = try encode(incomplete)
+        let legacyIncompleteJSON = try encode(LegacyTaskBlockState(completedAt: nil))
+        #expect(incompleteJSON == legacyIncompleteJSON)
+        #expect(incompleteJSON == "{}")
+
+        let completedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let completed = TaskBlockState(completedAt: completedAt, completionDescription: nil)
+        let completedJSON = try encode(completed)
+        let legacyCompletedJSON = try encode(LegacyTaskBlockState(completedAt: completedAt))
+        #expect(completedJSON == legacyCompletedJSON)
+        #expect(completedJSON == #"{"completedAt":1700000000000}"#)
+
+        let described = TaskBlockState(completedAt: nil, completionDescription: "拿到确认")
+        let describedJSON = try JSONSerialization.jsonObject(with: encoder.encode(described)) as? [String: Any]
+        #expect(describedJSON?.keys.contains("completedAt") == false)
+        #expect(describedJSON?["completionDescription"] as? String == "拿到确认")
+        #expect(try encode(described) == #"{"completionDescription":"拿到确认"}"#)
+    }
+
     @Test func validatorAllowsNilCompletionDescriptionAndRejectsNonCanonicalValues() throws {
         let ordinaryID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000219")!)
         let paddedID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000220")!)
@@ -259,4 +286,119 @@ struct BlockDocumentValidatorTests {
                 != WorkspaceChecksum.noteSnapshotChecksum(withOther)
         )
     }
+
+    @Test func notesWithoutCompletionDescriptionKeepPreFieldSnapshotChecksum() throws {
+        let noteID = NoteID(UUID(uuidString: "00000000-0000-0000-0000-000000000221")!)
+        let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+        let blockID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000223")!)
+        func note(with description: String?) throws -> Note {
+            Note(
+                id: noteID,
+                title: "校验和",
+                document: .init(blocks: [
+                    try .task(id: blockID, text: "打电话", completionDescription: description)
+                ]),
+                categoryID: categoryID,
+                archivedAt: nil,
+                revision: 1,
+                createdAt: .distantPast,
+                updatedAt: .distantPast
+            )
+        }
+
+        let without = try note(with: nil)
+        let snapshot = try WorkspaceChecksum.normalizedNoteSnapshotData(without)
+        let json = try #require(JSONSerialization.jsonObject(with: snapshot) as? [String: Any])
+        let blocks = try #require(
+            (json["document"] as? [String: Any])?["blocks"] as? [[String: Any]]
+        )
+        #expect(blocks.count == 1)
+        #expect(blocks[0].keys.contains("completionDescription") == false)
+        #expect(blocks[0].keys.contains("completedAt") == false)
+
+        let legacySnapshot = try JSONEncoder.workspaceDeterministic.encode(
+            LegacyNormalizedNoteSnapshot(note: without)
+        )
+        #expect(snapshot == legacySnapshot)
+        #expect(try WorkspaceChecksum.noteSnapshotChecksum(without) == sha256Hex(legacySnapshot))
+
+        let withDescription = try note(with: "拿到确认")
+        let describedSnapshot = try WorkspaceChecksum.normalizedNoteSnapshotData(withDescription)
+        let describedJSON = try #require(
+            JSONSerialization.jsonObject(with: describedSnapshot) as? [String: Any]
+        )
+        let describedBlocks = try #require(
+            (describedJSON["document"] as? [String: Any])?["blocks"] as? [[String: Any]]
+        )
+        #expect(describedBlocks[0]["completionDescription"] as? String == "拿到确认")
+        #expect(describedSnapshot != legacySnapshot)
+        #expect(
+            try WorkspaceChecksum.noteSnapshotChecksum(without)
+                != WorkspaceChecksum.noteSnapshotChecksum(withDescription)
+        )
+    }
+}
+
+private struct LegacyTaskBlockState: Encodable {
+    var completedAt: Date?
+}
+
+private struct LegacyNormalizedNoteSnapshot: Encodable {
+    let noteID: UUID
+    let title: String
+    let document: LegacyNormalizedBlockDocument
+    let categoryID: UUID
+    let archivedAt: Date?
+
+    init(note: Note) {
+        noteID = note.id.rawValue
+        title = note.title
+        document = .init(document: note.document)
+        categoryID = note.categoryID
+        archivedAt = note.archivedAt
+    }
+}
+
+private struct LegacyNormalizedBlockDocument: Encodable {
+    let schemaVersion: Int
+    let blocks: [LegacyNormalizedDocumentBlock]
+
+    init(document: BlockDocument) {
+        schemaVersion = document.schemaVersion
+        blocks = document.blocks.map(LegacyNormalizedDocumentBlock.init)
+    }
+}
+
+private struct LegacyNormalizedDocumentBlock: Encodable {
+    let id: UUID
+    let kind: BlockKind
+    let spans: [LegacyNormalizedInlineSpan]
+    let completedAt: Date?
+    let indentLevel: Int
+    let codeInfoString: String?
+
+    init(block: DocumentBlock) {
+        id = block.id.rawValue
+        kind = block.kind
+        spans = block.inlineContent.spans.map(LegacyNormalizedInlineSpan.init)
+        completedAt = block.taskState?.completedAt
+        indentLevel = block.indentLevel
+        codeInfoString = block.codeInfoString
+    }
+}
+
+private struct LegacyNormalizedInlineSpan: Encodable {
+    let text: String
+    let marks: [InlineMark]
+    let linkURL: String?
+
+    init(span: InlineSpan) {
+        text = span.text
+        marks = span.marks.sorted { $0.rawValue < $1.rawValue }
+        linkURL = span.linkURL?.absoluteString
+    }
+}
+
+private func sha256Hex(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }

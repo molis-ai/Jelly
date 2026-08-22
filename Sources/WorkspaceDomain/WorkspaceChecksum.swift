@@ -77,7 +77,7 @@ public extension JSONDecoder {
     }
 }
 
-private struct NormalizedNoteSnapshot: Codable {
+private struct NormalizedNoteSnapshot: Encodable {
     let noteID: UUID
     let title: String
     let document: NormalizedBlockDocument
@@ -93,7 +93,7 @@ private struct NormalizedNoteSnapshot: Codable {
     }
 }
 
-private struct NormalizedBlockDocument: Codable {
+private struct NormalizedBlockDocument: Encodable {
     let schemaVersion: Int
     let blocks: [NormalizedDocumentBlock]
 
@@ -103,7 +103,7 @@ private struct NormalizedBlockDocument: Codable {
     }
 }
 
-private struct NormalizedDocumentBlock: Codable {
+private struct NormalizedDocumentBlock: Encodable {
     let id: UUID
     let kind: BlockKind
     let spans: [NormalizedInlineSpan]
@@ -111,6 +111,16 @@ private struct NormalizedDocumentBlock: Codable {
     let completionDescription: String?
     let indentLevel: Int
     let codeInfoString: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case spans
+        case completedAt
+        case completionDescription
+        case indentLevel
+        case codeInfoString
+    }
 
     init(block: DocumentBlock) {
         id = block.id.rawValue
@@ -120,6 +130,17 @@ private struct NormalizedDocumentBlock: Codable {
         completionDescription = block.taskState?.completionDescription
         indentLevel = block.indentLevel
         codeInfoString = block.codeInfoString
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(spans, forKey: .spans)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encodeIfPresent(completionDescription, forKey: .completionDescription)
+        try container.encode(indentLevel, forKey: .indentLevel)
+        try container.encodeIfPresent(codeInfoString, forKey: .codeInfoString)
     }
 }
 
