@@ -81,6 +81,51 @@ struct DecompositionWorkbenchModelTests {
         #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
     }
 
+    @Test func returningToScheduleKeepsManualProposalUntilExplicitRefresh() async throws {
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let model = fixture.model
+        await model.start()
+        let firstID = model.draft.candidates[0].id
+        model.setSelectedForCalendar(id: firstID, selected: true)
+        model.advanceToSchedule()
+        let generated = try #require(model.draft.candidates[0].proposal)
+        #expect(generated.schedule.startDate == WorkbenchFixture.day)
+        #expect(generated.schedule.endDate == WorkbenchFixture.day)
+        #expect(generated.schedule.startTime == MinuteOfDay(hour: 9, minute: 0))
+        #expect(generated.schedule.endTime == MinuteOfDay(hour: 9, minute: 15))
+
+        let manualSchedule = try CalendarSchedule(
+            startDate: WorkbenchFixture.day,
+            endDate: WorkbenchFixture.day,
+            startTime: MinuteOfDay(hour: 14, minute: 0),
+            endTime: MinuteOfDay(hour: 14, minute: 15)
+        )
+        let manual = CalendarProposal(schedule: manualSchedule)
+        model.setProposal(id: firstID, proposal: manual)
+        #expect(model.draft.candidates[0].proposal == manual)
+        #expect(model.draft.candidates[0].proposal != generated)
+
+        model.returnToStage(.split)
+        #expect(model.draft.stage == .split)
+        #expect(model.draft.candidates[0].proposal == manual)
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .schedule)
+        #expect(model.draft.candidates[0].proposal == manual)
+        #expect(model.draft.candidates[0].proposal?.schedule.startTime == MinuteOfDay(hour: 14, minute: 0))
+        #expect(model.draft.candidates[0].proposal?.schedule.endTime == MinuteOfDay(hour: 14, minute: 15))
+        #expect(model.draft.candidates[0].proposal != generated)
+
+        model.refreshCalendarProposals()
+        #expect(model.draft.candidates[0].proposal == generated)
+        #expect(model.draft.candidates[0].proposal?.schedule.startTime == MinuteOfDay(hour: 9, minute: 0))
+        #expect(model.draft.candidates[0].proposal?.schedule.endTime == MinuteOfDay(hour: 9, minute: 15))
+    }
+
     @Test func lateResultFromACancelledRequestIsDiscarded() async throws {
         let planner = DualShotClarificationPlanner()
         let sleeper = ControllableSleeper()
@@ -115,6 +160,63 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.requestState == .idle)
         #expect(model.draft.question == nil)
         #expect(model.draft.answer.isEmpty)
+        #expect(model.draft.mode == .intelligent)
+        #expect(model.draft.lastRecoverableError == nil)
+    }
+
+    @Test func localEditsDuringInFlightRefreshKeepUserChangesAndReturnIdle() async throws {
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000870")!
+        let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000871")!
+        let planner = DualShotCandidatePlanner()
+        let model = try await makeModel(
+            planner: planner,
+            uuid: SequentialUUID([firstID, secondID]).next
+        )
+        let starting = Task { await model.start() }
+        await planner.waitUntilStarted(count: 1)
+        await planner.resumeOldest(validSuggestions(count: 2))
+        await starting.value
+        #expect(model.draft.candidates.map(\.id) == [firstID, secondID])
+        #expect(model.requestState == .idle)
+
+        let refresh = Task { await model.refreshUnlockedCandidates() }
+        await planner.waitUntilStarted(count: 2)
+        #expect({
+            if case .running(_, .refreshCandidates) = model.requestState { return true }
+            return false
+        }())
+
+        model.updateTitle(id: firstID, value: "手改标题")
+        model.moveCandidate(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+        #expect(model.requestState == .idle)
+        #expect(model.draft.candidates.map(\.id) == [secondID, firstID])
+        #expect(model.draft.candidates[1].title == "手改标题")
+
+        await planner.resumeOldest([
+            PlannerCandidate(
+                existingID: firstID,
+                title: "迟到标题1",
+                completionDescription: "迟到说明1",
+                estimatedMinutes: 45
+            ),
+            PlannerCandidate(
+                existingID: secondID,
+                title: "迟到标题2",
+                completionDescription: "迟到说明2",
+                estimatedMinutes: 60
+            )
+        ])
+        await refresh.value
+
+        #expect(model.requestState == .idle)
+        #expect(model.draft.candidates.map(\.id) == [secondID, firstID])
+        #expect(model.draft.candidates[0].title == "行动2")
+        #expect(model.draft.candidates[1].title == "手改标题")
+        #expect(model.draft.candidates[1].titleLockedByUser)
+        #expect(model.draft.candidates.map(\.title).contains("迟到标题1") == false)
+        #expect(model.draft.candidates.map(\.title).contains("迟到标题2") == false)
+        #expect(model.draft.candidates[0].estimatedDuration == .minutes30)
+        #expect(model.draft.candidates[1].estimatedDuration == .minutes15)
         #expect(model.draft.mode == .intelligent)
         #expect(model.draft.lastRecoverableError == nil)
     }
@@ -788,6 +890,41 @@ private actor DualShotClarificationPlanner: DecompositionPlanning {
     func resumeOldest(_ decision: ClarificationDecision) {
         guard !shots.isEmpty else { return }
         shots.removeFirst().resume(returning: decision)
+    }
+}
+
+private actor DualShotCandidatePlanner: DecompositionPlanning {
+    nonisolated var availability: DecompositionPlannerAvailability { .available }
+
+    private var shots: [CheckedContinuation<[PlannerCandidate], Error>] = []
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startedCount = 0
+
+    func clarification(for request: ClarificationRequest) async throws -> ClarificationDecision {
+        .notNeeded
+    }
+
+    func candidates(for request: CandidateRequest) async throws -> [PlannerCandidate] {
+        startedCount += 1
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        return try await withCheckedThrowingContinuation { shots.append($0) }
+    }
+
+    func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate] {
+        throw ScriptedPlannerFailure.exhausted
+    }
+
+    func waitUntilStarted(count: Int) async {
+        while startedCount < count {
+            await withCheckedContinuation { startWaiters.append($0) }
+        }
+    }
+
+    func resumeOldest(_ items: [PlannerCandidate]) {
+        guard !shots.isEmpty else { return }
+        shots.removeFirst().resume(returning: items)
     }
 }
 
