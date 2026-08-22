@@ -259,6 +259,7 @@ public enum WorkspaceCommand: Sendable {
     case deleteCategory(UUID)
     case repairConsistency(WorkspaceConsistencyRepairPayload)
     case restoreContent(WorkspaceRestoreContentPayload)
+    case applyDecompositionPlan(ApplyDecompositionPlanPayload)
 }
 
 public enum WorkspaceNoChangeReason: Equatable, Sendable {
@@ -274,6 +275,7 @@ public enum WorkspaceNoChangeReason: Equatable, Sendable {
 public enum WorkspaceConflict: Equatable, Sendable {
     case noteDraft(NoteDraftConflict)
     case noteMissing(NoteID)
+    case decomposition(DecompositionWorkspaceConflict)
 }
 
 public struct NoteDraftConflict: Equatable, Sendable {
@@ -362,6 +364,7 @@ public enum WorkspaceReducerError: Error, Equatable, Sendable {
     case invalidRestoreMetadata
     case revisionOverflow
     case finalValidationFailed
+    case invalidDecompositionPlan
 }
 
 public struct LegacyMarkdownMigrationPreview: Equatable, Sendable {

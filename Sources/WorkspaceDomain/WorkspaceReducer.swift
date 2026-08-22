@@ -144,6 +144,8 @@ public enum WorkspaceReducer {
             try applyCategory(.reorderCategories(ids), to: &candidate, now: now)
         case let .deleteCategory(id):
             try deleteCategory(id, in: &candidate, now: now)
+        case let .applyDecompositionPlan(payload):
+            return try applyDecompositionPlan(payload, in: &candidate, now: now, metadata: &metadata)
         case .repairConsistency, .restoreContent:
             preconditionFailure("special commands are handled before the ordinary pipeline")
         }
