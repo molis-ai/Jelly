@@ -804,14 +804,12 @@ private final class SequentialUUID: @unchecked Sendable {
     }
 }
 
-private final class ControllableSleeper: DecompositionSleeping, @unchecked Sendable {
+private final class ControllableSleeper: DecompositionSleeping, Sendable {
     enum Policy: Sendable {
         case hangUntilCancelled
         case finishImmediately
     }
 
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Error>?
     private let policy: Policy
 
     init(policy: Policy = .hangUntilCancelled) {
@@ -819,22 +817,11 @@ private final class ControllableSleeper: DecompositionSleeping, @unchecked Senda
     }
 
     func sleep(for duration: Duration) async throws {
-        if policy == .finishImmediately {
+        switch policy {
+        case .finishImmediately:
             try Task.checkCancellation()
-            return
-        }
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                lock.lock()
-                self.continuation = continuation
-                lock.unlock()
-            }
-        } onCancel: {
-            lock.lock()
-            let pending = continuation
-            continuation = nil
-            lock.unlock()
-            pending?.resume(throwing: CancellationError())
+        case .hangUntilCancelled:
+            try await ContinuousClock().sleep(for: duration)
         }
     }
 }
