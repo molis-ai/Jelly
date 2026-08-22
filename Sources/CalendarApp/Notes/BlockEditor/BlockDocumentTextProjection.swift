@@ -14,7 +14,11 @@ struct BlockDocumentTextProjection: Equatable {
     let segments: [Segment]
     let document: BlockDocument
 
-    init(document: BlockDocument, appearance: CalendarSemanticAppearance) {
+    init(
+        document: BlockDocument,
+        appearance: CalendarSemanticAppearance,
+        completionDescriptionWidth: CGFloat = NoteEditorLayout.maximumContentWidth - 32
+    ) {
         self.document = document
         let output = NSMutableAttributedString()
         var builtSegments: [Segment] = []
@@ -22,10 +26,20 @@ struct BlockDocumentTextProjection: Equatable {
 
         for (index, block) in document.blocks.enumerated() {
             let location = output.length
-            let blockString = BlockTextStyle.attributedString(
-                for: block,
-                appearance: appearance
+            let blockString = NSMutableAttributedString(
+                attributedString: BlockTextStyle.attributedString(
+                    for: block,
+                    appearance: appearance,
+                    completionDescriptionWidth: completionDescriptionWidth
+                )
             )
+            if index > 0 {
+                Self.applyLeadingCompletionSpacing(
+                    to: blockString,
+                    previous: document.blocks[index - 1],
+                    completionDescriptionWidth: completionDescriptionWidth
+                )
+            }
             output.append(blockString)
             let displayLength = blockString.length
             builtSegments.append(.init(
@@ -135,6 +149,36 @@ struct BlockDocumentTextProjection: Equatable {
             result += selected.attributedSubstring(from: attributeRange).string
         }
         return result
+    }
+
+    private static func applyLeadingCompletionSpacing(
+        to attributed: NSMutableAttributedString,
+        previous: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) {
+        guard attributed.length > 0,
+              previous.inlineContent.spans.allSatisfy(\.text.isEmpty),
+              let extra = TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+                  for: previous,
+                  width: completionDescriptionWidth
+              ) else { return }
+        let existing = attributed.attribute(
+            .paragraphStyle,
+            at: 0,
+            effectiveRange: nil
+        ) as? NSParagraphStyle
+        let style = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+            ?? (BlockTextStyle.paragraphStyle(
+                for: previous.kind,
+                indentLevel: previous.indentLevel
+            ).mutableCopy() as? NSMutableParagraphStyle)
+            ?? NSMutableParagraphStyle()
+        style.paragraphSpacingBefore += extra
+        attributed.addAttribute(
+            .paragraphStyle,
+            value: style,
+            range: NSRange(location: 0, length: attributed.length)
+        )
     }
 
     private func endPosition(for blockID: BlockID) throws -> BlockTextPosition {

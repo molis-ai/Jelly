@@ -40,6 +40,39 @@ struct BlockEditorAccessibilityTests {
         #expect(taskButton.accessibilityValue() as? String == "已完成")
     }
 
+    @Test func taskCompletionDescriptionIsStaticTextAndDoesNotBecomeAnEditableBody() throws {
+        let paragraph = projectionBlock(BlockID(), .paragraph, "正文")
+        let task = try DocumentBlock.task(
+            text: "给物业打电话",
+            completionDescription: "拿到明确上门时间"
+        )
+        let document = BlockDocument(blocks: [paragraph, task])
+        let session = BlockEditorSession(
+            noteID: NoteID(), editSessionID: UUID(), initialDocument: document,
+            initialSelection: projectionCaret(paragraph.id, 0),
+            focusRegistry: EditorFocusRegistry(), onDocumentChange: { _ in }
+        )
+        let host = ContinuousBlockEditorHostView(appearance: CalendarTheme.light)
+        host.frame = .init(x: 0, y: 0, width: 600, height: 220)
+        session.attach(host: host, hostToken: UUID())
+        host.layoutSubtreeIfNeeded()
+
+        let bodies = accessibilityDescendants(of: host, as: ContinuousBlockEditorTextView.self)
+        let textAreas = accessibilityDescendants(of: host, as: NSTextView.self).filter {
+            $0.accessibilityRole() == .textArea
+        }
+        let label = try #require(accessibilityDescendants(of: host, as: NSTextField.self).first {
+            $0.accessibilityIdentifier() == "task-block-completion-\(task.id.rawValue.uuidString)"
+        })
+        #expect(bodies.count == 1)
+        #expect(textAreas.count == 1)
+        #expect(label.accessibilityRole() == .staticText)
+        #expect(label.accessibilityLabel() == "完成说明")
+        #expect(label.accessibilityValue() == "拿到明确上门时间")
+        #expect(label.isEditable == false)
+        #expect(host.taskCompletionDescriptionOverlay.hitTest(label.frame.origin) == nil)
+    }
+
     @Test func reducedMotionKeepsAllEditorStatesAndActionsAvailable() {
         let reduced = CalendarMotionPolicy(reduceMotion: true)
         #expect(reduced.snapAnimation == nil)

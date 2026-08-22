@@ -20,7 +20,8 @@ enum BlockTextStyle {
 
     static func attributedString(
         for block: DocumentBlock,
-        appearance: CalendarSemanticAppearance?
+        appearance: CalendarSemanticAppearance?,
+        completionDescriptionWidth: CGFloat = NoteEditorLayout.maximumContentWidth - 32
     ) -> NSAttributedString {
         if block.kind == .divider {
             return NSAttributedString(string: "")
@@ -32,7 +33,14 @@ enum BlockTextStyle {
         guard fullRange.length > 0 else { return attributed }
 
         let baseFont = baseFont(for: block.kind)
-        attributed.addAttributes(blockAttributes(for: block, appearance: appearance), range: fullRange)
+        attributed.addAttributes(
+            blockAttributes(
+                for: block,
+                appearance: appearance,
+                completionDescriptionWidth: completionDescriptionWidth
+            ),
+            range: fullRange
+        )
         var cursor = 0
         for span in block.inlineContent.spans {
             let length = (span.text as NSString).length
@@ -137,9 +145,31 @@ enum BlockTextStyle {
         return font
     }
 
+    static func secondaryTextColor(appearance: CalendarSemanticAppearance?) -> NSColor {
+        appearance.map { color(hex: $0.secondaryTextHex) } ?? .secondaryLabelColor
+    }
+
+    static func paragraphStyle(
+        for block: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) -> NSParagraphStyle {
+        let style = paragraphStyle(
+            for: block.kind,
+            indentLevel: block.indentLevel
+        ).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        if let extra = TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+            for: block,
+            width: completionDescriptionWidth
+        ) {
+            style.paragraphSpacing += extra
+        }
+        return style
+    }
+
     private static func blockAttributes(
         for block: DocumentBlock,
-        appearance: CalendarSemanticAppearance?
+        appearance: CalendarSemanticAppearance?,
+        completionDescriptionWidth: CGFloat
     ) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: baseFont(for: block.kind),
@@ -148,8 +178,8 @@ enum BlockTextStyle {
             .jellyBlockKind: block.kind.rawValue
         ]
         attributes[.paragraphStyle] = paragraphStyle(
-            for: block.kind,
-            indentLevel: block.indentLevel
+            for: block,
+            completionDescriptionWidth: completionDescriptionWidth
         )
         if block.kind == .code {
             attributes[.backgroundColor] = codeBackground(appearance: appearance)
@@ -159,6 +189,11 @@ enum BlockTextStyle {
         }
         if block.taskState?.completedAt != nil {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            if let color = attributes[.foregroundColor] as? NSColor {
+                attributes[.foregroundColor] = color.withAlphaComponent(
+                    TaskCompletionDescriptionMetrics.completedOpacity
+                )
+            }
         }
         return attributes
     }
