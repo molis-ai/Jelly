@@ -1335,7 +1335,7 @@ git commit -m "feat(ai): use Apple on-device decomposition planner"
 - [ ] **Step 1: 写并跑生产路径端到端回归**
 
 ```swift
-@Test func realStoreFlowCreatesPersistsRestartsAndUndoesWholePlan() async throws {
+@Test func jsonStorePersistsPlanAcrossRestartAndSameSessionUndoRemovesOnlyPlanObjects() async throws {
     let urls = temporaryWorkspaceURLs()
     let firstStore = try await loadJSONStore(urls)
     let source = try await createChineseSourceNote(in: firstStore)
@@ -1344,12 +1344,15 @@ git commit -m "feat(ai): use Apple on-device decomposition planner"
 
     let restarted = try await loadJSONStore(urls)
     #expect(planObjectsExist(restarted.state))
-    _ = try await restarted.undo()
-    #expect(planObjectsAreAbsent(restarted.state))
+
+    _ = try await firstStore.undo()
+    let afterUndo = try await loadJSONStore(urls)
+    #expect(planObjectsAreAbsent(afterUndo.state))
+    #expect(sourceNoteAndPreexistingObjectsRemain(afterUndo.state))
 }
 ```
 
-此测试必须使用真实 `JSONWorkspaceRepository`、真实 deterministic scheduler 和 production reducer；模型可用 scripted adapter 只负责给出确定候选，不能替代后续产品实操的真实模型。
+此测试必须使用真实 `JSONWorkspaceRepository`、真实 deterministic scheduler 和 production reducer；不得用 in-memory repository 替代。WorkspaceStore 的 undo stack 是会话内存态，不做持久化撤销系统，因此重启后的新 Store 不能 `undo()`。两个独立保证是：1. 重启后的新 Store 从同一 JSON 文件 load，确认 task blocks、completionDescription、calendar items、relations、links 全部存在；2. 原 firstStore 在同一会话 undo 一次后，第三个 fresh store 再 load，确认只移除本轮 plan 对象，来源 Note 和既有对象仍在。模型可用 scripted adapter 只负责给出确定候选，不能替代后续产品实操的真实模型。
 
 - [ ] **Step 2: Grok 每完成一个任务，Codex 做累计独立 code review**
 

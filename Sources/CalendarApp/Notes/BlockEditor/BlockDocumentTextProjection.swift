@@ -52,7 +52,16 @@ struct BlockDocumentTextProjection: Equatable {
                 displayRange: .init(location: location, length: displayLength)
             ))
             if index < document.blocks.count - 1 {
-                output.append(BlockTextStyle.separator(appearance: appearance))
+                let separator = NSMutableAttributedString(
+                    attributedString: BlockTextStyle.separator(appearance: appearance)
+                )
+                Self.applyTrailingEmptyCompletionSpacing(
+                    to: separator,
+                    current: block,
+                    next: document.blocks[index + 1],
+                    completionDescriptionWidth: completionDescriptionWidth
+                )
+                output.append(separator)
             }
         }
 
@@ -149,6 +158,34 @@ struct BlockDocumentTextProjection: Equatable {
             result += selected.attributedSubstring(from: attributeRange).string
         }
         return result
+    }
+
+    private static func applyTrailingEmptyCompletionSpacing(
+        to separator: NSMutableAttributedString,
+        current: DocumentBlock,
+        next: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) {
+        guard separator.length > 0,
+              current.inlineContent.spans.allSatisfy(\.text.isEmpty),
+              next.inlineContent.spans.allSatisfy(\.text.isEmpty),
+              let extra = TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+                  for: current,
+                  width: completionDescriptionWidth
+              ) else { return }
+        let existing = separator.attribute(
+            .paragraphStyle,
+            at: 0,
+            effectiveRange: nil
+        ) as? NSParagraphStyle
+        let style = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+            ?? NSMutableParagraphStyle()
+        style.paragraphSpacing += extra
+        separator.addAttribute(
+            .paragraphStyle,
+            value: style,
+            range: NSRange(location: 0, length: separator.length)
+        )
     }
 
     private static func applyLeadingCompletionSpacing(

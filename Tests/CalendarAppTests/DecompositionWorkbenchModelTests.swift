@@ -327,6 +327,66 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.requestState == .idle)
     }
 
+    @Test func timeoutIsKeptWhenCooperativePlannerReturnsCancellationErrorImmediately() async throws {
+        let planner = CooperativeCancellablePlanner()
+        let sleeper = ControllableSleeper(policy: .waitUntilReleased)
+        let model = try await makeModel(planner: planner, sleeper: sleeper)
+        let starting = Task { await model.start() }
+        await planner.waitUntilStarted(count: 1)
+        sleeper.release()
+        await starting.value
+        #expect(model.draft.mode == .manual(reason: .timedOut))
+        #expect(model.requestState == .idle)
+        #expect(model.draft.question == nil)
+        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.lastRecoverableError == nil)
+    }
+
+    @Test func nonCooperativePlannerTimeoutReturnsWithoutWaitingAndDiscardsLateResult() async throws {
+        let planner = DualShotClarificationPlanner()
+        let sleeper = ControllableSleeper(policy: .finishImmediately)
+        let model = try await makeModel(planner: planner, sleeper: sleeper)
+        let starting = Task { await model.start() }
+        await planner.waitUntilStarted(count: 1)
+
+        #expect(await returnedWithin(starting, limit: .milliseconds(400)))
+        #expect(model.draft.mode == .manual(reason: .timedOut))
+        #expect(model.draft.question == nil)
+        #expect(model.requestState == .idle)
+
+        await planner.resumeOldest(.ask(question: "迟到的问题", quickAnswers: ["不该写入"]))
+        await starting.value
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(model.draft.question == nil)
+        #expect(model.draft.mode == .manual(reason: .timedOut))
+        #expect(model.draft.candidates.isEmpty)
+    }
+
+    @Test func cancelEndsOuterRequestWithoutWaitingForNonCooperativePlannerAndDiscardsLateResult() async throws {
+        let planner = DualShotClarificationPlanner()
+        let model = try await makeModel(planner: planner)
+        let starting = Task { await model.start() }
+        await planner.waitUntilStarted(count: 1)
+        #expect({
+            if case .running(_, .clarification) = model.requestState { return true }
+            return false
+        }())
+
+        model.cancelRequest()
+        #expect(await returnedWithin(starting, limit: .milliseconds(400)))
+        #expect(model.requestState == .idle)
+        #expect(model.draft.question == nil)
+        #expect(model.draft.mode == .intelligent)
+
+        await planner.resumeOldest(.ask(question: "取消后迟到的问题", quickAnswers: ["不该写入"]))
+        await starting.value
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(model.draft.question == nil)
+        #expect(model.draft.mode == .intelligent)
+        #expect(model.draft.candidates.isEmpty)
+        #expect(model.requestState == .idle)
+    }
+
     @Test func invalidOutputRetriesOnceWithFeedbackThenEntersManualAfterExactlyTwoCalls() async throws {
         let invalid = [
             PlannerCandidate(
@@ -1572,6 +1632,57 @@ private func planObjectsAreAbsent(_ state: WorkspaceState, noteID: NoteID) -> Bo
         && state.taskBlockLinks.isEmpty
 }
 
+private func returnedWithin(_ task: Task<Void, Never>, limit: Duration) async -> Bool {
+    let gate = ReturnWithinGate()
+    return await withCheckedContinuation { continuation in
+        gate.attach(continuation)
+        Task.detached {
+            await task.value
+            gate.finish(true)
+        }
+        Task.detached {
+            try? await Task.sleep(for: limit)
+            gate.finish(false)
+        }
+    }
+}
+
+private final class ReturnWithinGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var pending: Bool?
+    private var finished = false
+
+    func attach(_ continuation: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        if finished, let pending {
+            self.pending = nil
+            lock.unlock()
+            continuation.resume(returning: pending)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(_ value: Bool) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        if let continuation {
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(returning: value)
+            return
+        }
+        pending = value
+        lock.unlock()
+    }
+}
+
 private func timedDurationMinutes(_ schedule: CalendarSchedule) -> Int {
     guard let start = schedule.startTime, let end = schedule.endTime else {
         return 0
@@ -1587,13 +1698,22 @@ private final class SequentialUUID: @unchecked Sendable {
     }
 }
 
-private final class ControllableSleeper: DecompositionSleeping, Sendable {
+private final class ControllableSleeper: DecompositionSleeping, @unchecked Sendable {
     enum Policy: Sendable {
         case hangUntilCancelled
         case finishImmediately
+        case waitUntilReleased
+    }
+
+    private enum Terminal {
+        case released
+        case cancelled
     }
 
     private let policy: Policy
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var terminal: Terminal?
 
     init(policy: Policy = .hangUntilCancelled) {
         self.policy = policy
@@ -1605,6 +1725,54 @@ private final class ControllableSleeper: DecompositionSleeping, Sendable {
             try Task.checkCancellation()
         case .hangUntilCancelled:
             try await ContinuousClock().sleep(for: duration)
+        case .waitUntilReleased:
+            try await waitUntilReleased()
+        }
+    }
+
+    func release() {
+        complete(.released)
+    }
+
+    private func waitUntilReleased() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if let terminal {
+                    lock.unlock()
+                    switch terminal {
+                    case .released:
+                        continuation.resume()
+                    case .cancelled:
+                        continuation.resume(throwing: CancellationError())
+                    }
+                    return
+                }
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        } onCancel: {
+            complete(.cancelled)
+        }
+    }
+
+    private func complete(_ terminal: Terminal) {
+        lock.lock()
+        if self.terminal != nil {
+            lock.unlock()
+            return
+        }
+        self.terminal = terminal
+        let waiters = self.waiters
+        self.waiters.removeAll()
+        lock.unlock()
+        for waiter in waiters {
+            switch terminal {
+            case .released:
+                waiter.resume()
+            case .cancelled:
+                waiter.resume(throwing: CancellationError())
+            }
         }
     }
 }
@@ -1625,6 +1793,36 @@ private actor SleepingForeverPlanner: DecompositionPlanning {
     func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate] {
         try await Task.sleep(for: .seconds(60 * 60))
         throw ScriptedPlannerFailure.exhausted
+    }
+}
+
+private actor CooperativeCancellablePlanner: DecompositionPlanning {
+    nonisolated var availability: DecompositionPlannerAvailability { .available }
+
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startedCount = 0
+
+    func clarification(for request: ClarificationRequest) async throws -> ClarificationDecision {
+        startedCount += 1
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        try await Task.sleep(for: .seconds(60 * 60))
+        throw ScriptedPlannerFailure.exhausted
+    }
+
+    func candidates(for request: CandidateRequest) async throws -> [PlannerCandidate] {
+        throw ScriptedPlannerFailure.exhausted
+    }
+
+    func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate] {
+        throw ScriptedPlannerFailure.exhausted
+    }
+
+    func waitUntilStarted(count: Int) async {
+        while startedCount < count {
+            await withCheckedContinuation { startWaiters.append($0) }
+        }
     }
 }
 

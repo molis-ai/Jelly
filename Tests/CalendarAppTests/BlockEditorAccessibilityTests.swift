@@ -287,6 +287,59 @@ struct BlockEditorAccessibilityTests {
         #expect(pasteboard.string(forType: .string) == "保留行内")
     }
 
+    @Test func privateClipboardRoundTripsTaskCompletionDescriptionAndKeepsOldEnvelopesReadable() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        let adapter = BlockPasteboardAdapter(pasteboard: pasteboard)
+        let payload = BlockClipboardPayload(
+            plainText: "给物业打电话",
+            richBlocks: [
+                .init(
+                    kind: .task,
+                    inlineContent: .plain("给物业打电话"),
+                    indentLevel: 0,
+                    codeInfoString: nil,
+                    completionDescription: "拿到明确上门时间"
+                )
+            ]
+        )
+
+        #expect(adapter.write(payload: payload))
+        let restored = try #require(adapter.readPayload())
+        guard case let .richText(blocks, fallback) = restored else {
+            Issue.record("task clipboard should round-trip as rich text")
+            return
+        }
+        #expect(fallback == "给物业打电话")
+        #expect(blocks[0].kind == .task)
+        #expect(blocks[0].completionDescription == "拿到明确上门时间")
+        #expect(pasteboard.string(forType: .string) == "给物业打电话")
+
+        let encoded = try #require(pasteboard.data(forType: BlockPasteboardAdapter.privateType))
+        var envelope = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var blockDTOs = try #require(envelope["blocks"] as? [[String: Any]])
+        blockDTOs[0].removeValue(forKey: "completionDescription")
+        envelope["blocks"] = blockDTOs
+        let legacy = try JSONSerialization.data(withJSONObject: envelope)
+        pasteboard.clearContents()
+        _ = pasteboard.setString("给物业打电话", forType: .string)
+        _ = pasteboard.setData(legacy, forType: BlockPasteboardAdapter.privateType)
+        let legacyPayload = try #require(adapter.readPayload())
+        guard case let .richText(legacyBlocks, _) = legacyPayload else {
+            Issue.record("legacy envelope without completionDescription must still parse")
+            return
+        }
+        #expect(legacyBlocks[0].kind == .task)
+        #expect(legacyBlocks[0].completionDescription == nil)
+
+        blockDTOs[0]["completionDescription"] = "  空白应拒绝  "
+        envelope["blocks"] = blockDTOs
+        let invalid = try JSONSerialization.data(withJSONObject: envelope)
+        pasteboard.clearContents()
+        _ = pasteboard.setString("给物业打电话", forType: .string)
+        _ = pasteboard.setData(invalid, forType: BlockPasteboardAdapter.privateType)
+        #expect(adapter.readPayload() == .plainText("给物业打电话"))
+    }
+
     @Test func pasteboardCorruptInvalidAndUnsafeRichDataFallBackWithoutIDsOrUnsupportedStyles() throws {
         let pasteboard = NSPasteboard.withUniqueName()
         let adapter = BlockPasteboardAdapter(pasteboard: pasteboard)

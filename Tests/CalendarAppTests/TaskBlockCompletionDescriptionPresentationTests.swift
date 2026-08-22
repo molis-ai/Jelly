@@ -57,6 +57,38 @@ struct TaskBlockCompletionDescriptionPresentationTests {
         #expect(abs(lastStyle.paragraphSpacing - reserved) < 0.5)
     }
 
+    @Test func adjacentEmptyTitleTasksKeepEachCompletionReserveWithoutEnteringProjection() throws {
+        let first = try DocumentBlock.task(text: "", completionDescription: "拿到明确上门时间")
+        let second = try DocumentBlock.task(text: "", completionDescription: "把约定写进日历")
+        let next = DocumentBlock(
+            id: BlockID(),
+            kind: .paragraph,
+            inlineContent: .plain("正文"),
+            taskState: nil,
+            indentLevel: 0
+        )
+        let projection = BlockDocumentTextProjection(
+            document: .init(blocks: [first, second, next]),
+            appearance: CalendarTheme.light,
+            completionDescriptionWidth: 320
+        )
+        #expect(projection.attributedString.string == "\n\n正文")
+        let firstReserved = try #require(
+            TaskCompletionDescriptionMetrics.reservedParagraphSpacing(for: first, width: 320)
+        )
+        let secondReserved = try #require(
+            TaskCompletionDescriptionMetrics.reservedParagraphSpacing(for: second, width: 320)
+        )
+        let firstSeparatorStyle = try completionParagraphStyle(in: projection.attributedString, at: 0)
+        let nextStart = projection.segments[2].contentRange.location
+        let nextStyle = try completionParagraphStyle(
+            in: projection.attributedString,
+            at: nextStart
+        )
+        #expect(abs(firstSeparatorStyle.paragraphSpacing - firstReserved) < 0.5)
+        #expect(abs(nextStyle.paragraphSpacingBefore - secondReserved) < 0.5)
+    }
+
     @Test func emptyTitleCompletionReserveAppliesOnlyBeforeTheNextBlockFirstParagraph() throws {
         let description = "拿到明确上门时间"
         let task = try DocumentBlock.task(text: "", completionDescription: description)
@@ -181,6 +213,51 @@ struct TaskBlockCompletionDescriptionPresentationTests {
         #expect(label.frame.maxY <= nextLine.minY + 0.5)
         #expect(abs(label.frame.minX - titleLine.minX) < 2)
         #expect(label.frame.maxX <= fixture.host.bounds.maxX + 0.5)
+    }
+
+    @Test @MainActor func adjacentEmptyTitleTaskLabelsDoNotCoverTheNextCheckboxOrLabel() throws {
+        _ = NSApplication.shared
+        let firstID = BlockID()
+        let secondID = BlockID()
+        let nextID = BlockID()
+        let first = try DocumentBlock.task(
+            id: firstID,
+            text: "",
+            completionDescription: "拿到明确上门时间"
+        )
+        let second = try DocumentBlock.task(
+            id: secondID,
+            text: "",
+            completionDescription: "把约定写进日历"
+        )
+        let next = try DocumentBlock.task(
+            id: nextID,
+            text: "后续待办",
+            completionDescription: "下一项说明"
+        )
+        let fixture = completionDescriptionFixture(
+            blocks: [first, second, next],
+            selection: completionDescriptionCaret(firstID, 0)
+        )
+        fixture.host.frame = .init(x: 0, y: 0, width: 480, height: 360)
+        fixture.host.layoutSubtreeIfNeeded()
+
+        #expect(fixture.view.string == "\n\n后续待办")
+        #expect(fixture.view.string.contains("拿到明确上门时间") == false)
+        #expect(fixture.view.string.contains("把约定写进日历") == false)
+
+        let firstLabel = try #require(completionDescriptionLabel(in: fixture.host, blockID: firstID))
+        let secondLabel = try #require(completionDescriptionLabel(in: fixture.host, blockID: secondID))
+        let nextLabel = try #require(completionDescriptionLabel(in: fixture.host, blockID: nextID))
+        let secondCheckbox = try #require(fixture.view.taskCheckboxFrame(for: secondID))
+        let nextCheckbox = try #require(fixture.view.taskCheckboxFrame(for: nextID))
+
+        #expect(firstLabel.frame.maxY <= secondCheckbox.minY + 0.5)
+        #expect(firstLabel.frame.maxY <= secondLabel.frame.minY + 0.5)
+        #expect(secondLabel.frame.maxY <= nextCheckbox.minY + 0.5)
+        #expect(secondLabel.frame.maxY <= nextLabel.frame.minY + 0.5)
+        let requiredHeight = nextLabel.frame.maxY + TaskCompletionDescriptionMetrics.bottomGap
+        #expect(fixture.host.intrinsicContentSize.height + 0.5 >= requiredHeight)
     }
 
     @Test @MainActor func emptyTitleStillShowsCompletionDescriptionWithoutCoveringNextBlock() throws {

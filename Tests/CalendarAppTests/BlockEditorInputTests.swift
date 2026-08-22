@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WorkspaceDomain
@@ -125,6 +126,159 @@ struct BlockEditorInputTests {
         #expect(rejected.document == document)
         #expect(rejected.mutation == .none(.unsupportedBlockKind))
         #expect(rejected.undo == .none)
+    }
+
+    @Test func replacingSelectedTextInATaskKeepsCompletionDescriptionOnTheSameBlock() throws {
+        let id = blockID(5100)
+        let completed = Date(timeIntervalSince1970: 1_755_000_100)
+        let document = doc([describedTask(id, "给物业打电话", description: "拿到明确上门时间", completed: completed)])
+
+        let replaced = try reduce(
+            document,
+            textSelection(id, 1, id, 3),
+            .insertText("新")
+        )
+        #expect(replaced.document.blocks[0].id == id)
+        #expect(replaced.document.blocks[0].kind == .task)
+        #expect(text(replaced.document.blocks[0]) == "给新打电话")
+        #expect(replaced.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+        #expect(replaced.document.blocks[0].taskState?.completedAt == completed)
+
+        let pasted = try reduce(
+            document,
+            textSelection(id, 1, id, 3),
+            .replaceSelection(.plainText("新"))
+        )
+        #expect(pasted.document.blocks[0].id == id)
+        #expect(pasted.document.blocks[0].kind == .task)
+        #expect(text(pasted.document.blocks[0]) == "给新打电话")
+        #expect(pasted.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+        #expect(pasted.document.blocks[0].taskState?.completedAt == completed)
+    }
+
+    @Test func enterSplitsATaskWithoutCopyingCompletionDescriptionOntoTheNewBlock() throws {
+        let id = blockID(5101), next = blockID(5102)
+        let completed = Date(timeIntervalSince1970: 1_755_000_101)
+        let document = doc([describedTask(id, "给物业打电话", description: "拿到明确上门时间", completed: completed)])
+        let result = try reduce(document, caret(id, 3), .enter, ids: [next])
+
+        #expect(result.document.blocks.map(\.id) == [id, next])
+        #expect(result.document.blocks.map(\.kind) == [.task, .task])
+        #expect(result.document.blocks.map(text) == ["给物业", "打电话"])
+        #expect(result.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+        #expect(result.document.blocks[0].taskState?.completedAt == completed)
+        #expect(result.document.blocks[1].taskState?.completionDescription == nil)
+        #expect(result.document.blocks[1].taskState?.completedAt == nil)
+    }
+
+    @Test func joiningAcrossTasksKeepsTheReusedOriginalTaskCompletionDescription() throws {
+        let first = blockID(5103), second = blockID(5104)
+        let document = doc([
+            describedTask(first, "给物业打电话", description: "拿到明确上门时间"),
+            describedTask(second, "记录时间", description: "写进日历备注")
+        ])
+        let result = try reduce(
+            document,
+            textSelection(first, 3, second, 2),
+            .deleteSelection
+        )
+        #expect(result.document.blocks.count == 1)
+        #expect(result.document.blocks[0].id == first)
+        #expect(result.document.blocks[0].kind == .task)
+        #expect(text(result.document.blocks[0]) == "给物业时间")
+        #expect(result.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+    }
+
+    @Test func convertingTaskToTaskKeepsCompletionDescriptionAndLeavingTaskDoesNot() throws {
+        let id = blockID(5105)
+        let document = doc([describedTask(id, "给物业打电话", description: "拿到明确上门时间")])
+
+        let stillTask = try reduce(document, caret(id, 0), .convert(.task))
+        #expect(stillTask.document.blocks[0].id == id)
+        #expect(stillTask.document.blocks[0].kind == .task)
+        #expect(stillTask.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+
+        let paragraph = try reduce(document, caret(id, 0), .convert(.paragraph))
+        #expect(paragraph.document.blocks[0].id == id)
+        #expect(paragraph.document.blocks[0].kind == .paragraph)
+        #expect(paragraph.document.blocks[0].taskState == nil)
+
+        let promoted = try reduce(
+            doc([block(id, .paragraph, "给物业打电话")]),
+            caret(id, 0),
+            .convert(.task)
+        )
+        #expect(promoted.document.blocks[0].kind == .task)
+        #expect(promoted.document.blocks[0].taskState?.completionDescription == nil)
+        #expect(promoted.document.blocks[0].taskState?.completedAt == nil)
+    }
+
+    @Test @MainActor func blockCopyRoundTripsTaskCompletionDescriptionThroughPasteboardAdapterWithoutCompletedAt() throws {
+        let source = blockID(5106), target = blockID(5107)
+        let completed = Date(timeIntervalSince1970: 1_755_000_107)
+        let copied = try reduce(
+            doc([describedTask(source, "给物业打电话", description: "拿到明确上门时间", completed: completed)]),
+            BlockEditorSelection.blocks(anchor: source, focus: source),
+            .copySelection
+        )
+        guard case let .writeClipboard(clipboard) = copied.effect else {
+            Issue.record("block copy must write a private clipboard payload")
+            return
+        }
+        #expect(clipboard.inlineContent == nil)
+        #expect(clipboard.plainText == "给物业打电话")
+        #expect(clipboard.richBlocks.count == 1)
+        #expect(clipboard.richBlocks[0].kind == .task)
+        #expect(clipboard.richBlocks[0].completionDescription == "拿到明确上门时间")
+
+        let pasteboard = NSPasteboard.withUniqueName()
+        let adapter = BlockPasteboardAdapter(pasteboard: pasteboard)
+        #expect(adapter.write(payload: clipboard))
+        #expect(pasteboard.string(forType: .string) == "给物业打电话")
+
+        let restored = try #require(adapter.readPayload())
+        guard case let .richText(blocks, fallback) = restored else {
+            Issue.record("block copy must round-trip as rich text through the adapter, not inlineContent")
+            return
+        }
+        #expect(fallback == "给物业打电话")
+        #expect(blocks.count == 1)
+        #expect(blocks[0].kind == .task)
+        #expect(blocks[0].completionDescription == "拿到明确上门时间")
+
+        let pasted = try reduce(
+            doc([block(target, .paragraph, "")]),
+            caret(target, 0),
+            .replaceSelection(restored)
+        )
+        #expect(pasted.document.blocks.count == 1)
+        #expect(pasted.document.blocks[0].id == target)
+        #expect(pasted.document.blocks[0].kind == .task)
+        #expect(text(pasted.document.blocks[0]) == "给物业打电话")
+        #expect(pasted.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+        #expect(pasted.document.blocks[0].taskState?.completedAt == nil)
+    }
+
+    @Test func externalPlainTextPasteDoesNotInjectAHiddenCompletionDescription() throws {
+        let id = blockID(5108)
+        let result = try reduce(
+            doc([describedTask(id, "给物业打电话", description: "拿到明确上门时间")]),
+            caret(id, 6),
+            .replaceSelection(.plainText("后续"))
+        )
+        #expect(result.document.blocks[0].id == id)
+        #expect(result.document.blocks[0].kind == .task)
+        #expect(text(result.document.blocks[0]) == "给物业打电话后续")
+        #expect(result.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+
+        let intoParagraph = try reduce(
+            doc([block(id, .paragraph, "")]),
+            caret(id, 0),
+            .replaceSelection(.plainText("给物业打电话"))
+        )
+        #expect(intoParagraph.document.blocks[0].kind == .paragraph)
+        #expect(intoParagraph.document.blocks[0].taskState == nil)
+        #expect(text(intoParagraph.document.blocks[0]) == "给物业打电话")
     }
 
     @Test(arguments: UnicodeFixture.all)
@@ -565,6 +719,46 @@ struct BlockEditorInputTests {
             try BlockPasteParser.parse(.richText(blocks: [valid, invalid], fallbackPlainText: "fallback"))
         }
         #expect(try BlockPasteParser.parse(.plainText("a\r\nb\r")) == .plainLines(["a", "b", ""]))
+    }
+
+    @Test func pasteParserAllowsCanonicalTaskCompletionDescriptionAndRejectsOthers() throws {
+        let task = BlockPasteBlock(
+            kind: .task,
+            inlineContent: .plain("给物业打电话"),
+            indentLevel: 0,
+            codeInfoString: nil,
+            completionDescription: "拿到明确上门时间"
+        )
+        let parsed = try BlockPasteParser.parse(
+            .richText(blocks: [task], fallbackPlainText: "给物业打电话")
+        )
+        guard case let .richBlocks(blocks) = parsed else {
+            Issue.record("canonical task description must parse as rich blocks")
+            return
+        }
+        #expect(blocks[0].completionDescription == "拿到明确上门时间")
+
+        let padded = BlockPasteBlock(
+            kind: .task,
+            inlineContent: .plain("给物业打电话"),
+            indentLevel: 0,
+            codeInfoString: nil,
+            completionDescription: "  拿到明确上门时间  "
+        )
+        #expect(throws: BlockPasteParserError.invalidBlock(index: 0)) {
+            try BlockPasteParser.parse(.richText(blocks: [padded], fallbackPlainText: "给物业打电话"))
+        }
+
+        let paragraph = BlockPasteBlock(
+            kind: .paragraph,
+            inlineContent: .plain("正文"),
+            indentLevel: 0,
+            codeInfoString: nil,
+            completionDescription: "不该出现"
+        )
+        #expect(throws: BlockPasteParserError.invalidBlock(index: 0)) {
+            try BlockPasteParser.parse(.richText(blocks: [paragraph], fallbackPlainText: "正文"))
+        }
     }
 
     @Test func markdownAndSlashConversionsAreExplicitAndPreserveID() throws {
@@ -3175,6 +3369,20 @@ private func exactMergedBlock(previous: BlockID, current: DocumentBlock) -> Docu
         inlineContent: .init(spans: [.init(text: "前")] + current.inlineContent.spans),
         taskState: nil,
         indentLevel: 0
+    )
+}
+
+private func describedTask(
+    _ id: BlockID,
+    _ text: String,
+    description: String,
+    completed: Date? = nil
+) -> DocumentBlock {
+    try! DocumentBlock.task(
+        id: id,
+        text: text,
+        completedAt: completed,
+        completionDescription: description
     )
 }
 

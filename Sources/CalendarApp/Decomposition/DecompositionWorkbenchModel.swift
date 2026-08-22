@@ -597,43 +597,42 @@ final class DecompositionWorkbenchModel {
     ) async -> Result<T, DecompositionPlanningFailure> {
         let sleeper = self.sleeper
         let timeout = requestTimeout
-        do {
-            return try await withThrowingTaskGroup(of: T?.self) { group in
-                group.addTask {
-                    try await work()
-                }
-                group.addTask {
-                    try await sleeper.sleep(for: timeout)
-                    return nil
-                }
-                let first = try await group.next()!
-                group.cancelAll()
-                if let value = first {
-                    return .success(value)
-                }
-                return .failure(.timedOut)
-            }
-        } catch is CancellationError {
-            return .failure(.cancelled)
-        } catch {
-            return .failure(mapPlannerError(error))
+        let workTask = Task<T, Error>.detached {
+            try await work()
         }
-    }
+        let timeoutTask = Task<Void, Error>.detached {
+            try await sleeper.sleep(for: timeout)
+        }
+        let gate = DecompositionRaceGate<T>()
 
-    private func mapPlannerError(_ error: Error) -> DecompositionPlanningFailure {
-        if error is CancellationError {
-            return .cancelled
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                gate.attach(continuation)
+                Task.detached {
+                    let result = await workTask.result
+                    timeoutTask.cancel()
+                    switch result {
+                    case let .success(value):
+                        gate.finish(.success(value))
+                    case let .failure(error):
+                        gate.finish(.failure(mapPlannerError(error)))
+                    }
+                }
+                Task.detached {
+                    switch await timeoutTask.result {
+                    case .success:
+                        gate.finish(.failure(.timedOut))
+                        workTask.cancel()
+                    case .failure:
+                        break
+                    }
+                }
+            }
+        } onCancel: {
+            gate.finish(.failure(.cancelled))
+            workTask.cancel()
+            timeoutTask.cancel()
         }
-        if let failure = error as? DecompositionPlanningFailure {
-            return failure
-        }
-        if let unavailable = error as? DecompositionPlannerUnavailableError {
-            return .unavailable(unavailable.reason)
-        }
-        if let output = error as? DecompositionOutputError {
-            return .invalidOutput(output)
-        }
-        return .modelFailure
     }
 
     private func applyFailure(_ failure: DecompositionPlanningFailure, requestID: UUID) {
@@ -904,5 +903,57 @@ final class DecompositionWorkbenchModel {
             draft.lastRecoverableError = .persistenceFailed
             return .notCommitted(message: Self.notCommittedMessage)
         }
+    }
+}
+
+private func mapPlannerError(_ error: Error) -> DecompositionPlanningFailure {
+    if error is CancellationError {
+        return .cancelled
+    }
+    if let failure = error as? DecompositionPlanningFailure {
+        return failure
+    }
+    if let unavailable = error as? DecompositionPlannerUnavailableError {
+        return .unavailable(unavailable.reason)
+    }
+    if let output = error as? DecompositionOutputError {
+        return .invalidOutput(output)
+    }
+    return .modelFailure
+}
+
+private final class DecompositionRaceGate<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<T, DecompositionPlanningFailure>, Never>?
+    private var pending: Result<T, DecompositionPlanningFailure>?
+    private var finished = false
+
+    func attach(_ continuation: CheckedContinuation<Result<T, DecompositionPlanningFailure>, Never>) {
+        lock.lock()
+        if finished, let pending {
+            self.pending = nil
+            lock.unlock()
+            continuation.resume(returning: pending)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func finish(_ result: Result<T, DecompositionPlanningFailure>) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        if let continuation {
+            self.continuation = nil
+            lock.unlock()
+            continuation.resume(returning: result)
+            return
+        }
+        pending = result
+        lock.unlock()
     }
 }
