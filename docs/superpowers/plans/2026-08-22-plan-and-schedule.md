@@ -1366,7 +1366,8 @@ Run:
 git diff --check origin/main...HEAD
 swift test
 swift build -c release --product PersonalCalendar
-./Scripts/verify-block-input-purity.sh
+./Scripts/verify-block-input-purity.sh --self-test
+./Scripts/verify-block-input-purity.sh Sources/CalendarApp/Notes/BlockEditor
 ./Scripts/test-build-app-archive.sh
 ./Scripts/build-app.sh
 codesign --verify --deep --strict dist/Jelly.app
