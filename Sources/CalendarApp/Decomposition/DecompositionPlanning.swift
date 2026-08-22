@@ -7,6 +7,28 @@ protocol DecompositionPlanning: Sendable {
     func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate]
 }
 
+struct UnavailableDecompositionPlanner: DecompositionPlanning, Sendable {
+    let reason: ManualDecompositionReason
+
+    var availability: DecompositionPlannerAvailability { .unavailable(reason) }
+
+    func clarification(for request: ClarificationRequest) async throws -> ClarificationDecision {
+        throw DecompositionPlannerUnavailableError(reason: reason)
+    }
+
+    func candidates(for request: CandidateRequest) async throws -> [PlannerCandidate] {
+        throw DecompositionPlannerUnavailableError(reason: reason)
+    }
+
+    func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate] {
+        throw DecompositionPlannerUnavailableError(reason: reason)
+    }
+}
+
+struct DecompositionPlannerUnavailableError: Error, Equatable, Sendable {
+    let reason: ManualDecompositionReason
+}
+
 enum DecompositionOutputValidator {
     static func validateInitial(_ output: [PlannerCandidate]) throws -> [PlannerCandidate] {
         try validateCount(output)

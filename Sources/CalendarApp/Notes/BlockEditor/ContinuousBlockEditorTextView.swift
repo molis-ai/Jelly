@@ -63,7 +63,6 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
     var isPresentingEmptyDocumentPlaceholder: Bool {
         projectedDocumentIsVisiblyEmpty
             && !hasMarkedText()
-            && window?.firstResponder !== self
     }
 
     func install(session: BlockEditorSession, hostToken: UUID) {
@@ -470,6 +469,7 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
         markedCandidate = Self.string(from: string)
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         updateImmediateInsertionIndicator()
+        needsDisplay = true
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
@@ -500,10 +500,12 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
             super.unmarkText()
             return
         }
+        let value = markedCandidate ?? ""
         finishingComposition = true
-        editorSession.commitComposition(markedCandidate ?? "", hostToken: hostToken)
+        defer { finishingComposition = false }
+        super.unmarkText()
+        editorSession.commitComposition(value, hostToken: hostToken)
         markedCandidate = nil
-        finishingComposition = false
     }
 
     override func cancelOperation(_ sender: Any?) {

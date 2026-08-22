@@ -165,7 +165,7 @@ enum NoteMarkdownExportSource {
               editorIdentity.noteID == persistedNoteID,
               let liveSnapshot,
               liveSnapshot.noteID == persistedNoteID,
-              liveSnapshot.editSessionID == editorIdentity.editSessionID
+              liveSnapshot.noteID == editorIdentity.noteID
         else { return persistedDocument }
         return liveSnapshot.document
     }

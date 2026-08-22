@@ -126,6 +126,98 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.draft.candidates[0].proposal?.schedule.endTime == MinuteOfDay(hour: 9, minute: 15))
     }
 
+    @Test func enablingCalendarForAnotherCandidateDoesNotOverwriteAManualProposal() async throws {
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let model = fixture.model
+        await model.start()
+        let firstID = model.draft.candidates[0].id
+        let secondID = model.draft.candidates[1].id
+        model.setSelectedForCalendar(id: firstID, selected: true)
+        model.advanceToSchedule()
+        let manualSchedule = try CalendarSchedule(
+            startDate: WorkbenchFixture.day,
+            endDate: WorkbenchFixture.day,
+            startTime: MinuteOfDay(hour: 14, minute: 0),
+            endTime: MinuteOfDay(hour: 14, minute: 15)
+        )
+        let manual = CalendarProposal(schedule: manualSchedule)
+        model.setProposal(id: firstID, proposal: manual)
+        let snapshotA = model.draft.candidates[0]
+        #expect(snapshotA.proposal == manual)
+
+        model.setSelectedForCalendar(id: secondID, selected: true)
+
+        #expect(model.draft.candidates[0] == snapshotA)
+        #expect(model.draft.candidates[0].proposal == manual)
+        let proposalB = try #require(model.draft.candidates[1].proposal)
+        #expect(proposalB != manual)
+        #expect(
+            !CalendarTimedOccupancy.overlaps(manual.schedule, proposalB.schedule)
+        )
+        let otherDraftSchedules = model.draft.candidates.compactMap { candidate -> CalendarSchedule? in
+            guard candidate.id != secondID else { return nil }
+            return candidate.proposal?.schedule
+        }
+        #expect(otherDraftSchedules.allSatisfy { !CalendarTimedOccupancy.overlaps($0, proposalB.schedule) })
+    }
+
+    @Test func changingDurationAfterReturningFromScheduleCommitsNewDurationAndKeepsStart() async throws {
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000880")!
+        let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000881")!
+        let firstBlock = UUID(uuidString: "00000000-0000-0000-0000-000000000882")!
+        let secondBlock = UUID(uuidString: "00000000-0000-0000-0000-000000000883")!
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000000884")!
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            uuid: SequentialUUID([firstID, secondID, firstBlock, secondBlock, itemID]).next
+        )
+        let model = fixture.model
+        await model.start()
+        model.setSelectedForCalendar(id: firstID, selected: true)
+        model.advanceToSchedule()
+        let original = try #require(model.draft.candidates[0].proposal)
+        #expect(model.draft.candidates[0].estimatedDuration == .minutes15)
+        #expect(original.schedule.startDate == WorkbenchFixture.day)
+        #expect(original.schedule.startTime == MinuteOfDay(hour: 9, minute: 0))
+        #expect(timedDurationMinutes(original.schedule) == CandidateDuration.minutes15.rawValue)
+
+        model.returnToStage(.split)
+        model.updateDuration(id: firstID, duration: .minutes60)
+        #expect(model.draft.stage == .split)
+        #expect(model.draft.candidates[0].estimatedDuration == .minutes60)
+        #expect(model.draft.candidates[0].proposal?.schedule.startDate == original.schedule.startDate)
+        #expect(model.draft.candidates[0].proposal?.schedule.startTime == original.schedule.startTime)
+        #expect(timedDurationMinutes(try #require(model.draft.candidates[0].proposal).schedule)
+            == CandidateDuration.minutes60.rawValue)
+
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .schedule)
+        #expect(model.draft.candidates[0].proposal?.schedule.startDate == original.schedule.startDate)
+        #expect(model.draft.candidates[0].proposal?.schedule.startTime == original.schedule.startTime)
+        #expect(timedDurationMinutes(try #require(model.draft.candidates[0].proposal).schedule)
+            == CandidateDuration.minutes60.rawValue)
+
+        let result = await model.commit()
+        guard case let .committed(_, scheduled, _) = result else {
+            Issue.record("expected committed result, got \(result)")
+            return
+        }
+        #expect(scheduled == 1)
+        let item = try #require(fixture.store.calendarState.items[itemID])
+        #expect(item.schedule.startDate == original.schedule.startDate)
+        #expect(item.schedule.startTime == original.schedule.startTime)
+        #expect(timedDurationMinutes(item.schedule) == CandidateDuration.minutes60.rawValue)
+        #expect(item.schedule.endTime == MinuteOfDay(hour: 10, minute: 0))
+    }
+
     @Test func lateResultFromACancelledRequestIsDiscarded() async throws {
         let planner = DualShotClarificationPlanner()
         let sleeper = ControllableSleeper()
@@ -187,7 +279,7 @@ struct DecompositionWorkbenchModelTests {
         }())
 
         model.updateTitle(id: firstID, value: "手改标题")
-        model.moveCandidate(fromOffsets: IndexSet(integer: 1), toOffset: 0)
+        model.moveCandidate(id: secondID, toPositionOf: firstID)
         #expect(model.requestState == .idle)
         #expect(model.draft.candidates.map(\.id) == [secondID, firstID])
         #expect(model.draft.candidates[1].title == "手改标题")
@@ -372,7 +464,7 @@ struct DecompositionWorkbenchModelTests {
         await model.start()
         let firstID = model.draft.candidates[0].id
         model.updateTitle(id: firstID, value: "   ")
-        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].title == "   ")
         #expect(model.draft.candidates[0].titleLockedByUser)
         model.advanceToSchedule()
         #expect(model.draft.stage == .split)
@@ -422,7 +514,7 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.draft.candidates[2].title.isEmpty)
         model.updateTitle(id: manualID, value: "手工行动")
         model.updateCompletion(id: manualID, value: "手工完成说明")
-        model.moveCandidate(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+        model.moveCandidate(id: manualID, toPositionOf: firstID)
         #expect(model.draft.candidates.map(\.id) == [manualID, firstID, secondID])
         model.setSelectedForCreation(id: firstID, selected: false)
         #expect(!model.draft.candidates[1].selectedForCreation)
@@ -441,6 +533,56 @@ struct DecompositionWorkbenchModelTests {
         model.deleteCandidate(id: firstID)
         #expect(model.draft.candidates.map(\.id) == [manualID, secondID])
         #expect(model.draft.candidates[1].proposal != nil)
+    }
+
+    @Test func reorderByCandidateIDMovesForwardAndBackwardKeepsFieldsAndIgnoresSelfOrUnknown() async throws {
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000840")!
+        let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000841")!
+        let thirdID = UUID(uuidString: "00000000-0000-0000-0000-000000000842")!
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 3))
+            ]),
+            uuid: SequentialUUID([firstID, secondID, thirdID]).next
+        )
+        await model.start()
+        model.updateTitle(id: firstID, value: "锁定标题一")
+        model.updateCompletion(id: secondID, value: "锁定说明二")
+        model.updateDuration(id: thirdID, duration: .minutes90)
+        model.setSelectedForCreation(id: secondID, selected: false)
+        model.setSelectedForCalendar(id: firstID, selected: true)
+        model.refreshCalendarProposals()
+        let snapshotByID = Dictionary(
+            uniqueKeysWithValues: model.draft.candidates.map { ($0.id, $0) }
+        )
+        #expect(snapshotByID[firstID]?.titleLockedByUser == true)
+        #expect(snapshotByID[secondID]?.completionLockedByUser == true)
+        #expect(snapshotByID[firstID]?.proposal != nil)
+        #expect(snapshotByID[secondID]?.selectedForCreation == false)
+
+        model.moveCandidate(id: firstID, toPositionOf: thirdID)
+        #expect(model.draft.candidates.map(\.id) == [secondID, thirdID, firstID])
+        for candidate in model.draft.candidates {
+            #expect(candidate == snapshotByID[candidate.id])
+        }
+
+        model.moveCandidate(id: firstID, toPositionOf: secondID)
+        #expect(model.draft.candidates.map(\.id) == [firstID, secondID, thirdID])
+        for candidate in model.draft.candidates {
+            #expect(candidate == snapshotByID[candidate.id])
+        }
+
+        let beforeSelf = model.draft.candidates
+        model.moveCandidate(id: secondID, toPositionOf: secondID)
+        #expect(model.draft.candidates == beforeSelf)
+
+        model.moveCandidate(id: firstID, toPositionOf: UUID())
+        model.moveCandidate(id: UUID(), toPositionOf: secondID)
+        #expect(model.draft.candidates == beforeSelf)
+        for candidate in model.draft.candidates {
+            #expect(candidate == snapshotByID[candidate.id])
+        }
     }
 
     @Test func successfulSplitReplacesOnlyTheTargetAndRefreshProposalsUseCurrentSelection() async throws {
@@ -485,7 +627,7 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.draft.candidates[2].proposal == nil)
     }
 
-    @Test func commitGeneratesIDsOnlyThenAndMapsCommittedOutcome() async throws {
+    @Test func commitGeneratesIDsOnlyThenAndMapsBoundaryTrimmedOutcome() async throws {
         let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000840")!
         let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000841")!
         let firstBlock = UUID(uuidString: "00000000-0000-0000-0000-000000000842")!
@@ -503,6 +645,10 @@ struct DecompositionWorkbenchModelTests {
         #expect(fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks.contains(where: {
             $0.id == BlockID(firstBlock)
         }) != true)
+        model.updateTitle(id: firstID, value: "  手改标题  ")
+        model.updateCompletion(id: firstID, value: "  完成说明  ")
+        #expect(model.draft.candidates[0].title == "  手改标题  ")
+        #expect(model.draft.candidates[0].completionDescription == "  完成说明  ")
         model.setSelectedForCalendar(id: firstID, selected: true)
         model.advanceToSchedule()
         #expect(model.draft.candidates[0].proposal != nil)
@@ -518,13 +664,14 @@ struct DecompositionWorkbenchModelTests {
         #expect(fixture.store.statePublicationGeneration > generationBefore)
         #expect(fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks.map(\.id).contains(BlockID(firstBlock)) == true)
         #expect(fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks.map(\.id).contains(BlockID(secondBlock)) == true)
+        let firstBlockContent = fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks
+            .first { $0.id == BlockID(firstBlock) }
+        #expect(firstBlockContent?.inlineContent.spans.map(\.text).joined() == "手改标题")
         #expect(fixture.store.calendarState.items[itemID] != nil)
-        #expect(fixture.store.calendarState.items[itemID]?.title == "行动1")
+        #expect(fixture.store.calendarState.items[itemID]?.title == "手改标题")
         #expect(fixture.store.calendarState.items[itemID]?.notes.isEmpty == true)
-        let completion = fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks
-            .first { $0.id == BlockID(firstBlock) }?
-            .taskState?.completionDescription
-        #expect(completion == "完成行动1")
+        let completion = firstBlockContent?.taskState?.completionDescription
+        #expect(completion == "完成说明")
         #expect(fixture.store.latestUndoLabel == "拆开并安排")
     }
 
@@ -658,10 +805,639 @@ struct DecompositionWorkbenchModelTests {
         model.setSelectedForCalendar(id: model.draft.candidates[0].id, selected: true)
         model.advanceToSchedule()
         model.setProposal(id: model.draft.candidates[0].id, proposal: nil)
+        #expect(model.commitBlockingReason == .missingCalendarProposal(count: 1))
+        #expect(model.advanceBlockingReason == nil)
+        #expect(!model.canCommit)
+        #expect(model.canAdvance)
         let result = await model.commit()
         #expect(result == .notCommitted(message: Self.notCommittedMessage))
         #expect(await fixture.repository.saveCount == 0)
         #expect(model.draft.stage == .schedule)
+    }
+
+    @Test func blockingReasonReportsNoSelectedActions() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        await model.start()
+        #expect(model.advanceBlockingReason == nil)
+        #expect(model.commitBlockingReason == nil)
+        for candidate in model.draft.candidates {
+            model.setSelectedForCreation(id: candidate.id, selected: false)
+        }
+        #expect(model.advanceBlockingReason == .noSelectedActions)
+        #expect(model.commitBlockingReason == .noSelectedActions)
+        #expect(!model.canAdvance)
+        #expect(!model.canCommit)
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .split)
+    }
+
+    @Test func blockingReasonCountsMissingTitlesAmongSelectedActions() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 3))
+            ])
+        )
+        await model.start()
+        let first = model.draft.candidates[0].id
+        let second = model.draft.candidates[1].id
+        let third = model.draft.candidates[2].id
+        model.updateTitle(id: first, value: "   ")
+        model.updateTitle(id: second, value: "")
+        model.updateTitle(id: third, value: "保留的标题")
+        model.updateCompletion(id: first, value: "")
+        #expect(model.advanceBlockingReason == .missingTitle(count: 2))
+        #expect(model.commitBlockingReason == .missingTitle(count: 2))
+        model.setSelectedForCreation(id: first, selected: false)
+        #expect(model.advanceBlockingReason == .missingTitle(count: 1))
+        #expect(model.commitBlockingReason == .missingTitle(count: 1))
+        model.setSelectedForCreation(id: second, selected: false)
+        #expect(model.advanceBlockingReason == nil)
+        #expect(model.canAdvance)
+        model.setSelectedForCreation(id: first, selected: true)
+        model.setSelectedForCreation(id: second, selected: true)
+        for candidate in model.draft.candidates {
+            model.setSelectedForCreation(id: candidate.id, selected: false)
+        }
+        #expect(model.advanceBlockingReason == .noSelectedActions)
+    }
+
+    @Test func blockingReasonCountsMissingCompletionsAmongSelectedActions() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 3))
+            ])
+        )
+        await model.start()
+        let first = model.draft.candidates[0].id
+        let second = model.draft.candidates[1].id
+        let third = model.draft.candidates[2].id
+        model.updateCompletion(id: first, value: "\n")
+        model.updateCompletion(id: second, value: "  ")
+        #expect(model.advanceBlockingReason == .missingCompletion(count: 2))
+        #expect(model.commitBlockingReason == .missingCompletion(count: 2))
+        model.setSelectedForCreation(id: first, selected: false)
+        #expect(model.advanceBlockingReason == .missingCompletion(count: 1))
+        model.updateCompletion(id: second, value: "完成第二项")
+        #expect(model.advanceBlockingReason == nil)
+        #expect(model.canAdvance)
+        model.updateCompletion(id: third, value: "")
+        #expect(model.advanceBlockingReason == .missingCompletion(count: 1))
+        #expect(model.commitBlockingReason == .missingCompletion(count: 1))
+    }
+
+    @Test func commitBlockingReasonCountsMissingCalendarProposals() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 3))
+            ])
+        )
+        await model.start()
+        let first = model.draft.candidates[0].id
+        let second = model.draft.candidates[1].id
+        let third = model.draft.candidates[2].id
+        model.setSelectedForCalendar(id: first, selected: true)
+        model.setSelectedForCalendar(id: second, selected: true)
+        model.setSelectedForCalendar(id: third, selected: true)
+        model.advanceToSchedule()
+        model.setProposal(id: first, proposal: nil)
+        model.setProposal(id: second, proposal: nil)
+        #expect(model.advanceBlockingReason == nil)
+        #expect(model.canAdvance)
+        #expect(model.commitBlockingReason == .missingCalendarProposal(count: 2))
+        #expect(!model.canCommit)
+        model.setSelectedForCreation(id: first, selected: false)
+        #expect(model.commitBlockingReason == .missingCalendarProposal(count: 1))
+        model.setSelectedForCalendar(id: second, selected: false)
+        #expect(model.commitBlockingReason == nil)
+        #expect(model.canCommit)
+    }
+
+    @Test func sourceChangedBlocksAdvanceAndRecommitWithoutWriting() async throws {
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            snapshotRevisionOffset: -1
+        )
+        let model = fixture.model
+        await model.start()
+        model.advanceToSchedule()
+        let result = await model.commit()
+        #expect(result == .sourceChanged)
+        #expect(model.draft.lastRecoverableError == .sourceChanged)
+        #expect(model.draft.stage == .split)
+        #expect(model.advanceBlockingReason == .sourceChanged)
+        #expect(model.commitBlockingReason == .sourceChanged)
+        #expect(!model.canAdvance)
+        #expect(!model.canCommit)
+
+        let first = model.draft.candidates[0].id
+        model.updateTitle(id: first, value: "改过标题")
+        model.updateCompletion(id: first, value: "改过说明")
+        model.setSelectedForCreation(id: first, selected: true)
+        model.setSelectedForCalendar(id: first, selected: true)
+        model.setProposal(id: first, proposal: nil)
+        model.refreshCalendarProposals()
+        #expect(model.draft.lastRecoverableError == .sourceChanged)
+        #expect(model.advanceBlockingReason == .sourceChanged)
+        #expect(model.commitBlockingReason == .sourceChanged)
+
+        model.advanceToSchedule()
+        model.returnToStage(.schedule)
+        #expect(model.draft.stage == .split)
+        let generation = fixture.store.statePublicationGeneration
+        let saves = await fixture.repository.saveCount
+        let recommit = await model.commit()
+        #expect(recommit == .sourceChanged)
+        #expect(model.draft.stage == .split)
+        #expect(fixture.store.statePublicationGeneration == generation)
+        #expect(await fixture.repository.saveCount == saves)
+        #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
+    }
+
+    @Test func calendarAdjustmentClearsCalendarConflict() async throws {
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let model = fixture.model
+        await model.start()
+        let first = model.draft.candidates[0].id
+        model.setSelectedForCalendar(id: first, selected: true)
+        model.advanceToSchedule()
+        let proposal = try #require(model.draft.candidates[0].proposal)
+        let blocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000861")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: proposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await fixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
+        let result = await model.commit()
+        #expect(result == .calendarConflict)
+        #expect(model.draft.lastRecoverableError == .calendarConflict)
+
+        let adjusted = try CalendarSchedule(
+            startDate: WorkbenchFixture.day,
+            endDate: WorkbenchFixture.day,
+            startTime: MinuteOfDay(hour: 15, minute: 0),
+            endTime: MinuteOfDay(hour: 15, minute: 15)
+        )
+        model.setProposal(id: first, proposal: CalendarProposal(schedule: adjusted))
+        #expect(model.draft.lastRecoverableError == nil)
+        #expect(model.commitBlockingReason == nil)
+        #expect(model.canCommit)
+    }
+
+    @Test func contentEditsKeepCalendarConflictUntilDateOrCalendarChanges() async throws {
+        let dateFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let dateModel = dateFixture.model
+        await dateModel.start()
+        let dateID = dateModel.draft.candidates[0].id
+        dateModel.setSelectedForCalendar(id: dateID, selected: true)
+        dateModel.advanceToSchedule()
+        let dateProposal = try #require(dateModel.draft.candidates[0].proposal)
+        let dateBlocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000863")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: dateProposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await dateFixture.store.sendCalendar(.createItem(dateBlocking), undoLabel: "挡路")
+        #expect(await dateModel.commit() == .calendarConflict)
+        #expect(dateModel.draft.lastRecoverableError == .calendarConflict)
+
+        dateModel.updateTitle(id: dateID, value: "改标题不解冲突")
+        dateModel.updateCompletion(id: dateID, value: "改说明不解冲突")
+        #expect(dateModel.draft.lastRecoverableError == .calendarConflict)
+
+        dateModel.setSelectedForCalendar(id: dateID, selected: true)
+        dateModel.setSelectedForCreation(id: dateID, selected: true)
+        #expect(dateModel.draft.lastRecoverableError == .calendarConflict)
+        #expect(dateModel.draft.candidates[0].proposal == dateProposal)
+
+        dateModel.updateProposalDate(
+            id: dateID,
+            instant: dateModel.editorInstant(id: dateID).addingTimeInterval(24 * 60 * 60)
+        )
+        #expect(dateModel.draft.lastRecoverableError == nil)
+        #expect(dateModel.draft.candidates[0].proposal?.schedule.startDate
+            == CalendarDate(year: 2026, month: 8, day: 23))
+        #expect(dateModel.commitBlockingReason == nil)
+        #expect(dateModel.canCommit)
+
+        let cancelFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let cancelModel = cancelFixture.model
+        await cancelModel.start()
+        let cancelID = cancelModel.draft.candidates[0].id
+        cancelModel.setSelectedForCalendar(id: cancelID, selected: true)
+        cancelModel.advanceToSchedule()
+        let cancelProposal = try #require(cancelModel.draft.candidates[0].proposal)
+        let cancelBlocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000864")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: cancelProposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await cancelFixture.store.sendCalendar(.createItem(cancelBlocking), undoLabel: "挡路")
+        #expect(await cancelModel.commit() == .calendarConflict)
+        #expect(cancelModel.draft.lastRecoverableError == .calendarConflict)
+
+        cancelModel.updateTitle(id: cancelID, value: "仍只改标题")
+        cancelModel.updateCompletion(id: cancelID, value: "仍只改说明")
+        #expect(cancelModel.draft.lastRecoverableError == .calendarConflict)
+
+        cancelModel.setSelectedForCalendar(id: cancelID, selected: false)
+        #expect(cancelModel.draft.lastRecoverableError == nil)
+        #expect(cancelModel.draft.candidates[0].proposal == nil)
+        #expect(cancelModel.commitBlockingReason == nil)
+        #expect(cancelModel.canCommit)
+    }
+
+    @Test func refreshCalendarProposalsClearsCalendarConflictButKeepsSourceChanged() async throws {
+        let conflictFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let conflictModel = conflictFixture.model
+        await conflictModel.start()
+        let conflictID = conflictModel.draft.candidates[0].id
+        conflictModel.setSelectedForCalendar(id: conflictID, selected: true)
+        conflictModel.advanceToSchedule()
+        let proposal = try #require(conflictModel.draft.candidates[0].proposal)
+        let blocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000862")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: proposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await conflictFixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
+        #expect(await conflictModel.commit() == .calendarConflict)
+        #expect(conflictModel.draft.lastRecoverableError == .calendarConflict)
+        conflictModel.refreshCalendarProposals()
+        #expect(conflictModel.draft.lastRecoverableError == nil)
+
+        let sourceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            snapshotRevisionOffset: -1
+        )
+        let sourceModel = sourceFixture.model
+        await sourceModel.start()
+        sourceModel.advanceToSchedule()
+        #expect(await sourceModel.commit() == .sourceChanged)
+        #expect(sourceModel.draft.lastRecoverableError == .sourceChanged)
+        sourceModel.refreshCalendarProposals()
+        sourceModel.updateTitle(id: sourceModel.draft.candidates[0].id, value: "仍被来源变化挡住")
+        #expect(sourceModel.draft.lastRecoverableError == .sourceChanged)
+        #expect(sourceModel.advanceBlockingReason == .sourceChanged)
+        #expect(sourceModel.commitBlockingReason == .sourceChanged)
+    }
+
+    @Test func userEditsClearPersistenceFailureButKeepSourceChanged() async throws {
+        let persistenceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let persistenceModel = persistenceFixture.model
+        await persistenceModel.start()
+        persistenceModel.advanceToSchedule()
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        persistenceModel.updateTitle(
+            id: persistenceModel.draft.candidates[0].id,
+            value: "改标题后可重试"
+        )
+        #expect(persistenceModel.draft.lastRecoverableError == nil)
+
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        persistenceModel.updateCompletion(
+            id: persistenceModel.draft.candidates[0].id,
+            value: "改说明后可重试"
+        )
+        #expect(persistenceModel.draft.lastRecoverableError == nil)
+
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        persistenceModel.addManualCandidate()
+        #expect(persistenceModel.draft.lastRecoverableError == nil)
+
+        let sourceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            snapshotRevisionOffset: -1
+        )
+        let sourceModel = sourceFixture.model
+        await sourceModel.start()
+        sourceModel.advanceToSchedule()
+        #expect(await sourceModel.commit() == .sourceChanged)
+        sourceModel.updateCompletion(
+            id: sourceModel.draft.candidates[0].id,
+            value: "来源变化不得被编辑清掉"
+        )
+        sourceModel.setSelectedForCalendar(
+            id: sourceModel.draft.candidates[1].id,
+            selected: true
+        )
+        #expect(sourceModel.draft.lastRecoverableError == .sourceChanged)
+        #expect(sourceModel.advanceBlockingReason == .sourceChanged)
+    }
+
+    @Test func deletingCalendarSelectedCandidateClearsArrangementErrorsButKeepsSourceChanged() async throws {
+        let conflictFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let conflictModel = conflictFixture.model
+        await conflictModel.start()
+        let scheduledID = conflictModel.draft.candidates[0].id
+        let neighborID = conflictModel.draft.candidates[1].id
+        conflictModel.setSelectedForCalendar(id: scheduledID, selected: true)
+        conflictModel.advanceToSchedule()
+        let proposal = try #require(conflictModel.draft.candidates[0].proposal)
+        let blocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000865")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: proposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await conflictFixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
+        #expect(await conflictModel.commit() == .calendarConflict)
+        #expect(conflictModel.draft.lastRecoverableError == .calendarConflict)
+        conflictModel.deleteCandidate(id: scheduledID)
+        #expect(conflictModel.draft.candidates.map(\.id) == [neighborID])
+        #expect(conflictModel.draft.lastRecoverableError == nil)
+
+        let persistenceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let persistenceModel = persistenceFixture.model
+        await persistenceModel.start()
+        let persistenceID = persistenceModel.draft.candidates[0].id
+        persistenceModel.setSelectedForCalendar(id: persistenceID, selected: true)
+        persistenceModel.advanceToSchedule()
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        persistenceModel.deleteCandidate(id: persistenceID)
+        #expect(persistenceModel.draft.lastRecoverableError == nil)
+
+        let sourceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            snapshotRevisionOffset: -1
+        )
+        let sourceModel = sourceFixture.model
+        await sourceModel.start()
+        let sourceID = sourceModel.draft.candidates[0].id
+        sourceModel.setSelectedForCalendar(id: sourceID, selected: true)
+        sourceModel.advanceToSchedule()
+        #expect(await sourceModel.commit() == .sourceChanged)
+        #expect(sourceModel.draft.lastRecoverableError == .sourceChanged)
+        sourceModel.deleteCandidate(id: sourceID)
+        #expect(sourceModel.draft.lastRecoverableError == .sourceChanged)
+        #expect(sourceModel.advanceBlockingReason == .sourceChanged)
+        #expect(sourceModel.commitBlockingReason == .sourceChanged)
+    }
+
+    @Test func deletingUnscheduledCandidateClearsOnlyPersistenceFailed() async throws {
+        let persistenceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let persistenceModel = persistenceFixture.model
+        await persistenceModel.start()
+        persistenceModel.advanceToSchedule()
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        #expect(!persistenceModel.draft.candidates[0].selectedForCalendar)
+        let unscheduledID = persistenceModel.draft.candidates[0].id
+        let remainingID = persistenceModel.draft.candidates[1].id
+        persistenceModel.deleteCandidate(id: unscheduledID)
+        #expect(persistenceModel.draft.candidates.map(\.id) == [remainingID])
+        #expect(persistenceModel.draft.lastRecoverableError == nil)
+
+        let conflictFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let conflictModel = conflictFixture.model
+        await conflictModel.start()
+        let scheduledID = conflictModel.draft.candidates[0].id
+        let extraID = conflictModel.draft.candidates[1].id
+        conflictModel.setSelectedForCalendar(id: scheduledID, selected: true)
+        conflictModel.advanceToSchedule()
+        let proposal = try #require(conflictModel.draft.candidates[0].proposal)
+        let blocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000866")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: proposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await conflictFixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
+        #expect(await conflictModel.commit() == .calendarConflict)
+        #expect(conflictModel.draft.lastRecoverableError == .calendarConflict)
+        #expect(!conflictModel.draft.candidates[1].selectedForCalendar)
+        conflictModel.deleteCandidate(id: extraID)
+        #expect(conflictModel.draft.candidates.map(\.id) == [scheduledID])
+        #expect(conflictModel.draft.candidates[0].selectedForCalendar)
+        #expect(conflictModel.draft.lastRecoverableError == .calendarConflict)
+    }
+
+    @Test func deletingUnknownCandidateLeavesStateUnchanged() async throws {
+        let conflictFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let conflictModel = conflictFixture.model
+        await conflictModel.start()
+        let scheduledID = conflictModel.draft.candidates[0].id
+        conflictModel.setSelectedForCalendar(id: scheduledID, selected: true)
+        conflictModel.advanceToSchedule()
+        let proposal = try #require(conflictModel.draft.candidates[0].proposal)
+        let blocking = try CalendarItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000867")!,
+            kind: .task,
+            title: "挡路事项",
+            categoryID: FixtureIDs.categoryID,
+            schedule: proposal.schedule,
+            creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+            completedAt: nil,
+            createdAt: WorkbenchFixture.now,
+            updatedAt: WorkbenchFixture.now
+        )
+        _ = try await conflictFixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
+        #expect(await conflictModel.commit() == .calendarConflict)
+        let conflictBefore = conflictModel.draft
+        conflictModel.deleteCandidate(id: UUID(uuidString: "00000000-0000-0000-0000-000000000890")!)
+        #expect(conflictModel.draft == conflictBefore)
+        #expect(conflictModel.requestState == .idle)
+
+        let persistenceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let persistenceModel = persistenceFixture.model
+        await persistenceModel.start()
+        persistenceModel.advanceToSchedule()
+        await persistenceFixture.repository.failNextSave()
+        #expect(await persistenceModel.commit() == .notCommitted(message: Self.notCommittedMessage))
+        #expect(persistenceModel.draft.lastRecoverableError == .persistenceFailed)
+        let persistenceBefore = persistenceModel.draft
+        persistenceModel.deleteCandidate(id: UUID(uuidString: "00000000-0000-0000-0000-000000000891")!)
+        #expect(persistenceModel.draft == persistenceBefore)
+    }
+
+    @Test func correctingBlankFieldsRemovesAdvanceBlocking() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        await model.start()
+        let first = model.draft.candidates[0].id
+        model.updateTitle(id: first, value: "   ")
+        #expect(model.advanceBlockingReason == .missingTitle(count: 1))
+        #expect(!model.canAdvance)
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .split)
+
+        model.updateTitle(id: first, value: "给物业打电话")
+        model.updateCompletion(id: first, value: "")
+        #expect(model.advanceBlockingReason == .missingCompletion(count: 1))
+        model.updateCompletion(id: first, value: "拿到明确上门时间")
+        #expect(model.advanceBlockingReason == nil)
+        #expect(model.commitBlockingReason == nil)
+        #expect(model.canAdvance)
+        #expect(model.canCommit)
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .schedule)
+    }
+
+    @Test func prepareCommitRejectsInvalidDraftWithoutWriting() async throws {
+        let fixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        let model = fixture.model
+        await model.start()
+        model.advanceToSchedule()
+        #expect(model.draft.stage == .schedule)
+
+        for candidate in model.draft.candidates {
+            model.setSelectedForCreation(id: candidate.id, selected: false)
+        }
+        #expect(model.commitBlockingReason == .noSelectedActions)
+        var result = await model.commit()
+        #expect(result == .notCommitted(message: Self.notCommittedMessage))
+        #expect(await fixture.repository.saveCount == 0)
+        #expect(model.draft.stage == .schedule)
+
+        model.setSelectedForCreation(id: model.draft.candidates[0].id, selected: true)
+        model.updateTitle(id: model.draft.candidates[0].id, value: "  ")
+        #expect(model.commitBlockingReason == .missingTitle(count: 1))
+        result = await model.commit()
+        #expect(result == .notCommitted(message: Self.notCommittedMessage))
+        #expect(await fixture.repository.saveCount == 0)
+
+        model.updateTitle(id: model.draft.candidates[0].id, value: "合法标题")
+        model.updateCompletion(id: model.draft.candidates[0].id, value: "")
+        #expect(model.commitBlockingReason == .missingCompletion(count: 1))
+        result = await model.commit()
+        #expect(result == .notCommitted(message: Self.notCommittedMessage))
+        #expect(await fixture.repository.saveCount == 0)
+
+        model.updateCompletion(id: model.draft.candidates[0].id, value: "合法完成说明")
+        model.setSelectedForCalendar(id: model.draft.candidates[0].id, selected: true)
+        model.setProposal(id: model.draft.candidates[0].id, proposal: nil)
+        #expect(model.commitBlockingReason == .missingCalendarProposal(count: 1))
+        result = await model.commit()
+        #expect(result == .notCommitted(message: Self.notCommittedMessage))
+        #expect(await fixture.repository.saveCount == 0)
+        #expect(model.draft.stage == .schedule)
+        #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
     }
 
     fileprivate static let notCommittedMessage = "原笔记和日历没有被改动，可稍后重试"
@@ -794,6 +1570,13 @@ private func planObjectsAreAbsent(_ state: WorkspaceState, noteID: NoteID) -> Bo
     } ?? []
     return titles == ["预约牙医"]
         && state.taskBlockLinks.isEmpty
+}
+
+private func timedDurationMinutes(_ schedule: CalendarSchedule) -> Int {
+    guard let start = schedule.startTime, let end = schedule.endTime else {
+        return 0
+    }
+    return schedule.startDate.days(until: schedule.endDate) * 24 * 60 + end.value - start.value
 }
 
 private final class SequentialUUID: @unchecked Sendable {

@@ -256,6 +256,7 @@ final class NoteAutosaveCoordinator {
     private var retiredTerminalEvidence: [NoteAutosaveTriple: NoteAutosaveBarrierEvidence] = [:]
     private var activePermit: NoteNativeInputPermit?
     private var consumedPermitNonce: UUID?
+    private var stateBeforeNativeFinalization: NoteAutosaveState?
     private var activeFlushFlight: FlushFlight?
     private(set) var autosaveState: NoteAutosaveState = .editable
     private(set) var latestEvidence: NoteAutosaveBarrierEvidence = .unsafeLatestUnprotected
@@ -468,12 +469,19 @@ final class NoteAutosaveCoordinator {
         else { return false }
         consumedPermitNonce = permit.nonce
         activePermit = nil
-        autosaveState = .editable
         let changesDraft = edit.title.map { $0 != session.draft.title } == true
             || edit.document.map { $0 != session.draft.document } == true
             || edit.categoryID.map { $0 != session.draft.categoryID } == true
             || !edit.linkedBlockDeletionDispositions.isEmpty
+        // An identical native snapshot is a legal no-op. Leave
+        // `finalizingNativeInput` in place so the caller restores the exact
+        // pre-finalization state, including cleanupPending / commitPending.
         guard changesDraft else { return true }
+        let previous = stateBeforeNativeFinalization ?? autosaveState
+        // A real successor must not pass through `.editable` to dodge a
+        // read-only safety gate that was already in force.
+        guard previous.allowsOrdinaryEdit else { return false }
+        autosaveState = .editable
         return (try? update(
             title: edit.title,
             document: edit.document,
@@ -660,6 +668,7 @@ final class NoteAutosaveCoordinator {
             nonce: UUID()
         )
         let stateBeforeFinalization = autosaveState
+        stateBeforeNativeFinalization = stateBeforeFinalization
         activePermit = permit
         consumedPermitNonce = nil
         autosaveState = .finalizingNativeInput(permit)
@@ -667,6 +676,7 @@ final class NoteAutosaveCoordinator {
             self?.acceptNativeInput(candidate, edit: edit) ?? false
         }
         if activePermit == permit { activePermit = nil }
+        stateBeforeNativeFinalization = nil
         guard completed else {
             if let triple = currentTriple {
                 autosaveState = .nativeInputUnresolved(triple)

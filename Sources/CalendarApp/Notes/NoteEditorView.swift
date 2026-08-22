@@ -3,6 +3,8 @@ import CalendarDomain
 import SwiftUI
 import WorkspaceDomain
 
+typealias DecompositionWorkbenchCommitHandler = @MainActor (DecompositionCommitResult) -> Void
+
 struct NoteEditorIdentity: Hashable, Sendable {
     let noteID: NoteID
     let editSessionID: UUID
@@ -37,6 +39,17 @@ struct NoteEditorView: View {
         let message: String
         let stateGeneration: UInt
     }
+
+    private struct WorkbenchNotice: Equatable {
+        let message: String
+        let stateGeneration: UInt
+    }
+
+    struct DecompositionWorkbenchRequest: Identifiable {
+        let id = UUID()
+        let snapshot: DecompositionSourceSnapshot
+        let model: DecompositionWorkbenchModel
+    }
     let identity: NoteEditorIdentity
     let initialFocus: NoteInitialFocus?
     let note: Note
@@ -59,6 +72,12 @@ struct NoteEditorView: View {
     var sessionSink: (BlockEditorSession?) -> Void
     var nativeFinalizerHook: Binding<NoteNativeInputFinalizer?>
     var onInitialFocusApplied: () -> Void
+    var decompositionPlanner: any DecompositionPlanning
+    var onWorkbenchSnapshotChange: (DecompositionSourceSnapshot?) -> Void
+    var onWorkbenchEntryNoticeChange: (String?) -> Void
+    var onWorkbenchModelChange: (DecompositionWorkbenchModel?) -> Void
+    var onWorkbenchFeedbackChange: (String?, UInt?) -> Void
+    var onWorkbenchCommitHandlerChange: (DecompositionWorkbenchCommitHandler?) -> Void
 
     @State private var title: String
     @State private var titleOwnerID = UUID()
@@ -71,12 +90,20 @@ struct NoteEditorView: View {
     @State private var didApplyInitialFocus = false
     @State private var scheduleNotice: ScheduleNotice?
     @State private var focusedTaskScheduleRequest: FocusedTaskScheduleRequest?
+    @State private var decompositionRequest: DecompositionWorkbenchRequest?
+    @State private var workbenchModel: DecompositionWorkbenchModel?
+    @State private var workbenchNotice: WorkbenchNotice?
+    @State private var entryNotice: String?
+    @State private var isOpeningWorkbench = false
+    @State private var rebuiltEditSessionID: UUID?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workspaceActiveRoute) private var activeWorkspaceRoute
 
     private var theme: CalendarSemanticAppearance {
         CalendarTheme.appearance(for: colorScheme)
     }
+
+    private var activeEditSessionID: UUID { rebuiltEditSessionID ?? identity.editSessionID }
 
     init(
         identity: NoteEditorIdentity,
@@ -100,7 +127,15 @@ struct NoteEditorView: View {
         onToggleBrowser: @escaping () -> Void = {},
         sessionSink: @escaping (BlockEditorSession?) -> Void,
         nativeFinalizerHook: Binding<NoteNativeInputFinalizer?>,
-        onInitialFocusApplied: @escaping () -> Void = {}
+        onInitialFocusApplied: @escaping () -> Void = {},
+        decompositionPlanner: any DecompositionPlanning = UnavailableDecompositionPlanner(
+            reason: .systemVersionUnsupported
+        ),
+        onWorkbenchSnapshotChange: @escaping (DecompositionSourceSnapshot?) -> Void = { _ in },
+        onWorkbenchEntryNoticeChange: @escaping (String?) -> Void = { _ in },
+        onWorkbenchModelChange: @escaping (DecompositionWorkbenchModel?) -> Void = { _ in },
+        onWorkbenchFeedbackChange: @escaping (String?, UInt?) -> Void = { _, _ in },
+        onWorkbenchCommitHandlerChange: @escaping (DecompositionWorkbenchCommitHandler?) -> Void = { _ in }
     ) {
         self.identity = identity
         self.initialFocus = initialFocus
@@ -124,6 +159,12 @@ struct NoteEditorView: View {
         self.sessionSink = sessionSink
         self.nativeFinalizerHook = nativeFinalizerHook
         self.onInitialFocusApplied = onInitialFocusApplied
+        self.decompositionPlanner = decompositionPlanner
+        self.onWorkbenchSnapshotChange = onWorkbenchSnapshotChange
+        self.onWorkbenchEntryNoticeChange = onWorkbenchEntryNoticeChange
+        self.onWorkbenchModelChange = onWorkbenchModelChange
+        self.onWorkbenchFeedbackChange = onWorkbenchFeedbackChange
+        self.onWorkbenchCommitHandlerChange = onWorkbenchCommitHandlerChange
         _title = State(initialValue: note.title)
         _lastAcceptedDocument = State(initialValue: note.document)
     }
@@ -152,12 +193,14 @@ struct NoteEditorView: View {
                         onTitleCommitted(value)
                     },
                     onEditingChanged: { value in
+                        invalidateWorkbenchUndoForLocalEdit()
                         title = value
                         _ = try? autosave.update(title: value)
                     },
                     onReturn: { editorSession?.focusDocumentStart() },
                     coordinatorSink: { coordinator in
                         titleCoordinator = coordinator
+                        installNativeFinalizer()
                         applyInitialFocusIfReady()
                     }
                 )
@@ -186,7 +229,10 @@ struct NoteEditorView: View {
             HStack(spacing: 8) {
                 Picker("分类", selection: Binding(
                     get: { note.categoryID },
-                    set: { onCategoryChanged($0) }
+                    set: {
+                        invalidateWorkbenchUndoForLocalEdit()
+                        onCategoryChanged($0)
+                    }
                 )) {
                     ForEach(categories, id: \.id) { category in
                         Text(category.name).tag(category.id)
@@ -197,6 +243,21 @@ struct NoteEditorView: View {
                 .accessibilityLabel("笔记分类")
 
                 Spacer(minLength: 12)
+
+                DecompositionIdentifiedButton(
+                    title: "拆开并安排",
+                    identifier: "notes-plan-and-schedule",
+                    accessibilityName: "拆开并安排",
+                    helpText: "把这篇笔记或选中的文字拆成可安排的行动",
+                    enabled: !isOpeningWorkbench && decompositionRequest == nil,
+                    isBordered: true
+                ) {
+                    Task { @MainActor in
+                        await presentDecompositionWorkbench()
+                    }
+                }
+                .frame(minWidth: 88, minHeight: 22)
+                .fixedSize()
 
                 Button("安排这篇笔记…") { showScheduleSheet = true }
                     .accessibilityLabel("安排这篇笔记到日历")
@@ -225,19 +286,28 @@ struct NoteEditorView: View {
                     .foregroundStyle(.orange)
                     .accessibilityLabel(status)
             }
+            if let entryNotice {
+                Text(entryNotice)
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.error)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+                    .accessibilityLabel(entryNotice)
+            }
 
             GeometryReader { viewport in
                 ScrollView {
                     BlockEditorView(
                         noteID: identity.noteID,
-                        editSessionID: identity.editSessionID,
-                        initialDocument: note.document,
-                        initialSelection: defaultSelection(in: note.document),
+                        editSessionID: activeEditSessionID,
+                        initialDocument: lastAcceptedDocument,
+                        initialSelection: defaultSelection(in: lastAcceptedDocument),
                         focusRegistry: focusRegistry,
                         onDocumentChange: handleDocumentChange,
                         sessionSink: { session in
                             editorSession = session
                             sessionSink(session)
+                            installNativeFinalizer()
                             applyInitialFocusIfReady()
                         }
                     )
@@ -296,6 +366,30 @@ struct NoteEditorView: View {
                 .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
                 .padding(.top, 8)
             }
+            if let workbenchNotice {
+                HStack(spacing: 10) {
+                    Text(workbenchNotice.message)
+                    if store.statePublicationGeneration == workbenchNotice.stateGeneration {
+                        DecompositionIdentifiedButton(
+                            title: "撤销",
+                            identifier: "notes-workbench-undo",
+                            accessibilityName: "撤销本次拆开并安排",
+                            helpText: "只撤销本次创建的行动和日历安排",
+                            enabled: true
+                        ) {
+                            Task { await undoWorkbench(workbenchNotice) }
+                        }
+                        .frame(minWidth: 44, minHeight: 22)
+                        .fixedSize()
+                    }
+                }
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                .padding(.top, scheduleNotice == nil ? 8 : 52)
+            }
         }
         .background(theme.canvas)
         .foregroundStyle(theme.primaryText)
@@ -329,6 +423,33 @@ struct NoteEditorView: View {
                 }
             )
         }
+        .sheet(item: $decompositionRequest) { request in
+            DecompositionWorkbenchSessionView(
+                model: request.model,
+                onCancel: { decompositionRequest = nil },
+                onCommitted: { result in
+                    handleWorkbenchCommitted(result)
+                }
+            )
+            .frame(
+                minWidth: DecompositionWorkbenchMetrics.minimumSize.width,
+                idealWidth: DecompositionWorkbenchMetrics.targetSize.width,
+                maxWidth: DecompositionWorkbenchMetrics.targetSize.width,
+                minHeight: DecompositionWorkbenchMetrics.minimumSize.height,
+                idealHeight: DecompositionWorkbenchMetrics.targetSize.height,
+                maxHeight: DecompositionWorkbenchMetrics.targetSize.height
+            )
+            .accessibilityAddTraits(.isModal)
+            .accessibilityLabel("拆开并安排")
+        }
+        .onChange(of: decompositionRequest?.id) { _, newID in
+            guard newID == nil else { return }
+            workbenchModel?.cancelRequest()
+            workbenchModel = nil
+            onWorkbenchModelChange(nil)
+            onWorkbenchSnapshotChange(nil)
+            onWorkbenchCommitHandlerChange(nil)
+        }
         .confirmationDialog(
             "删除已关联待办？",
             isPresented: Binding(
@@ -360,14 +481,29 @@ struct NoteEditorView: View {
                 applyInitialFocusIfReady()
             }
         }
-        .onChange(of: identity) { _, _ in installNativeFinalizer() }
+        .onChange(of: identity) { _, _ in
+            installNativeFinalizer()
+            rebuiltEditSessionID = nil
+            entryNotice = nil
+            workbenchNotice = nil
+        }
+        .onChange(of: store.statePublicationGeneration) { _, generation in
+            guard let notice = workbenchNotice, notice.stateGeneration != generation else { return }
+            workbenchNotice = nil
+            onWorkbenchFeedbackChange(nil, nil)
+        }
         .onChange(of: activeWorkspaceRoute) { _, route in
             guard route != .notes else { return }
             showCalendarLinks = false
             showScheduleSheet = false
             focusedTaskScheduleRequest = nil
+            workbenchModel?.cancelRequest()
+            decompositionRequest = nil
+            onWorkbenchCommitHandlerChange(nil)
         }
         .onDisappear {
+            workbenchModel?.cancelRequest()
+            onWorkbenchCommitHandlerChange(nil)
             sessionSink(nil)
             if nativeFinalizerHook.wrappedValue != nil {
                 // Only clear when this identity still owns the hook.
@@ -378,6 +514,167 @@ struct NoteEditorView: View {
 
     private var calendarArrangementCount: Int {
         NoteCalendarArrangementProjection.make(noteID: identity.noteID, state: store.state).count
+    }
+
+    private func presentDecompositionWorkbench() async {
+        guard !isOpeningWorkbench, decompositionRequest == nil else { return }
+        isOpeningWorkbench = true
+        defer { isOpeningWorkbench = false }
+        let flushEvidence = await autosave.flushLatest(finalizer: nativeFinalizerHook.wrappedValue)
+        switch flushEvidence {
+        case .clean, .persisted:
+            break
+        case .protectedOnly:
+            publishEntryNotice("请先完成当前笔记的保存，再拆开并安排。")
+            onWorkbenchSnapshotChange(nil)
+            return
+        case .unsafeLatestUnprotected:
+            publishEntryNotice("这次修改还没有安全保存，请先处理保存问题，再拆开并安排。")
+            onWorkbenchSnapshotChange(nil)
+            return
+        }
+        guard await canCapturePersistedWorkbenchSnapshot(afterFlush: flushEvidence) else {
+            publishEntryNotice("内容已保存，但保存清理尚未完成，请重试保存后再拆开并安排。")
+            onWorkbenchSnapshotChange(nil)
+            return
+        }
+        guard let persisted = store.state.notes[identity.noteID] else {
+            publishEntryNotice("找不到这篇笔记，请重新打开后再试。")
+            onWorkbenchSnapshotChange(nil)
+            return
+        }
+        let selection = editorSession?.selection ?? defaultSelection(in: persisted.document)
+        do {
+            let snapshot = try DecompositionSourceCapture.capture(
+                note: persisted,
+                workspaceRevision: store.state.revision,
+                selection: selection
+            )
+            let model = DecompositionWorkbenchModel(
+                snapshot: snapshot,
+                planner: decompositionPlanner,
+                store: store
+            )
+            publishEntryNotice(nil)
+            workbenchModel = model
+            onWorkbenchModelChange(model)
+            decompositionRequest = DecompositionWorkbenchRequest(snapshot: snapshot, model: model)
+            onWorkbenchSnapshotChange(snapshot)
+            onWorkbenchCommitHandlerChange { [self] result in
+                handleWorkbenchCommitted(result)
+            }
+        } catch let error as DecompositionSourceCaptureError {
+            onWorkbenchSnapshotChange(nil)
+            publishEntryNotice(captureMessage(error))
+        } catch {
+            onWorkbenchSnapshotChange(nil)
+            publishEntryNotice("现在不能拆开这段内容，请调整选区后重试。")
+        }
+    }
+
+    private func canCapturePersistedWorkbenchSnapshot(
+        afterFlush evidence: NoteAutosaveBarrierEvidence
+    ) async -> Bool {
+        var evidence = evidence
+        if case .cleanupPending = autosave.autosaveState {
+            evidence = await autosave.retryLatest()
+        }
+        switch evidence {
+        case .clean, .persisted:
+            break
+        case .protectedOnly, .unsafeLatestUnprotected:
+            return false
+        }
+        switch autosave.autosaveState {
+        case .cleanupPending, .commitPending, .finalizingNativeInput, .nativeInputUnresolved, .sealed:
+            return false
+        default:
+            break
+        }
+        return autosave.canReplaceSessionWithPersistedStoreSnapshot
+    }
+
+    private func captureMessage(_ error: DecompositionSourceCaptureError) -> String {
+        switch error {
+        case .emptySource:
+            "这段内容还不够拆开，请先写下要处理的事情。"
+        case .crossBlockSelection:
+            "请只选中同一段里的文字，或取消选区后用整篇笔记拆开。"
+        case .blockSelectionUnsupported:
+            "请改用文字选区，或取消选区后用整篇笔记拆开。"
+        case .invalidSelection:
+            "当前选区无法拆开，请重新选择文字后再试。"
+        }
+    }
+
+    private func publishEntryNotice(_ message: String?) {
+        entryNotice = message
+        onWorkbenchEntryNoticeChange(message)
+    }
+
+    private func handleWorkbenchCommitted(_ result: DecompositionCommitResult) {
+        switch result {
+        case let .committed(created, scheduled, generation):
+            decompositionRequest = nil
+            let rebuilt = rebuildEditorAfterWorkbench()
+            let message = rebuilt
+                ? DecompositionWorkbenchCopy.completionMessage(
+                    created: created,
+                    scheduled: scheduled
+                )
+                : "行动已创建，但当前笔记没有刷新。请重新打开这篇笔记查看。"
+            workbenchNotice = WorkbenchNotice(message: message, stateGeneration: generation)
+            onWorkbenchFeedbackChange(message, generation)
+        case .sourceChanged, .calendarConflict, .notCommitted:
+            break
+        }
+    }
+
+    private func rebuildEditorAfterWorkbench() -> Bool {
+        guard let persisted = store.state.notes[identity.noteID] else { return false }
+        let newID = UUID()
+        do {
+            try autosave.beginSession(
+                persisted,
+                linkedTaskBlockLinks: Set(store.state.taskBlockLinks.filter {
+                    $0.noteID == identity.noteID
+                }),
+                editSessionID: newID,
+                activeHostToken: UUID()
+            )
+            editorSession = nil
+            sessionSink(nil)
+            installNativeFinalizer()
+            lastAcceptedDocument = persisted.document
+            rebuiltEditSessionID = newID
+            return true
+        } catch {
+            editorSession?.autosaveDidResolve(.failed("无法刷新拆开后的保存基线。"))
+            return false
+        }
+    }
+
+    private func invalidateWorkbenchUndoForLocalEdit() {
+        workbenchNotice = nil
+        onWorkbenchFeedbackChange(nil, nil)
+    }
+
+    private func undoWorkbench(_ notice: WorkbenchNotice) async {
+        guard workbenchNotice == notice,
+              store.statePublicationGeneration == notice.stateGeneration else {
+            workbenchNotice = nil
+            onWorkbenchFeedbackChange(nil, nil)
+            return
+        }
+        do {
+            _ = try await store.undo()
+            workbenchNotice = nil
+            onWorkbenchFeedbackChange(nil, nil)
+            _ = rebuildEditorAfterWorkbench()
+        } catch {
+            workbenchNotice = nil
+            onWorkbenchFeedbackChange(nil, nil)
+        }
     }
 
     private func undoScheduledItem(_ notice: ScheduleNotice) async {
@@ -445,7 +742,7 @@ struct NoteEditorView: View {
                 linkedTaskBlockLinks: Set(store.state.taskBlockLinks.filter {
                     $0.noteID == identity.noteID
                 }),
-                editSessionID: identity.editSessionID,
+                editSessionID: activeEditSessionID,
                 activeHostToken: UUID()
             )
         } catch {
@@ -466,6 +763,7 @@ struct NoteEditorView: View {
     }
 
     private func handleDocumentChange(_ document: BlockDocument) {
+        invalidateWorkbenchUndoForLocalEdit()
         guard pendingLinkedTaskDeletion == nil else { return }
         let linkedBlocks = TaskBlockDeletionConfirmation.requiredLinkedBlocks(
             noteID: identity.noteID,

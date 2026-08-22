@@ -388,7 +388,10 @@ private extension Color {
 
 struct EditorDateChip: View {
     @Binding var date: Date
+    var accessibilityIdentifier: String? = nil
+    var accessibilityName: String = "日期"
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isPresented = false
 
     private var theme: CalendarSemanticAppearance {
@@ -397,6 +400,7 @@ struct EditorDateChip: View {
 
     var body: some View {
         Button {
+            guard isEnabled else { return }
             isPresented = true
         } label: {
             HStack(spacing: 5) {
@@ -413,6 +417,11 @@ struct EditorDateChip: View {
             .contentShape(RoundedRectangle(cornerRadius: EditorChipMetrics.corner, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityName)
+        .accessibilityValue(Self.displayText(for: date))
+        .accessibilityAddTraits(.isButton)
+        .modifier(OptionalAccessibilityIdentifier(accessibilityIdentifier))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             EditorMonthCalendar(date: $date) {
                 isPresented = false
@@ -587,6 +596,15 @@ private struct EditorMonthCalendar: View {
         }
         .buttonStyle(.plain)
         .opacity(cell.inMonth ? 1 : 0.38)
+        .accessibilityLabel(Self.fullDateLabel(for: cell.date))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    static func fullDateLabel(for date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%d年%d月%d日", c.year ?? 0, c.month ?? 1, c.day ?? 1)
     }
 
     private func dayForeground(inMonth: Bool, selected: Bool, today: Bool) -> Color {
@@ -700,7 +718,10 @@ private struct EditorMonthCalendar: View {
 
 struct EditorTimeChip: View {
     @Binding var date: Date
+    var accessibilityIdentifier: String? = nil
+    var accessibilityName: String = "开始时间"
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isPresented = false
     @FocusState private var focusedField: TimeDigitField.Field?
 
@@ -718,6 +739,7 @@ struct EditorTimeChip: View {
 
     var body: some View {
         Button {
+            guard isEnabled else { return }
             isPresented = true
         } label: {
             HStack(spacing: 5) {
@@ -734,6 +756,11 @@ struct EditorTimeChip: View {
             .contentShape(RoundedRectangle(cornerRadius: EditorChipMetrics.corner, style: .continuous))
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityName)
+        .accessibilityValue(String(format: "%02d:%02d", hour, minute))
+        .accessibilityAddTraits(.isButton)
+        .modifier(OptionalAccessibilityIdentifier(accessibilityIdentifier))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             timePopover
                 .preferredColorScheme(colorScheme)
@@ -795,6 +822,7 @@ struct EditorTimeChip: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(String(format: "%02d:%02d", h, m))
                 }
             }
         }
@@ -994,5 +1022,22 @@ private struct TimeDigitField: View {
 
     private func formatted(_ value: Int) -> String {
         String(format: "%02d", value)
+    }
+}
+
+private struct OptionalAccessibilityIdentifier: ViewModifier {
+    let identifier: String?
+
+    init(_ identifier: String?) {
+        self.identifier = identifier
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let identifier {
+            content.accessibilityIdentifier(identifier)
+        } else {
+            content
+        }
     }
 }

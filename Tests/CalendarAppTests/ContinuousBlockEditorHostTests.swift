@@ -78,7 +78,7 @@ struct ContinuousBlockEditorHostTests {
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
     }
 
-    @Test @MainActor func focusedEmptyDocumentHidesPlaceholderBeforeTheFirstCharacter() {
+    @Test @MainActor func focusedEmptyDocumentShowsPlaceholderUntilMarkedText() {
         _ = NSApplication.shared
         let block = continuousBlock(id: 261, text: "")
         let fixture = continuousFixture(blocks: [block], selection: continuousCaret(block.id, 0))
@@ -95,7 +95,15 @@ struct ContinuousBlockEditorHostTests {
         defer { window.orderOut(nil) }
 
         #expect(window.makeFirstResponder(fixture.view))
+        #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
+        fixture.view.setMarkedText(
+            "pin",
+            selectedRange: .init(location: 3, length: 0),
+            replacementRange: .init(location: NSNotFound, length: 0)
+        )
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder == false)
+        fixture.view.cancelOperation(nil)
+        #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
         #expect(window.makeFirstResponder(nil))
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
     }

@@ -81,7 +81,7 @@ struct NoteMarkdownCommandTests {
         #expect(try NoteMarkdownCommands.exportMarkdown(from: selected).contains("- 实时正文"))
     }
 
-    @Test func exportSourceRejectsAStaleEditorSession() {
+    @Test func exportSourcePrefersRebuiltSameNoteLiveSnapshotWithDifferentEditSessionID() {
         let noteID = NoteID()
         let persisted = BlockDocument(blocks: [
             .init(
@@ -92,11 +92,11 @@ struct NoteMarkdownCommandTests {
                 indentLevel: 0
             )
         ])
-        let stale = BlockDocument(blocks: [
+        let rebuiltLive = BlockDocument(blocks: [
             .init(
                 id: BlockID(),
                 kind: .paragraph,
-                inlineContent: .plain("过期会话正文"),
+                inlineContent: .plain("重建后未保存正文"),
                 taskState: nil,
                 indentLevel: 0
             )
@@ -109,7 +109,42 @@ struct NoteMarkdownCommandTests {
             liveSnapshot: .init(
                 noteID: noteID,
                 editSessionID: UUID(),
-                document: stale
+                document: rebuiltLive
+            )
+        )
+
+        #expect(selected == rebuiltLive)
+    }
+
+    @Test func exportSourceRejectsADifferentNoteLiveSnapshot() {
+        let persistedNoteID = NoteID()
+        let persisted = BlockDocument(blocks: [
+            .init(
+                id: BlockID(),
+                kind: .paragraph,
+                inlineContent: .plain("已保存正文"),
+                taskState: nil,
+                indentLevel: 0
+            )
+        ])
+        let otherNote = BlockDocument(blocks: [
+            .init(
+                id: BlockID(),
+                kind: .paragraph,
+                inlineContent: .plain("另一篇笔记正文"),
+                taskState: nil,
+                indentLevel: 0
+            )
+        ])
+
+        let selected = NoteMarkdownExportSource.document(
+            persistedNoteID: persistedNoteID,
+            persistedDocument: persisted,
+            editorIdentity: .init(noteID: persistedNoteID, editSessionID: UUID()),
+            liveSnapshot: .init(
+                noteID: NoteID(),
+                editSessionID: UUID(),
+                document: otherNote
             )
         )
 

@@ -49,6 +49,18 @@ final class DecompositionWorkbenchModel {
     private(set) var draft: DecompositionDraft
     private(set) var requestState: DecompositionRequestState = .idle
     private(set) var isCommitting = false
+
+    var canAdvance: Bool { advanceBlockingReason == nil }
+    var canCommit: Bool { commitBlockingReason == nil }
+
+    var advanceBlockingReason: DecompositionWorkbenchBlockingReason? {
+        workbenchBlockingReason(requiresCalendarProposals: false)
+    }
+
+    var commitBlockingReason: DecompositionWorkbenchBlockingReason? {
+        workbenchBlockingReason(requiresCalendarProposals: true)
+    }
+
     private var activeRequest: Task<Void, Never>?
     private var hasCommitted = false
     private var lastCommitResult: DecompositionCommitResult?
@@ -166,52 +178,104 @@ final class DecompositionWorkbenchModel {
         if draft.stage == .understand {
             draft.stage = .split
         }
+        clearPersistenceFailedError()
     }
 
     func deleteCandidate(id: UUID) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
-        draft.candidates.removeAll { $0.id == id }
+        let selectedForCalendar = draft.candidates[index].selectedForCalendar
+        draft.candidates.remove(at: index)
+        if selectedForCalendar {
+            clearCalendarArrangementRecoverableErrors()
+        } else {
+            clearPersistenceFailedError()
+        }
     }
 
-    func moveCandidate(fromOffsets source: IndexSet, toOffset destination: Int) {
+    func moveCandidate(id: UUID, toPositionOf targetID: UUID) {
+        guard id != targetID else { return }
+        guard let from = draft.candidates.firstIndex(where: { $0.id == id }),
+              let to = draft.candidates.firstIndex(where: { $0.id == targetID })
+        else { return }
         cancelRequest()
         var items = draft.candidates
-        let moving = source.sorted().compactMap { index -> CandidateAction? in
-            items.indices.contains(index) ? items[index] : nil
-        }
-        for index in source.sorted(by: >) where items.indices.contains(index) {
-            items.remove(at: index)
-        }
-        let adjusted = min(
-            max(0, destination - source.filter { $0 < destination }.count),
-            items.count
-        )
-        items.insert(contentsOf: moving, at: adjusted)
+        let moving = items.remove(at: from)
+        items.insert(moving, at: to)
         draft.candidates = items
+        clearPersistenceFailedError()
     }
 
     func updateTitle(id: UUID, value: String) {
         guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
-        draft.candidates[index].title = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.candidates[index].title = value
         draft.candidates[index].titleLockedByUser = true
+        clearPersistenceFailedError()
     }
 
     func updateCompletion(id: UUID, value: String) {
         guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
-        draft.candidates[index].completionDescription = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.candidates[index].completionDescription = value
         draft.candidates[index].completionLockedByUser = true
+        clearPersistenceFailedError()
+    }
+
+    func updateDuration(id: UUID, duration: CandidateDuration) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        cancelRequest()
+        draft.candidates[index].estimatedDuration = duration
+        rebuildProposalKeepingStart(at: index)
+        clearCalendarArrangementRecoverableErrors()
+    }
+
+    func updateProposalDate(id: UUID, instant: Date) {
+        guard draft.candidates.contains(where: { $0.id == id }) else { return }
+        cancelRequest()
+        applyProposalStart(
+            id: id,
+            date: CalendarDate.localDay(containing: instant, in: timeZone),
+            startTime: nil
+        )
+        clearCalendarArrangementRecoverableErrors()
+    }
+
+    func updateProposalTime(id: UUID, instant: Date) {
+        guard draft.candidates.contains(where: { $0.id == id }) else { return }
+        cancelRequest()
+        applyProposalStart(
+            id: id,
+            date: nil,
+            startTime: minuteOfDay(containing: instant)
+        )
+        clearCalendarArrangementRecoverableErrors()
+    }
+
+    func editorInstant(id: UUID) -> Date {
+        guard let candidate = draft.candidates.first(where: { $0.id == id }) else {
+            return clock()
+        }
+        return editorInstant(
+            date: candidate.proposal?.schedule.startDate ?? defaultProposalDate,
+            startTime: candidate.proposal?.schedule.startTime ?? defaultProposalStartTime
+        )
     }
 
     func setSelectedForCreation(id: UUID, selected: Bool) {
         guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
         draft.candidates[index].selectedForCreation = selected
-        if !selected {
-            draft.candidates[index].selectedForCalendar = false
-            draft.candidates[index].proposal = nil
+        if selected {
+            if draft.candidates[index].proposal == nil {
+                ensureCalendarProposal(id: id)
+            }
+            clearPersistenceFailedError()
+            return
         }
+        draft.candidates[index].selectedForCalendar = false
+        draft.candidates[index].proposal = nil
+        clearCalendarArrangementRecoverableErrors()
     }
 
     func setSelectedForCalendar(id: UUID, selected: Bool) {
@@ -219,19 +283,26 @@ final class DecompositionWorkbenchModel {
         guard draft.candidates[index].selectedForCreation else { return }
         cancelRequest()
         draft.candidates[index].selectedForCalendar = selected
-        if !selected {
-            draft.candidates[index].proposal = nil
+        if selected {
+            if draft.candidates[index].proposal == nil {
+                ensureCalendarProposal(id: id)
+            }
+            clearPersistenceFailedError()
+            return
         }
+        draft.candidates[index].proposal = nil
+        clearCalendarArrangementRecoverableErrors()
     }
 
     func setProposal(id: UUID, proposal: CalendarProposal?) {
         guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
         draft.candidates[index].proposal = proposal
+        clearCalendarArrangementRecoverableErrors()
     }
 
     func advanceToSchedule() {
-        guard canAdvanceToSchedule() else { return }
+        guard canAdvance else { return }
         cancelRequest()
         if !hasAutoGeneratedCalendarProposals {
             refreshCalendarProposals()
@@ -242,6 +313,7 @@ final class DecompositionWorkbenchModel {
 
     func returnToStage(_ stage: DecompositionStage) {
         guard stage.rawValue <= draft.stage.rawValue else { return }
+        if stage == .schedule, !canAdvance { return }
         cancelRequest()
         draft.stage = stage
     }
@@ -256,6 +328,31 @@ final class DecompositionWorkbenchModel {
         for index in draft.candidates.indices {
             draft.candidates[index].proposal = proposals[draft.candidates[index].id]
         }
+        clearCalendarArrangementRecoverableErrors()
+    }
+
+    func ensureCalendarProposal(id: UUID) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        guard draft.candidates[index].selectedForCreation,
+              draft.candidates[index].selectedForCalendar,
+              draft.candidates[index].proposal == nil else { return }
+        var occupied = CalendarProposalEngine.occupancy(
+            from: store.calendarState,
+            now: clock(),
+            timeZone: timeZone
+        )
+        for candidate in draft.candidates where candidate.id != id {
+            guard candidate.selectedForCreation, candidate.selectedForCalendar,
+                  let schedule = candidate.proposal?.schedule else { continue }
+            occupied.append(schedule)
+        }
+        draft.candidates[index].proposal = CalendarProposalEngine.propose(
+            durationMinutes: draft.candidates[index].estimatedDuration.rawValue,
+            occupied: occupied,
+            now: clock(),
+            timeZone: timeZone
+        )
+        clearCalendarArrangementRecoverableErrors()
     }
 
     func commit() async -> DecompositionCommitResult {
@@ -530,6 +627,9 @@ final class DecompositionWorkbenchModel {
         if let failure = error as? DecompositionPlanningFailure {
             return failure
         }
+        if let unavailable = error as? DecompositionPlannerUnavailableError {
+            return .unavailable(unavailable.reason)
+        }
         if let output = error as? DecompositionOutputError {
             return .invalidOutput(output)
         }
@@ -598,12 +698,125 @@ final class DecompositionWorkbenchModel {
         }
     }
 
-    private func canAdvanceToSchedule() -> Bool {
-        let selected = draft.candidates.filter(\.selectedForCreation)
-        guard !selected.isEmpty else { return false }
-        return selected.allSatisfy {
-            !$0.title.isEmpty && !$0.completionDescription.isEmpty
+    private func workbenchBlockingReason(
+        requiresCalendarProposals: Bool
+    ) -> DecompositionWorkbenchBlockingReason? {
+        if draft.lastRecoverableError == .sourceChanged {
+            return .sourceChanged
         }
+        let selected = draft.candidates.filter(\.selectedForCreation)
+        if selected.isEmpty {
+            return .noSelectedActions
+        }
+        let missingTitles = selected.filter { isBlank($0.title) }.count
+        if missingTitles > 0 {
+            return .missingTitle(count: missingTitles)
+        }
+        let missingCompletions = selected.filter { isBlank($0.completionDescription) }.count
+        if missingCompletions > 0 {
+            return .missingCompletion(count: missingCompletions)
+        }
+        if requiresCalendarProposals {
+            let missingProposals = selected.filter {
+                $0.selectedForCalendar && $0.proposal == nil
+            }.count
+            if missingProposals > 0 {
+                return .missingCalendarProposal(count: missingProposals)
+            }
+        }
+        return nil
+    }
+
+    private func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clearPersistenceFailedError() {
+        if draft.lastRecoverableError == .persistenceFailed {
+            draft.lastRecoverableError = nil
+        }
+    }
+
+    private func clearCalendarArrangementRecoverableErrors() {
+        switch draft.lastRecoverableError {
+        case .calendarConflict, .persistenceFailed:
+            draft.lastRecoverableError = nil
+        default:
+            break
+        }
+    }
+
+    private var defaultProposalDate: CalendarDate {
+        CalendarDate.localDay(containing: clock(), in: timeZone)
+    }
+
+    private var defaultProposalStartTime: MinuteOfDay {
+        MinuteOfDay(hour: 9, minute: 0)!
+    }
+
+    private func rebuildProposalKeepingStart(at index: Int) {
+        guard let proposal = draft.candidates[index].proposal,
+              let startTime = proposal.schedule.startTime else { return }
+        applyProposal(at: index, date: proposal.schedule.startDate, startTime: startTime)
+    }
+
+    private func applyProposalStart(id: UUID, date: CalendarDate?, startTime: MinuteOfDay?) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        let existing = draft.candidates[index].proposal
+        applyProposal(
+            at: index,
+            date: date ?? existing?.schedule.startDate ?? defaultProposalDate,
+            startTime: startTime ?? existing?.schedule.startTime ?? defaultProposalStartTime
+        )
+    }
+
+    private func applyProposal(at index: Int, date: CalendarDate, startTime: MinuteOfDay) {
+        guard let proposal = makeTimedProposal(
+            date: date,
+            startTime: startTime,
+            duration: draft.candidates[index].estimatedDuration
+        ) else { return }
+        draft.candidates[index].proposal = proposal
+    }
+
+    private func makeTimedProposal(
+        date: CalendarDate,
+        startTime: MinuteOfDay,
+        duration: CandidateDuration
+    ) -> CalendarProposal? {
+        let endTotal = startTime.value + duration.rawValue
+        let endDate = endTotal >= 24 * 60 ? date.addingDays(1) : date
+        let endValue = endTotal % (24 * 60)
+        guard let endTime = MinuteOfDay(hour: endValue / 60, minute: endValue % 60),
+              let schedule = try? CalendarSchedule(
+                startDate: date,
+                endDate: endDate,
+                startTime: startTime,
+                endTime: endTime
+              ) else {
+            return nil
+        }
+        return CalendarProposal(schedule: schedule)
+    }
+
+    private func minuteOfDay(containing instant: Date) -> MinuteOfDay {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let components = calendar.dateComponents([.hour, .minute], from: instant)
+        return MinuteOfDay(hour: components.hour ?? 9, minute: components.minute ?? 0)
+            ?? defaultProposalStartTime
+    }
+
+    private func editorInstant(date: CalendarDate, startTime: MinuteOfDay) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar.date(from: DateComponents(
+            year: date.year,
+            month: date.month,
+            day: date.day,
+            hour: startTime.value / 60,
+            minute: startTime.value % 60
+        )) ?? clock()
     }
 
     private enum PreparedCommit {
@@ -612,19 +825,13 @@ final class DecompositionWorkbenchModel {
     }
 
     private func prepareCommit() -> PreparedCommit {
+        if let reason = commitBlockingReason {
+            return .rejected(commitResult(for: reason))
+        }
         guard draft.stage == .schedule else {
             return .rejected(.notCommitted(message: Self.notCommittedMessage))
         }
         let selected = draft.candidates.filter(\.selectedForCreation)
-        guard !selected.isEmpty else {
-            return .rejected(.notCommitted(message: Self.notCommittedMessage))
-        }
-        guard selected.allSatisfy({ !$0.title.isEmpty && !$0.completionDescription.isEmpty }) else {
-            return .rejected(.notCommitted(message: Self.notCommittedMessage))
-        }
-        if selected.contains(where: { $0.selectedForCalendar && $0.proposal == nil }) {
-            return .rejected(.notCommitted(message: Self.notCommittedMessage))
-        }
         guard let note = store.state.notes[draft.source.noteID] else {
             draft.stage = .split
             draft.lastRecoverableError = .sourceChanged
@@ -648,6 +855,17 @@ final class DecompositionWorkbenchModel {
             return .payload(payload, created: selected.count, scheduled: scheduled.count)
         } catch {
             return .rejected(.notCommitted(message: Self.notCommittedMessage))
+        }
+    }
+
+    private func commitResult(
+        for reason: DecompositionWorkbenchBlockingReason
+    ) -> DecompositionCommitResult {
+        switch reason {
+        case .sourceChanged:
+            .sourceChanged
+        case .noSelectedActions, .missingTitle, .missingCompletion, .missingCalendarProposal:
+            .notCommitted(message: Self.notCommittedMessage)
         }
     }
 

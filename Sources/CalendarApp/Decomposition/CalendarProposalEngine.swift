@@ -13,6 +13,48 @@ enum CalendarProposalEngine {
         now: Date,
         timeZone: TimeZone
     ) -> [UUID: CalendarProposal] {
+        var occupied = occupancy(from: calendarState, now: now, timeZone: timeZone)
+        var proposals: [UUID: CalendarProposal] = [:]
+        for action in actions {
+            guard action.selectedForCreation, action.selectedForCalendar else { continue }
+            guard let proposal = propose(
+                durationMinutes: action.estimatedDuration.rawValue,
+                occupied: occupied,
+                now: now,
+                timeZone: timeZone
+            ) else {
+                continue
+            }
+            occupied.append(proposal.schedule)
+            proposals[action.id] = proposal
+        }
+        return proposals
+    }
+
+    static func propose(
+        durationMinutes: Int,
+        occupied: [CalendarSchedule],
+        now: Date,
+        timeZone: TimeZone
+    ) -> CalendarProposal? {
+        let today = CalendarDate.localDay(containing: now, in: timeZone)
+        let firstDayEarliest = max(dayStartMinutes, ceiledMinuteOfDay(now, in: timeZone))
+        guard let schedule = firstAvailableSchedule(
+            durationMinutes: durationMinutes,
+            today: today,
+            firstDayEarliest: firstDayEarliest,
+            occupied: occupied
+        ) else {
+            return nil
+        }
+        return CalendarProposal(schedule: schedule)
+    }
+
+    static func occupancy(
+        from calendarState: CalendarState,
+        now: Date,
+        timeZone: TimeZone
+    ) -> [CalendarSchedule] {
         let today = CalendarDate.localDay(containing: now, in: timeZone)
         let range = CalendarDateRange(
             start: today,
@@ -23,24 +65,7 @@ enum CalendarProposalEngine {
             state: calendarState,
             hiddenCategoryIDs: []
         )
-        var occupied = projection.entries.map(\.schedule)
-        let firstDayEarliest = max(dayStartMinutes, ceiledMinuteOfDay(now, in: timeZone))
-
-        var proposals: [UUID: CalendarProposal] = [:]
-        for action in actions {
-            guard action.selectedForCreation, action.selectedForCalendar else { continue }
-            guard let schedule = firstAvailableSchedule(
-                durationMinutes: action.estimatedDuration.rawValue,
-                today: today,
-                firstDayEarliest: firstDayEarliest,
-                occupied: occupied
-            ) else {
-                continue
-            }
-            occupied.append(schedule)
-            proposals[action.id] = CalendarProposal(schedule: schedule)
-        }
-        return proposals
+        return projection.entries.map(\.schedule)
     }
 
     private static func firstAvailableSchedule(

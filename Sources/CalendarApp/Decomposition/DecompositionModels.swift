@@ -66,6 +66,14 @@ enum DecompositionRecoverableError: Equatable, Sendable {
     case persistenceFailed
 }
 
+enum DecompositionWorkbenchBlockingReason: Equatable, Sendable {
+    case sourceChanged
+    case noSelectedActions
+    case missingTitle(count: Int)
+    case missingCompletion(count: Int)
+    case missingCalendarProposal(count: Int)
+}
+
 struct CandidateAction: Identifiable, Equatable, Sendable {
     let id: UUID
     var title: String
