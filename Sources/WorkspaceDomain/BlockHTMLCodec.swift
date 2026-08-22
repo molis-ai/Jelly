@@ -69,7 +69,10 @@ public enum BlockHTMLCodec {
             let completedAt = block.taskState?.completedAt.map {
                 " data-jelly-completed-at=\"\($0.timeIntervalSince1970)\""
             } ?? ""
-            return "<ul data-jelly-indent=\"\(block.indentLevel)\"><li data-jelly-kind=\"task\"><input type=\"checkbox\" disabled\(checked)\(completedAt)>\(inline)</li></ul>"
+            let completion = block.taskState?.completionDescription.map {
+                " data-jelly-completion-description=\"\(escapeAttribute($0))\""
+            } ?? ""
+            return "<ul data-jelly-indent=\"\(block.indentLevel)\"><li data-jelly-kind=\"task\"\(completion)><input type=\"checkbox\" disabled\(checked)\(completedAt)>\(inline)</li></ul>"
         case .quote:
             return "<blockquote>\(inline)</blockquote>"
         case .code:
@@ -102,6 +105,7 @@ private struct HTMLBlockParser {
         var spans: [InlineSpan] = []
         var indentLevel = 0
         var taskState: TaskBlockState?
+        var completionDescription: String?
         var codeInfoString: String?
 
         mutating func append(_ text: String, marks: Set<InlineMark>, linkURL: URL?, preserveWhitespace: Bool) {
@@ -221,6 +225,7 @@ private struct HTMLBlockParser {
             let jellyKind = parsed.attributes["data-jelly-kind"].flatMap(BlockKind.init(rawValue:))
             let list = listStack.last ?? (.bullet, 0)
             current = Builder(kind: jellyKind ?? list.kind, indentLevel: list.indent)
+            current?.completionDescription = parsed.attributes["data-jelly-completion-description"]
         case "strong", "b": pushMark(.bold)
         case "em", "i": pushMark(.italic)
         case "code":
@@ -245,7 +250,11 @@ private struct HTMLBlockParser {
                 let completedAt = parsed.attributes.keys.contains("checked")
                     ? parsed.attributes["data-jelly-completed-at"].flatMap(Double.init).map(Date.init(timeIntervalSince1970:)) ?? checkedTaskCompletedAt
                     : nil
-                current?.taskState = .init(completedAt: completedAt)
+                let completionDescription = current?.completionDescription
+                current?.taskState = .init(
+                    completedAt: completedAt,
+                    completionDescription: completionDescription
+                )
             }
         case "img":
             finishCurrent()
@@ -306,8 +315,11 @@ private struct HTMLBlockParser {
             trimStructuralWhitespace(&builder.spans)
         }
         if builder.spans.isEmpty { builder.spans = [.init(text: "")] }
-        if builder.kind == .task, builder.taskState == nil {
-            builder.taskState = .init(completedAt: nil)
+        if builder.kind == .task {
+            builder.taskState = .init(
+                completedAt: builder.taskState?.completedAt,
+                completionDescription: builder.completionDescription ?? builder.taskState?.completionDescription
+            )
         }
         if builder.kind == .link,
            !builder.spans.contains(where: { $0.linkURL?.scheme != nil && $0.linkURL?.host != nil }) {

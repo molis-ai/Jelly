@@ -1299,6 +1299,71 @@ struct BlockMarkdownCodecTests {
         #expect(result.diagnostics.map(\.lineNumber) == [2])
     }
 
+    @Test func jellyTaskCompletionMetadataRoundTripsWithoutChangingVisibleTitle() throws {
+        let source = BlockDocument(blocks: [
+            try .task(text: "给物业打电话", completionDescription: "拿到明确上门时间")
+        ])
+        let markdown = try BlockMarkdownCodec.exportMarkdown(source)
+        #expect(markdown.contains("<!--jelly:task-completion:v1;b64="))
+        #expect(markdown.contains("- [ ] 给物业打电话"))
+        #expect(!markdown.contains("拿到明确上门时间"))
+        let restored = try BlockMarkdownCodec.importMarkdown(
+            markdown, idSource: .fixed(source.blocks.map(\.id)), checkedTaskCompletedAt: .distantPast
+        )
+        #expect(restored.document == source)
+        #expect(restored.diagnostics.isEmpty)
+        #expect(restored.document.blocks[0].inlineContent.plainText == "给物业打电话")
+    }
+
+    @Test func jellyTaskCompletionMetadataPreservesListIndentContextAndRejectsInvalidMarkers() throws {
+        let nested = BlockDocument(blocks: [
+            try .task(
+                id: Self.ids(count: 1, start: 1301)[0],
+                text: "联系物业",
+                completionDescription: "确认上门时间"
+            ),
+            try .task(
+                id: Self.ids(count: 1, start: 1302)[0],
+                text: "准备材料",
+                indentLevel: 1,
+                completionDescription: "带上钥匙"
+            )
+        ])
+        let markdown = try BlockMarkdownCodec.exportMarkdown(nested)
+        let restored = try BlockMarkdownCodec.importMarkdown(
+            markdown,
+            idSource: .fixed(nested.blocks.map(\.id)),
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(restored.document == nested)
+        #expect(restored.diagnostics.isEmpty)
+
+        let payload = Data("确认上门时间".utf8).base64EncodedString()
+        let ordinary = try BlockMarkdownCodec.importMarkdown(
+            "- [ ] 普通任务",
+            idSource: .fixed(Self.ids(count: 1, start: 1303)),
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(ordinary.document.blocks[0].taskState?.completionDescription == nil)
+
+        let escaped = try BlockMarkdownCodec.importMarkdown(
+            "- [ ] 转义任务\n\\<!--jelly:task-completion:v1;b64=\(payload)-->",
+            idSource: .fixed(Self.ids(count: 2, start: 1304)),
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(escaped.document.blocks[0].taskState?.completionDescription == nil)
+        #expect(escaped.document.blocks[0].inlineContent.plainText == "转义任务")
+
+        let invalid = try BlockMarkdownCodec.importMarkdown(
+            "- [ ] 失效任务\n<!--jelly:task-completion:v1;b64=@@@-->",
+            idSource: .fixed(Self.ids(count: 2, start: 1306)),
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(invalid.document.blocks[0].taskState?.completionDescription == nil)
+        #expect(invalid.document.blocks[0].inlineContent.plainText == "失效任务")
+        #expect(invalid.diagnostics.map(\.message).contains("无效的 Jelly 控制标记已保留为正文"))
+    }
+
     private static func ids(count: Int, start: Int) -> [BlockID] {
         (0..<count).map { offset in
             let value = start + offset

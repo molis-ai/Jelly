@@ -13,6 +13,7 @@ public enum BlockDocumentValidationError: Error, Equatable, Sendable {
     case dividerHasContent(BlockID)
     case invalidDividerInlineContent(BlockID)
     case invalidLink(BlockID)
+    case invalidCompletionDescription(BlockID)
 }
 
 public enum BlockDocumentValidator {
@@ -51,8 +52,13 @@ public enum BlockDocumentValidator {
         }
         switch block.kind {
         case .task:
-            guard block.taskState != nil else {
+            guard let taskState = block.taskState else {
                 throw BlockDocumentValidationError.missingTaskState(block.id)
+            }
+            if let description = taskState.completionDescription {
+                guard description == TaskBlockState.canonicalCompletionDescription(description) else {
+                    throw BlockDocumentValidationError.invalidCompletionDescription(block.id)
+                }
             }
         case .paragraph, .heading1, .heading2, .heading3, .bullet, .ordered, .quote, .code, .divider, .link:
             guard block.taskState == nil else {

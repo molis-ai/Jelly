@@ -108,6 +108,7 @@ private struct NormalizedDocumentBlock: Codable {
     let kind: BlockKind
     let spans: [NormalizedInlineSpan]
     let completedAt: Date?
+    let completionDescription: String?
     let indentLevel: Int
     let codeInfoString: String?
 
@@ -116,6 +117,7 @@ private struct NormalizedDocumentBlock: Codable {
         kind = block.kind
         spans = block.inlineContent.spans.map(NormalizedInlineSpan.init)
         completedAt = block.taskState?.completedAt
+        completionDescription = block.taskState?.completionDescription
         indentLevel = block.indentLevel
         codeInfoString = block.codeInfoString
     }

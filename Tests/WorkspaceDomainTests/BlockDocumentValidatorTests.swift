@@ -195,4 +195,68 @@ struct BlockDocumentValidatorTests {
             }
         }
     }
+
+    @Test func taskCompletionDescriptionCanonicalizesAndOldJSONDefaultsToNil() throws {
+        let task = try DocumentBlock.task(text: "联系物业", completionDescription: "  确认上门时间  \n")
+        #expect(task.taskState?.completionDescription == "确认上门时间")
+
+        let whitespaceOnly = try DocumentBlock.task(text: "手工任务", completionDescription: "  \n\t")
+        #expect(whitespaceOnly.taskState?.completionDescription == nil)
+
+        let old = #"{"completedAt":null}"#.data(using: .utf8)!
+        #expect(try JSONDecoder.workspaceDeterministic.decode(TaskBlockState.self, from: old)
+            == TaskBlockState(completedAt: nil, completionDescription: nil))
+
+        let encoded = try JSONEncoder.workspaceDeterministic.encode(
+            TaskBlockState(completedAt: nil, completionDescription: "  结果  ")
+        )
+        #expect(try JSONDecoder.workspaceDeterministic.decode(TaskBlockState.self, from: encoded)
+            == TaskBlockState(completedAt: nil, completionDescription: "结果"))
+    }
+
+    @Test func validatorAllowsNilCompletionDescriptionAndRejectsNonCanonicalValues() throws {
+        let ordinaryID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000219")!)
+        let paddedID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000220")!)
+        let ordinary = try DocumentBlock.task(id: ordinaryID, text: "普通待办")
+        try BlockDocumentValidator.validate(.init(blocks: [ordinary]))
+        #expect(ordinary.taskState?.completionDescription == nil)
+
+        var padded = try DocumentBlock.task(id: paddedID, text: "普通待办", completionDescription: "结果")
+        padded.taskState?.completionDescription = "  结果  "
+        #expect(throws: BlockDocumentValidationError.invalidCompletionDescription(paddedID)) {
+            try BlockDocumentValidator.validate(.init(blocks: [padded]))
+        }
+    }
+
+    @Test func changingCompletionDescriptionChangesNoteSnapshotChecksum() throws {
+        let noteID = NoteID(UUID(uuidString: "00000000-0000-0000-0000-000000000221")!)
+        let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+        let blockID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000223")!)
+        func note(with description: String?) throws -> Note {
+            Note(
+                id: noteID,
+                title: "校验和",
+                document: .init(blocks: [
+                    try .task(id: blockID, text: "打电话", completionDescription: description)
+                ]),
+                categoryID: categoryID,
+                archivedAt: nil,
+                revision: 1,
+                createdAt: .distantPast,
+                updatedAt: .distantPast
+            )
+        }
+
+        let without = try note(with: nil)
+        let withDescription = try note(with: "拿到确认")
+        let withOther = try note(with: "另一种结果")
+        #expect(
+            try WorkspaceChecksum.noteSnapshotChecksum(without)
+                != WorkspaceChecksum.noteSnapshotChecksum(withDescription)
+        )
+        #expect(
+            try WorkspaceChecksum.noteSnapshotChecksum(withDescription)
+                != WorkspaceChecksum.noteSnapshotChecksum(withOther)
+        )
+    }
 }
