@@ -488,6 +488,13 @@ enum MiniMaxLiveReporter {
         [payload.question] + payload.quickAnswers
     }
 
+    static func rawOutputLine(_ text: String) -> String {
+        let oneLine = text
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return "raw=\(oneLine.prefix(1_000))"
+    }
+
     static func milliseconds(since started: Date) -> Int {
         Int((Date().timeIntervalSince(started) * 1000).rounded())
     }

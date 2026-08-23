@@ -6,12 +6,12 @@
 > 视觉重做与最新 App 实操日期：2026-08-24
 > 分支：`codex/jelly-goalboard-plan-and-schedule`
 > 此前最终打包 App / 产品实操对应代码：`75a59dd56f9fa3264d9136230deced96d27188e0`
-> 最新视觉重做对应当前分支本文件所在提交；已重新生成并实操 `dist/Jelly.app`
-> 状态：最新候选的工程验证与当前设备可覆盖的手动产品实操通过；MiniMax-M3 结构回归见下文；真实 Apple 模型与用户验收尚未完成
+> 最新视觉重做基线：`75cbc21`；语义收紧对应当前分支本文件所在候选；已重新生成并实操 `dist/Jelly.app`
+> 状态：最新候选除一个已在 `75cbc21` 基线复现的无关既有测试失败外，工程门禁通过；当前设备可覆盖的手动产品实操与 MiniMax-M3 代理语义回归通过；真实 Apple 模型与用户验收尚未完成
 
 本文记录当前真实状态和证据边界。自动化测试绿不能代替打包 App 实操，限定主流程跑通也不能代替用户本人对 9 分体验的判断。MiniMax 真实调用不能代替 Apple Foundation Models 在最终 App 中的可用性或质量。
 
-## 工程验证通过
+## 工程验证（候选通过，已知基线失败）
 
 - `git diff --check`：通过。
 - Codex 最终独立复审：直接检查 `origin/main...HEAD` 的模型输出信任边界、取消与迟到结果、来源陈旧、原子写入、日历冲突、生产装配、重复提交和精确撤销路径；本轮结果为 `0 Critical / 0 Important`。这不替代下方真实模型、IME、VoiceOver 与主观体验验收。
@@ -24,9 +24,10 @@
 - `./Scripts/build-app.sh`：通过，生成 `dist/Jelly.app`、`dist/Jelly.app.zip`、`dist/Jelly.dmg`。
 - `codesign --verify --deep --strict --verbose=2 dist/Jelly.app`：通过。Identifier `com.oreal.personalcalendar`，ad-hoc 签名，CDHash `869c53ee577a07b3a58cd4c93c27603bd7e66b30`；这不是公证发行证明。
 - 2026-08-24 视觉重做后的全量 `swift test` 退出 0；`DecompositionWorkbenchPresentationTests` 与 `DecompositionWorkbenchInteractionTests` 定向套件通过，覆盖窄窗全宽行动行、紧凑来源区、克制主按钮、长快捷回答、完整 Tab 旅程、关闭/停止语义和覆盖人工时间前确认。
-- 2026-08-24 最新 `./Scripts/build-app.sh`、release build、purity 自测/扫描与 `./Scripts/test-build-app-archive.sh` 均通过。临时 ZIP 与只读 DMG 中是同一个严格签名 App，archive regression CDHash 为 `83cd1922dc0b144c3ad782337a41d3d435285199`。
-- 最新 `dist/Jelly.app` 严格签名校验通过。Identifier `com.oreal.personalcalendar`，ad-hoc 签名，CDHash `576e06f7da10cfb01f692811db4b7c357b38caff`；这不是公证发行证明。
-- 2026-08-24 最新产物 SHA-256：可执行文件 `b34a158590684863cffab5b39f63ffbac304a1811d6efeec5b5092e94673b1cd`；ZIP `562fa9e8a64a71e2871a7cf6b6cb2fa5a1d16cf672ffcaffb3884130addae81a`；DMG `6cd94822dbb510a5e80b01afe331f746948b17aa83f223dae6c21de597a8c337`。
+- 2026-08-24 语义收紧后的最新全量 `swift test` 有且只有 `BlockEditorUndoTests/hostedLinkButtonRemovesTheLinkAtItsCollapsedCaretWithoutPromptingAgain` 失败 3 项；在从 `75cbc21` 导出的全新基线目录中运行同一测试，得到完全相同的 3 项失败，因此不把它归因于本候选。排除该既有失败后，其余全量测试退出 0；本候选涉及的 prompt contract、validator/reducer 与 MiniMax live support 定向回归均通过。
+- 2026-08-24 最新 `./Scripts/build-app.sh`、release build、purity 自测/扫描与 `./Scripts/test-build-app-archive.sh` 均通过。临时 ZIP 与只读 DMG 中是同一个严格签名 App，archive regression CDHash 为 `f03dea48eb0c0e584ac4763e64975f775db05ffc`。
+- 最新 `dist/Jelly.app` 严格签名校验通过。Identifier `com.oreal.personalcalendar`，ad-hoc 签名，CDHash `2abb1e5ef2d8e2778926f494a4ab726db6608c22`；这不是公证发行证明。
+- 2026-08-24 最新产物 SHA-256：可执行文件 `PersonalCalendar` 为 `6c339f28c99c64e1edb47a2c03f84a9b37594e83897fefe2dbcd7f80831fc33a`；ZIP `5b93c8e161a1961b0a035f70f360e40b2f61997dbe0ac7d8433cf56ad6d75495`；DMG `413fbd67357b1baf42f3b79ea9b650aaebe28df6726e8fb77fb7ea909bce7298`。
 
 以上工程证据本身只能说明工程验证通过，不能单凭这些证据声称 9 分体验、产品实操通过或用户验收通过。
 
@@ -87,6 +88,15 @@ Codex 从最新 `dist/Jelly.app` 启动，使用独立目录 `jelly-ninepoint-fi
 
 最新候选的手动主路径、真实展开态、提交写回和精确撤销达到当前设备可覆盖的产品实操标准。主观视觉是否达到用户要求的 9 分仍只能由用户本人确认；当前结论是“新候选可交用户验收”，不是“用户验收通过”。
 
+语义收紧并重新打包后，Codex 又从当前 `dist/Jelly.app` 启动，使用独立目录 `jelly-final-app3.uIJ6Lg/data` 和中文笔记“搬家前把安排变成行动”复跑最终候选：
+
+- App 确认只有隔离数据，没有读取或改写用户正在使用的 Jelly 数据；设备无 Apple 智能模型时明确降级，不伪装为智能拆解成功。
+- 手动建立“确认旧房交接日期”和“联系两家搬家公司获取书面报价”，每项都有可观察的完成说明；只把第一项加入日历，提交反馈准确显示“已创建 2 个行动，并安排其中 1 个”。
+- 写回后无障碍树和落盘 JSON 一致：原始三段逐字保留，新增 2 个 Task Block、1 个 Calendar Item 和 1 个 TaskBlockCalendarLink；draft journal 的 `records` 为空。
+- 点击“撤销本次拆开并安排”后，Calendar Item、两个 Task Block 和 link 全部移除；原始三段仍逐字保留，落盘计数为 1 篇笔记、0 个日历项、0 个 link，journal 仍为空。
+
+这轮覆盖的是最新重新打包 App 的手动降级闭环；Apple Foundation Models 的真实提问、初始拆解、刷新、局部重拆和修复仍不能由这条手动路径代替。
+
 ## 2026-08-24 MiniMax-M3 真实回归
 
 本次只在测试轨上用 MiniMax-M3 复用 Jelly production prompt 与真实 `DecompositionOutputValidator` / `DecompositionDraftReducer`。生产 App 仍只装配 Apple Foundation Models；client 与 runner 不进入 `Sources`。
@@ -98,43 +108,49 @@ Codex 从最新 `dist/Jelly.app` 启动，使用独立目录 `jelly-ninepoint-fi
 - 取钥：先 `appkey list` 确认 name `minimax`，再同一条 shell `appkey exec minimax -- sh -c 'JELLY_MINIMAX_LIVE=1 JELLY_MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic JELLY_MINIMAX_MODEL=MiniMax-M3 swift test --filter MiniMaxDecompositionLiveTests'`
 - 密钥卫生：未使用 `appkey get`、未读 `~/.appkey/`；日志与提交不含 Authorization / key；self-test 证明 fake secret 不出现在 stdout/stderr
 
-### 首次真实失败与 production prompt 收紧
+### 真实失败与 production prompt 收紧
 
-首次真实结果原样保留，没有为了绿测重跑到偶然成功：
+真实失败原样保留，没有为了绿测重跑到偶然成功。除最早的结构问题外，继续按用户视角复审后还暴露了语义问题：
 
 1. `locked_refresh` 首次失败：`DecompositionOutputError.unexpectedExistingIDs`。当时 production prompt 只要求不得覆盖 locked 字段，没有写出 `validateRefresh` 要求的 ID 集合不变量。随后只在非空 `existingCandidates` 时补上：每个现有 id 必须原样出现恰好一次；不得新增、省略、重复，也不得把 existingID 写成空或 null；locked 字段必须逐字保留。
 2. 日程类追问失败：第二次 `specific_dental` 把「下周三」改问成精确日历日期；第三次 `specific_dental` 追问今天哪个开始时间，`vague_moving` 追问总天数。这些都不决定需要哪些行动。clarification 约束因此收成一条：追问只问会改变行动阶段或范围的当前事实，例如已经做了什么、目标对象是否已经落实；不得询问先做哪一块、优先级、日程、开始时间、精确日期或总时长；已有且可原样保留的日期、金额、名称不要追问。
 3. `vague_moving` 返回 4 个快捷回答，超过产品和 UI 的 `prefix(3)`。同一条单问 instruction 改为：需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答。
+4. 模糊追问曾询问“先理清哪个不确定项”或用户偏好，甚至在事实仍未知时直接拆解；prompt 改为只收集一个会改变行动范围的事实状态，并写入明确反例和正例。
+5. 初始拆解曾提前要求签约、付定金或下单，也曾凭空增加朋友、邻居、9 月 10 日、“整租”等来源没有给出的事实；候选现在必须从当前来源即可直接开始，不得假设协作者、地点、承诺、期限、偏好、规格或服务类型。
+6. 候选曾互相依赖，例如先拿报价再比较、先保存房源再预约；现在每个候选必须独立可启动、在一次聚焦会话内完成，并用可观察结果收口，不得把其他候选的完成结果当作前置条件。
+7. “总预算两万元”曾被错误分摊到房租、搬家公司或相加的备选报价；现在金额、日期、名称只能保留在来源明确限定的作用域，整体预算不得复制成单项预算或备选报价合计。若确实需要，可另建“分配预算”行动。
+8. refresh 曾把 `completionDescription` 错写成 `completion`、改变候选数量或返回肉眼无变化的“刷新”；现在要求原有 ID 集合和数量精确保留、locked 字段逐字保留，并至少让一个未锁字段产生可见改善。
+9. 局部重拆曾只返回 1 项，或为了凑数量加入比较、预约等下游任务；现在明确输出 2～5 项，2 项已经覆盖范围时就停止，不得填充下游工作。
+10. repair 曾只修时长，却把行动语义退化为模糊“处理/落实”；修复输出现在仍需满足独立可执行、事实作用域和可观察完成标准。
 
 以上全部是 production `DecompositionPromptBuilder` 契约收紧，没有放宽 validator，也没有在 test-only JSON 里偷加语义。
 
-### 最终结构套件
+### 最终结构与语义套件
 
-最终 `MiniMaxDecompositionLiveTests` 为 9/9，其中 6 次真实 MiniMax-M3 LLM 调用进入真实 validator/reducer：
+最终连续两次完整运行 `MiniMaxDecompositionLiveTests` 均为 9/9，其中每轮 6 次真实 MiniMax-M3 LLM 调用进入真实 validator/reducer；不是只重跑单个偶然通过的案例。初始拆解、修复、刷新、局部重拆和模糊追问还分别完成了连续 3 次定向重复：
 
 | 案例 | 结构结果 |
 |---|---|
-| 模糊搬家追问 | 结构 PASS（`needsFollowUp`，question 非空，快捷回答 ≤3） |
+| 模糊搬家追问 | PASS：直接询问“入住日期目前确定了吗？”一类事实状态，快捷回答 ≤3 |
 | 具体牙科无需追问 | PASS |
-| 搬家回答后的初始拆解 | PASS |
-| locked 刷新 | PASS（ID 各一次，locked 字段经 `validateRefresh` + `mergeRefresh` 保留） |
-| 局部重拆 | PASS |
-| invalidDuration(20) 修复 | PASS |
+| 搬家回答后的初始拆解 | PASS：候选可独立开始、没有提前签约/付款、没有虚构事实或预算泄漏 |
+| locked 刷新 | PASS：ID 各一次，locked 字段经 `validateRefresh` + `mergeRefresh` 保留，未锁字段有可见改善 |
+| 局部重拆 | PASS：返回 2～5 个同层级独立行动，没有下游填充 |
+| invalidDuration(20) 修复 | PASS：时长合法，行动语义没有退化 |
 
 同一 suite 的 3 条离线测试（零网络、prompt/JSON 合同、decoder 不校正非法时长）也通过。
 
 ### 人工语义复审
 
-- 具体牙科无需追问：PASS
-- 初始拆解：PASS
-- locked 刷新：PASS
-- 局部重拆：PASS
-- 修复请求：PASS
-- 模糊搬家追问：「你现在更想先理清哪个不确定项：入住日期还是预算？」可用，但问的是澄清顺序，而不是直接收集当前事实，约 8/10，因此九分语义门槛 FAIL。
+- 模糊追问：PASS。问题收集当前事实，不再把“先想哪个”抛回用户，也不会在关键事实未知时擅自往下拆。
+- 具体输入与初始拆解：PASS。输出是用户此刻能直接做的动作，有可观察完成说明，不提前承诺或付款，不发明人物、地点、日期、偏好和规格。
+- locked 刷新：PASS。数量和身份稳定，用户锁定内容不动，未锁内容确实变得更具体。
+- 局部重拆：PASS。拆到同一层级的 2～5 个独立行动，够用即停，不用下游预约或比较凑数。
+- 修复请求：PASS。修合法时长的同时保住直接动作、事实边界和完成标准。
+- 金额与作用域：PASS。整体预算没有被误写成单项房租、搬家报价或备选总和。
 
-MiniMax-M3 真实 LLM 调用与 Jelly production prompt/validator 回归：PASS。
-九分语义门槛：FAIL。模糊搬家追问「你现在更想先理清哪个不确定项：入住日期还是预算？」可用，但问的是澄清顺序而不是直接收集当前事实，约 8/10。
-该证据不代表 Apple Foundation Models 在最终 App 中可用或质量通过。
+MiniMax-M3 真实 LLM 调用与 Jelly production prompt/validator 的结构和九分候选语义门槛：PASS。
+该结论是对 MiniMax-M3 代理模型在这些固定代表性场景中的证据，不代表 Apple Foundation Models 在最终 App 中可用、稳定或质量通过，也不代表用户本人已经给出 9 分。
 
 ## UNVERIFIED
 
