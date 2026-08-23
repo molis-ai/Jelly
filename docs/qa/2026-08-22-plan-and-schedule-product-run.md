@@ -3,7 +3,7 @@
 > 设计日期：2026-08-22
 > 工程验证日期：2026-08-23
 > 分支：`codex/jelly-goalboard-plan-and-schedule`
-> Task 9 实现 HEAD：`0a01e58550b39c7f10461c90d6bc7e9bb714ea7c`
+> 最终功能代码 HEAD：`75a59dd56f9fa3264d9136230deced96d27188e0`
 > 状态：工程验证通过；当前设备可覆盖的最终 App 产品实操通过；真实模型与用户验收尚未完成
 
 本文记录当前真实状态和证据边界。自动化测试绿不能代替打包 App 实操，限定主流程跑通也不能代替用户本人对 9 分体验的判断。
@@ -11,6 +11,7 @@
 ## 工程验证通过
 
 - `git diff --check`：通过。
+- Codex 最终独立复审：直接检查 `origin/main...HEAD` 的模型输出信任边界、取消与迟到结果、来源陈旧、原子写入、日历冲突、生产装配、重复提交和精确撤销路径；本轮结果为 `0 Critical / 0 Important`。这不替代下方真实模型、IME、VoiceOver 与主观体验验收。
 - Task 9 focused suites：166 tests / 5 suites 通过。覆盖非协作 timeout/cancel、迟到结果、说明编辑与真实私有剪贴板往返、相邻空标题 task 几何，以及真实 JSON apply / 重启 load / 同会话 undo 后再 load。
 - Task 10 保存交接回归：`NoteAutosaveCoordinatorTests` 32/32、`NotesVerticalIntegrationTests` 18/18、`TaskBlockCalendarIntegrationTests` 10/10、`WorkspaceRouteTransitionTests` 6/6 通过；共享反馈与真实撤销、原生 finalizer 替换、编辑器会话交接的定向回归通过。
 - `swift test`：全量退出 0。
@@ -19,7 +20,7 @@
 - `./Scripts/test-build-app-archive.sh`：通过。临时 ZIP 与只读 DMG 内是同一个严格签名 App。
 - `./Scripts/build-app.sh`：通过，生成 `dist/Jelly.app`、`dist/Jelly.app.zip`、`dist/Jelly.dmg`。
 - `codesign --verify --deep --strict --verbose=2 dist/Jelly.app`：通过。Identifier `com.oreal.personalcalendar`，ad-hoc 签名，CDHash `869c53ee577a07b3a58cd4c93c27603bd7e66b30`；这不是公证发行证明。
-- 最终产物 SHA-256：可执行文件 `f76d416f7d9aba84ea496105d730e5b0fc01aa16958312041728f248bd473373`；ZIP `43ddf8d3792a8ba7b17ce99ea7df27e0df2a27f39dfea7b2ce21029ac1498985`；DMG `eea2956edc0c8e63d3ed3b7eeba14343ca92b23bb97f600333be07c64746adba`。
+- 2026-08-23 最终重打包产物 SHA-256：可执行文件 `f76d416f7d9aba84ea496105d730e5b0fc01aa16958312041728f248bd473373`；ZIP `7535ad5602356ea93b4f4374c712054cf1175149b565a55f2144d54250e17f19`；DMG `5928e3dd26dfd792da8095f53d1141fab09d079003115130d2c8846cf1c5b5df`。
 
 以上工程证据本身只能说明工程验证通过，不能单凭这些证据声称 9 分体验、产品实操通过或用户验收通过。
 
