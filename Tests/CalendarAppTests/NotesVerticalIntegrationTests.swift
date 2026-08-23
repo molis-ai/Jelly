@@ -1,6 +1,7 @@
 import AppKit
 import CalendarDomain
 import CalendarPersistence
+import Combine
 import Foundation
 import SwiftUI
 import Testing
@@ -341,6 +342,196 @@ struct NotesVerticalIntegrationTests {
         _ = await flushTask.value
     }
 
+    @Test func staleWorkbenchCommitAfterParentRekeyDoesNotHijackAutosaveOrWriteParagraphDraft() async throws {
+        let directory = try NotesVerticalTempDirectory()
+        defer { directory.remove() }
+        let journalURL = directory.file("draft.json")
+        let host = try await productionNoteEditorHost(
+            document: scheduledWorkbenchSourceDocument(),
+            journalURL: journalURL
+        )
+        defer { host.close() }
+
+        let staleSession = try #require(await waitUntilValue { host.box.session })
+        let executed = try await executeScheduledWorkbenchCommit(on: host)
+        let persistedAfterCommit = try #require(host.store.state.notes[host.noteID])
+        #expect(persistedAfterCommit.document.blocks.contains { $0.kind == .task })
+        #expect(staleSession.document.blocks.contains { $0.kind == .task } == false)
+        #expect(staleSession.editSessionID == host.parentIdentity.editSessionID)
+
+        let parentReplacementID = UUID()
+        try host.autosave.beginSession(
+            persistedAfterCommit,
+            linkedTaskBlockLinks: Set(host.store.state.taskBlockLinks.filter {
+                $0.noteID == host.noteID
+            }),
+            editSessionID: parentReplacementID,
+            activeHostToken: UUID()
+        )
+        #expect(host.autosave.currentEditSessionID == parentReplacementID)
+        let staleFinalizer = try #require(host.box.finalizer)
+
+        try host.completeWorkbenchCommit(executed.result)
+        host.sync()
+
+        #expect(host.autosave.currentEditSessionID == parentReplacementID)
+        #expect(
+            host.feedbackMessage
+                == DecompositionWorkbenchCopy.completionMessage(created: 1, scheduled: 1)
+        )
+        #expect(createdPlanStillPresent(executed.created, on: host))
+        #expect(staleSession.document.blocks.contains { $0.kind == .task } == false)
+
+        #expect(await host.autosave.finalizeNativeInputForRoute(staleFinalizer) == false)
+        #expect(host.autosave.autosaveState == .editable)
+
+        let journal = DraftJournalRepository(fileURL: journalURL)
+        #expect((try await journal.current()?.records ?? []).isEmpty)
+
+        let persistedFinal = try #require(host.store.state.notes[host.noteID])
+        #expect(persistedFinal.document == persistedAfterCommit.document)
+        #expect(createdPlanStillPresent(executed.created, on: host))
+        #expect(host.autosave.currentEditSessionID == parentReplacementID)
+    }
+
+    @Test func staleWorkbenchCommitAfterSwitchingNotesDoesNotPublishNoticeOrHijackAutosave() async throws {
+        let directory = try NotesVerticalTempDirectory()
+        defer { directory.remove() }
+        let journalURL = directory.file("draft.json")
+        let host = try await productionNoteEditorHost(
+            document: scheduledWorkbenchSourceDocument(),
+            journalURL: journalURL
+        )
+        defer { host.close() }
+
+        let firstNoteID = host.noteID
+        let executed = try await executeScheduledWorkbenchCommit(on: host)
+        let firstNoteAfterCommit = try #require(host.store.state.notes[firstNoteID])
+        #expect(firstNoteAfterCommit.document.blocks.contains { $0.kind == .task })
+        #expect(createdPlanStillPresent(executed.created, on: host))
+        let staleHandler = try #require(host.box.commitHandler)
+
+        var second = Note.empty(
+            id: NoteID(),
+            categoryID: host.store.calendarState.uncategorizedID,
+            now: .distantPast
+        )
+        second.title = "第二篇笔记"
+        second.document = BlockDocument(blocks: [
+            .init(
+                id: BlockID(),
+                kind: .paragraph,
+                inlineContent: .plain("另一篇笔记正文"),
+                taskState: nil,
+                indentLevel: 0
+            )
+        ])
+        _ = try await host.store.sendWorkspace(.createNote(.init(note: second)))
+        let persistedSecond = try #require(host.store.state.notes[second.id])
+        let secondSessionID = UUID()
+        try host.autosave.beginSession(
+            persistedSecond,
+            linkedTaskBlockLinks: Set(host.store.state.taskBlockLinks.filter {
+                $0.noteID == persistedSecond.id
+            }),
+            editSessionID: secondSessionID,
+            activeHostToken: UUID()
+        )
+        #expect(host.autosave.currentNoteID == persistedSecond.id)
+        #expect(host.autosave.currentEditSessionID == secondSessionID)
+
+        host.box.workbenchNotice = nil
+        host.box.feedback = nil
+        host.box.feedbackGeneration = nil
+
+        staleHandler(executed.result)
+        host.sync()
+
+        #expect(host.box.workbenchNotice == nil)
+        #expect(host.feedbackMessage == nil)
+        #expect(host.identifiedButton("notes-workbench-undo") == nil)
+        #expect(host.identifiedAccessibilityNode("notes-workbench-feedback") == nil)
+        #expect(host.autosave.currentNoteID == persistedSecond.id)
+        #expect(host.autosave.currentEditSessionID == secondSessionID)
+        #expect(createdPlanStillPresent(executed.created, on: host))
+
+        let secondAfterStale = try #require(host.store.state.notes[persistedSecond.id])
+        #expect(secondAfterStale.document == persistedSecond.document)
+        #expect(secondAfterStale.title == persistedSecond.title)
+
+        let journal = DraftJournalRepository(fileURL: journalURL)
+        #expect((try await journal.current()?.records ?? []).isEmpty)
+    }
+
+    @Test func sharedWorkbenchNoticeSurvivesReplacementHostAndUndoRemovesCreatedPlan() async throws {
+        let directory = try NotesVerticalTempDirectory()
+        defer { directory.remove() }
+        let journalURL = directory.file("draft.json")
+        let host = try await productionNoteEditorHost(
+            document: scheduledWorkbenchSourceDocument(),
+            journalURL: journalURL
+        )
+        defer { host.close() }
+
+        let executed = try await executeScheduledWorkbenchCommit(on: host)
+        let persistedAfterCommit = try #require(host.store.state.notes[host.noteID])
+        #expect(createdPlanStillPresent(executed.created, on: host))
+        #expect(persistedAfterCommit.document.blocks.contains { $0.kind == .task })
+
+        let parentReplacementID = UUID()
+        let replacementIdentity = NoteEditorIdentity(
+            noteID: host.noteID,
+            editSessionID: parentReplacementID
+        )
+        try host.autosave.beginSession(
+            persistedAfterCommit,
+            linkedTaskBlockLinks: Set(host.store.state.taskBlockLinks.filter {
+                $0.noteID == host.noteID
+            }),
+            editSessionID: parentReplacementID,
+            activeHostToken: UUID()
+        )
+        #expect(host.autosave.currentEditSessionID == parentReplacementID)
+
+        try host.completeWorkbenchCommit(executed.result)
+        host.sync()
+        let successCopy = DecompositionWorkbenchCopy.completionMessage(created: 1, scheduled: 1)
+        #expect(host.box.workbenchNotice?.message == successCopy)
+        #expect(host.box.workbenchNotice?.stateGeneration != nil)
+
+        host.remountReplacement(identity: replacementIdentity, note: persistedAfterCommit)
+        let feedback = try #require(await waitUntilValue(timeout: .seconds(3)) { () -> NSView? in
+            host.sync()
+            return host.identifiedAccessibilityNode("notes-workbench-feedback")
+        })
+        #expect(feedback.accessibilityIdentifier() == "notes-workbench-feedback")
+        #expect(feedback.accessibilityLabel() == successCopy)
+        #expect(feedback.accessibilityValue() as? String == successCopy)
+        let undo = try #require(await waitUntilValue(timeout: .seconds(3)) { () -> NSButton? in
+            host.sync()
+            return host.identifiedButton("notes-workbench-undo")
+        })
+        #expect(undo.isEnabled)
+        #expect(undo.accessibilityIdentifier() == "notes-workbench-undo")
+        undo.performClick(undo)
+        #expect(await waitUntil(timeout: .seconds(3)) {
+            host.sync()
+            return createdPlanRemoved(executed.created, on: host)
+                && originalSourceRemains(executed.created, on: host)
+                && host.box.workbenchNotice == nil
+                && host.identifiedButton("notes-workbench-undo") == nil
+                && host.identifiedAccessibilityNode("notes-workbench-feedback") == nil
+        })
+        let remainingBlockIDs = Set(host.store.state.notes[host.noteID]?.document.blocks.map(\.id) ?? [])
+        #expect(executed.created.taskBlockIDs.isDisjoint(with: remainingBlockIDs))
+        #expect(executed.created.links.isDisjoint(with: host.store.state.taskBlockLinks))
+        #expect(executed.created.calendarItemIDs.allSatisfy { host.store.calendarState.items[$0] == nil })
+        #expect(originalSourceRemains(executed.created, on: host))
+        let journal = DraftJournalRepository(fileURL: journalURL)
+        #expect((try await journal.current()?.records ?? []).isEmpty)
+        #expect(host.box.workbenchNotice == nil)
+    }
+
     @Test func cleanupPendingRetryKeepsFocusAndDoesNotOpenTheWorkbench() async throws {
         let directory = try NotesVerticalTempDirectory()
         defer { directory.remove() }
@@ -593,10 +784,39 @@ struct NotesVerticalIntegrationTests {
     @Test func workbenchRebuildKeepsParentIdentityAndExportUsesLiveDocument() async throws {
         let host = try await productionNoteEditorHost(document: scheduledWorkbenchSourceDocument())
         defer { host.close() }
+        let staleSession = try #require(await waitUntilValue { host.box.session })
         let created = try await commitScheduledWorkbenchPlan(on: host)
-        let rebuiltSession = try #require(await waitUntilValue { host.box.session })
+        let rebuiltSession = try #require(await waitUntilValue { () -> BlockEditorSession? in
+            guard let session = host.box.session, session !== staleSession else { return nil }
+            return session
+        })
+        let persistedAfterRebuild = try #require(host.store.state.notes[host.noteID])
+        #expect(rebuiltSession.document == persistedAfterRebuild.document)
+        #expect(created.taskBlockIDs.isSubset(of: Set(rebuiltSession.document.blocks.map(\.id))))
         #expect(rebuiltSession.noteID == host.parentIdentity.noteID)
         #expect(rebuiltSession.editSessionID != host.parentIdentity.editSessionID)
+        #expect(rebuiltSession !== staleSession)
+        #expect(host.autosave.latestEvidence == .clean)
+        #expect(host.autosave.canReplaceSessionWithPersistedStoreSnapshot)
+
+        _ = try staleSession.dispatch(.insertText("迟到旧回调"))
+        #expect(staleSession.document.blocks.contains { block in
+            block.inlineContent.spans.map(\.text).joined().contains("迟到旧回调")
+        })
+        #expect(host.autosave.latestEvidence == .clean)
+        #expect(host.autosave.canReplaceSessionWithPersistedStoreSnapshot)
+        #expect(createdPlanStillPresent(created, on: host))
+        let persistedAfterStaleCallback = try #require(host.store.state.notes[host.noteID])
+        #expect(
+            persistedAfterStaleCallback.document.blocks.contains { block in
+                created.taskBlockIDs.contains(block.id)
+            }
+        )
+        #expect(
+            persistedAfterStaleCallback.document.blocks.contains { block in
+                block.inlineContent.spans.map(\.text).joined().contains("迟到旧回调")
+            } == false
+        )
 
         let chineseEdit = "，导出前再改一句"
         await host.repository.suspendNextSave()
@@ -706,7 +926,7 @@ private final class NotesVerticalTempDirectory {
 }
 
 @MainActor
-private final class WorkbenchPresentationBox {
+private final class WorkbenchPresentationBox: ObservableObject {
     var snapshot: DecompositionSourceSnapshot?
     var notice: String?
     var session: BlockEditorSession?
@@ -715,6 +935,7 @@ private final class WorkbenchPresentationBox {
     var feedbackGeneration: UInt?
     var finalizer: NoteNativeInputFinalizer?
     var commitHandler: DecompositionWorkbenchCommitHandler?
+    @Published var workbenchNotice: NoteWorkbenchNotice?
 }
 
 @MainActor
@@ -749,10 +970,10 @@ private final class ProductionNoteEditorHost {
     let autosave: NoteAutosaveCoordinator
     let repository: InMemoryWorkspaceRepository
     let noteID: NoteID
-    let parentIdentity: NoteEditorIdentity
+    private(set) var parentIdentity: NoteEditorIdentity
     let window: NSWindow
     let box: WorkbenchPresentationBox
-    private let hosting: NSHostingView<NoteEditorView>
+    private var hosting: NSHostingView<ProductionNoteEditorRoot>
 
     var presentedWorkbenchSnapshot: DecompositionSourceSnapshot? { box.snapshot }
     var entryNotice: String? { box.notice }
@@ -765,6 +986,18 @@ private final class ProductionNoteEditorHost {
     func identifiedButton(_ identifier: String) -> NSButton? {
         sync()
         return verticalDescendants(of: hosting, as: NSButton.self).first {
+            $0.accessibilityIdentifier() == identifier
+        }
+    }
+
+    func identifiedAccessibilityNode(_ identifier: String) -> NSView? {
+        sync()
+        if let field = verticalDescendants(of: hosting, as: NSTextField.self).first(where: {
+            $0.accessibilityIdentifier() == identifier
+        }) {
+            return field
+        }
+        return verticalDescendants(of: hosting, as: NSView.self).first {
             $0.accessibilityIdentifier() == identifier
         }
     }
@@ -787,36 +1020,35 @@ private final class ProductionNoteEditorHost {
         self.parentIdentity = parentIdentity
         let box = WorkbenchPresentationBox()
         self.box = box
-        let editor = NoteEditorView(
-            identity: parentIdentity,
-            note: note,
-            focusRegistry: EditorFocusRegistry(),
-            autosave: autosave,
-            store: store,
-            categories: Array(store.calendarState.categories.values),
-            onDocumentCommitted: { _ in },
-            onTitleCommitted: { _ in },
-            onCategoryChanged: { _ in },
-            onRequestMarkdownImport: {},
-            onRequestMarkdownExport: {},
-            sessionSink: { box.session = $0 },
-            nativeFinalizerHook: Binding(
-                get: { box.finalizer },
-                set: { box.finalizer = $0 }
-            ),
-            onWorkbenchSnapshotChange: { box.snapshot = $0 },
-            onWorkbenchEntryNoticeChange: { box.notice = $0 },
-            onWorkbenchModelChange: { box.workbenchModel = $0 },
-            onWorkbenchFeedbackChange: { message, generation in
-                box.feedback = message
-                box.feedbackGeneration = generation
-            },
-            onWorkbenchCommitHandlerChange: { box.commitHandler = $0 }
+        let hosting = NSHostingView(
+            rootView: ProductionNoteEditorRoot(
+                identity: parentIdentity,
+                note: note,
+                autosave: autosave,
+                store: store,
+                box: box
+            )
         )
-        let hosting = NSHostingView(rootView: editor)
         hosting.frame = CGRect(x: 0, y: 0, width: 900, height: 620)
         self.hosting = hosting
         self.window = SharedVerticalHostWindow.install(hosting)
+    }
+
+    func remountReplacement(identity: NoteEditorIdentity, note: Note) {
+        parentIdentity = identity
+        let hosting = NSHostingView(
+            rootView: ProductionNoteEditorRoot(
+                identity: identity,
+                note: note,
+                autosave: autosave,
+                store: store,
+                box: box
+            )
+        )
+        hosting.frame = CGRect(x: 0, y: 0, width: 900, height: 620)
+        self.hosting = hosting
+        _ = SharedVerticalHostWindow.install(hosting)
+        sync()
     }
 
     func completeWorkbenchCommit(_ result: DecompositionCommitResult) throws {
@@ -892,6 +1124,46 @@ private func productionNoteEditorHost(
     )
     host.sync()
     return host
+}
+
+@MainActor
+private struct ProductionNoteEditorRoot: View {
+    let identity: NoteEditorIdentity
+    let note: Note
+    let autosave: NoteAutosaveCoordinator
+    let store: WorkspaceStore
+    @ObservedObject var box: WorkbenchPresentationBox
+    let focusRegistry: EditorFocusRegistry = EditorFocusRegistry()
+
+    var body: some View {
+        NoteEditorView(
+            identity: identity,
+            note: note,
+            focusRegistry: focusRegistry,
+            autosave: autosave,
+            store: store,
+            categories: Array(store.calendarState.categories.values),
+            onDocumentCommitted: { _ in },
+            onTitleCommitted: { _ in },
+            onCategoryChanged: { _ in },
+            onRequestMarkdownImport: {},
+            onRequestMarkdownExport: {},
+            sessionSink: { box.session = $0 },
+            nativeFinalizerHook: Binding(
+                get: { box.finalizer },
+                set: { box.finalizer = $0 }
+            ),
+            onWorkbenchSnapshotChange: { box.snapshot = $0 },
+            onWorkbenchEntryNoticeChange: { box.notice = $0 },
+            onWorkbenchModelChange: { box.workbenchModel = $0 },
+            onWorkbenchFeedbackChange: { message, generation in
+                box.feedback = message
+                box.feedbackGeneration = generation
+            },
+            onWorkbenchCommitHandlerChange: { box.commitHandler = $0 },
+            workbenchNotice: $box.workbenchNotice
+        )
+    }
 }
 
 private func scheduledWorkbenchSourceDocument() -> BlockDocument {

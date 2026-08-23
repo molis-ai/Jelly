@@ -26,6 +26,11 @@ enum NoteEditorLayout {
     }
 }
 
+internal struct NoteWorkbenchNotice: Equatable {
+    let message: String
+    let stateGeneration: UInt
+}
+
 /// Right-hand Notes editor surface. Ordinary Store publications keep the same
 /// `EditorKey`; selection changes and recovery/save-as-new mint a new one.
 struct NoteEditorView: View {
@@ -40,9 +45,11 @@ struct NoteEditorView: View {
         let stateGeneration: UInt
     }
 
-    private struct WorkbenchNotice: Equatable {
-        let message: String
-        let stateGeneration: UInt
+    /// Child editor identity plus the document it must be created with.
+    /// One value so a workbench rebuild cannot mint a new session ID against a stale document.
+    private struct EditorMount: Equatable {
+        let editSessionID: UUID
+        let initialDocument: BlockDocument
     }
 
     struct DecompositionWorkbenchRequest: Identifiable {
@@ -78,6 +85,7 @@ struct NoteEditorView: View {
     var onWorkbenchModelChange: (DecompositionWorkbenchModel?) -> Void
     var onWorkbenchFeedbackChange: (String?, UInt?) -> Void
     var onWorkbenchCommitHandlerChange: (DecompositionWorkbenchCommitHandler?) -> Void
+    var workbenchNotice: Binding<NoteWorkbenchNotice?>?
 
     @State private var title: String
     @State private var titleOwnerID = UUID()
@@ -86,24 +94,49 @@ struct NoteEditorView: View {
     @State private var showCalendarLinks = false
     @State private var showScheduleSheet = false
     @State private var lastAcceptedDocument: BlockDocument
+    @State private var editorMount: EditorMount
     @State private var pendingLinkedTaskDeletion: PendingLinkedTaskDeletion?
     @State private var didApplyInitialFocus = false
     @State private var scheduleNotice: ScheduleNotice?
     @State private var focusedTaskScheduleRequest: FocusedTaskScheduleRequest?
     @State private var decompositionRequest: DecompositionWorkbenchRequest?
     @State private var workbenchModel: DecompositionWorkbenchModel?
-    @State private var workbenchNotice: WorkbenchNotice?
+    @State private var localWorkbenchNotice: NoteWorkbenchNotice?
     @State private var entryNotice: String?
     @State private var isOpeningWorkbench = false
-    @State private var rebuiltEditSessionID: UUID?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.workspaceActiveRoute) private var activeWorkspaceRoute
+
+    private var activeWorkbenchNotice: NoteWorkbenchNotice? {
+        get {
+            if let workbenchNotice {
+                return workbenchNotice.wrappedValue
+            }
+            return localWorkbenchNotice
+        }
+        nonmutating set {
+            if let workbenchNotice {
+                workbenchNotice.wrappedValue = newValue
+            } else {
+                localWorkbenchNotice = newValue
+            }
+        }
+    }
 
     private var theme: CalendarSemanticAppearance {
         CalendarTheme.appearance(for: colorScheme)
     }
 
-    private var activeEditSessionID: UUID { rebuiltEditSessionID ?? identity.editSessionID }
+    private var activeEditSessionID: UUID { editorMount.editSessionID }
+
+    private var ownsCurrentAutosaveSession: Bool {
+        guard let current = autosave.currentEditSessionID else { return false }
+        return current == identity.editSessionID || current == editorMount.editSessionID
+    }
+
+    private func sessionBelongsToThisEditor(_ session: BlockEditorSession) -> Bool {
+        session.editSessionID == editorMount.editSessionID
+    }
 
     init(
         identity: NoteEditorIdentity,
@@ -135,7 +168,8 @@ struct NoteEditorView: View {
         onWorkbenchEntryNoticeChange: @escaping (String?) -> Void = { _ in },
         onWorkbenchModelChange: @escaping (DecompositionWorkbenchModel?) -> Void = { _ in },
         onWorkbenchFeedbackChange: @escaping (String?, UInt?) -> Void = { _, _ in },
-        onWorkbenchCommitHandlerChange: @escaping (DecompositionWorkbenchCommitHandler?) -> Void = { _ in }
+        onWorkbenchCommitHandlerChange: @escaping (DecompositionWorkbenchCommitHandler?) -> Void = { _ in },
+        workbenchNotice: Binding<NoteWorkbenchNotice?>? = nil
     ) {
         self.identity = identity
         self.initialFocus = initialFocus
@@ -165,8 +199,13 @@ struct NoteEditorView: View {
         self.onWorkbenchModelChange = onWorkbenchModelChange
         self.onWorkbenchFeedbackChange = onWorkbenchFeedbackChange
         self.onWorkbenchCommitHandlerChange = onWorkbenchCommitHandlerChange
+        self.workbenchNotice = workbenchNotice
         _title = State(initialValue: note.title)
         _lastAcceptedDocument = State(initialValue: note.document)
+        _editorMount = State(initialValue: EditorMount(
+            editSessionID: identity.editSessionID,
+            initialDocument: note.document
+        ))
     }
 
     var body: some View {
@@ -193,6 +232,7 @@ struct NoteEditorView: View {
                         onTitleCommitted(value)
                     },
                     onEditingChanged: { value in
+                        guard ownsCurrentAutosaveSession else { return }
                         invalidateWorkbenchUndoForLocalEdit()
                         title = value
                         _ = try? autosave.update(title: value)
@@ -297,16 +337,21 @@ struct NoteEditorView: View {
 
             GeometryReader { viewport in
                 ScrollView {
+                    let mount = editorMount
                     BlockEditorView(
                         noteID: identity.noteID,
-                        editSessionID: activeEditSessionID,
-                        initialDocument: lastAcceptedDocument,
-                        initialSelection: defaultSelection(in: lastAcceptedDocument),
+                        editSessionID: mount.editSessionID,
+                        initialDocument: mount.initialDocument,
+                        initialSelection: defaultSelection(in: mount.initialDocument),
                         focusRegistry: focusRegistry,
-                        onDocumentChange: handleDocumentChange,
+                        onDocumentChange: { [sessionID = mount.editSessionID] document in
+                            handleDocumentChange(document, originatingEditSessionID: sessionID)
+                        },
                         sessionSink: { session in
+                            guard sessionBelongsToThisEditor(session) else { return }
                             editorSession = session
                             sessionSink(session)
+                            guard ownsCurrentAutosaveSession else { return }
                             installNativeFinalizer()
                             applyInitialFocusIfReady()
                         }
@@ -366,10 +411,14 @@ struct NoteEditorView: View {
                 .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
                 .padding(.top, 8)
             }
-            if let workbenchNotice {
+            if let notice = activeWorkbenchNotice {
                 HStack(spacing: 10) {
-                    Text(workbenchNotice.message)
-                    if store.statePublicationGeneration == workbenchNotice.stateGeneration {
+                    NoteWorkbenchFeedbackText(
+                        message: notice.message,
+                        identifier: "notes-workbench-feedback"
+                    )
+                    .fixedSize()
+                    if store.statePublicationGeneration == notice.stateGeneration {
                         DecompositionIdentifiedButton(
                             title: "撤销",
                             identifier: "notes-workbench-undo",
@@ -377,7 +426,7 @@ struct NoteEditorView: View {
                             helpText: "只撤销本次创建的行动和日历安排",
                             enabled: true
                         ) {
-                            Task { await undoWorkbench(workbenchNotice) }
+                            Task { await undoWorkbench(notice) }
                         }
                         .frame(minWidth: 44, minHeight: 22)
                         .fixedSize()
@@ -481,15 +530,23 @@ struct NoteEditorView: View {
                 applyInitialFocusIfReady()
             }
         }
-        .onChange(of: identity) { _, _ in
-            installNativeFinalizer()
-            rebuiltEditSessionID = nil
+        .onChange(of: identity) { oldIdentity, newIdentity in
+            let mountedDocument = note.document
+            editorMount = EditorMount(
+                editSessionID: newIdentity.editSessionID,
+                initialDocument: mountedDocument
+            )
+            lastAcceptedDocument = mountedDocument
+            title = note.title
             entryNotice = nil
-            workbenchNotice = nil
+            if oldIdentity.noteID != newIdentity.noteID {
+                activeWorkbenchNotice = nil
+            }
+            installNativeFinalizer()
         }
         .onChange(of: store.statePublicationGeneration) { _, generation in
-            guard let notice = workbenchNotice, notice.stateGeneration != generation else { return }
-            workbenchNotice = nil
+            guard let notice = activeWorkbenchNotice, notice.stateGeneration != generation else { return }
+            activeWorkbenchNotice = nil
             onWorkbenchFeedbackChange(nil, nil)
         }
         .onChange(of: activeWorkspaceRoute) { _, route in
@@ -504,11 +561,9 @@ struct NoteEditorView: View {
         .onDisappear {
             workbenchModel?.cancelRequest()
             onWorkbenchCommitHandlerChange(nil)
+            guard ownsCurrentAutosaveSession else { return }
             sessionSink(nil)
-            if nativeFinalizerHook.wrappedValue != nil {
-                // Only clear when this identity still owns the hook.
-                nativeFinalizerHook.wrappedValue = nil
-            }
+            nativeFinalizerHook.wrappedValue = nil
         }
     }
 
@@ -613,6 +668,7 @@ struct NoteEditorView: View {
     }
 
     private func handleWorkbenchCommitted(_ result: DecompositionCommitResult) {
+        guard autosave.currentNoteID == identity.noteID else { return }
         switch result {
         case let .committed(created, scheduled, generation):
             decompositionRequest = nil
@@ -623,7 +679,7 @@ struct NoteEditorView: View {
                     scheduled: scheduled
                 )
                 : "行动已创建，但当前笔记没有刷新。请重新打开这篇笔记查看。"
-            workbenchNotice = WorkbenchNotice(message: message, stateGeneration: generation)
+            activeWorkbenchNotice = NoteWorkbenchNotice(message: message, stateGeneration: generation)
             onWorkbenchFeedbackChange(message, generation)
         case .sourceChanged, .calendarConflict, .notCommitted:
             break
@@ -632,6 +688,13 @@ struct NoteEditorView: View {
 
     private func rebuildEditorAfterWorkbench() -> Bool {
         guard let persisted = store.state.notes[identity.noteID] else { return false }
+        guard ownsCurrentAutosaveSession else {
+            // Parent already re-keyed onto the persisted document. Treat that
+            // as a successful adoption rather than minting a competing session.
+            // A late callback after autosave moved to another note must not
+            // count as adoption for this editor.
+            return autosave.currentNoteID == identity.noteID
+        }
         let newID = UUID()
         do {
             try autosave.beginSession(
@@ -646,7 +709,10 @@ struct NoteEditorView: View {
             sessionSink(nil)
             installNativeFinalizer()
             lastAcceptedDocument = persisted.document
-            rebuiltEditSessionID = newID
+            editorMount = EditorMount(
+                editSessionID: newID,
+                initialDocument: persisted.document
+            )
             return true
         } catch {
             editorSession?.autosaveDidResolve(.failed("无法刷新拆开后的保存基线。"))
@@ -655,24 +721,24 @@ struct NoteEditorView: View {
     }
 
     private func invalidateWorkbenchUndoForLocalEdit() {
-        workbenchNotice = nil
+        activeWorkbenchNotice = nil
         onWorkbenchFeedbackChange(nil, nil)
     }
 
-    private func undoWorkbench(_ notice: WorkbenchNotice) async {
-        guard workbenchNotice == notice,
+    private func undoWorkbench(_ notice: NoteWorkbenchNotice) async {
+        guard activeWorkbenchNotice == notice,
               store.statePublicationGeneration == notice.stateGeneration else {
-            workbenchNotice = nil
+            activeWorkbenchNotice = nil
             onWorkbenchFeedbackChange(nil, nil)
             return
         }
         do {
             _ = try await store.undo()
-            workbenchNotice = nil
+            activeWorkbenchNotice = nil
             onWorkbenchFeedbackChange(nil, nil)
             _ = rebuildEditorAfterWorkbench()
         } catch {
-            workbenchNotice = nil
+            activeWorkbenchNotice = nil
             onWorkbenchFeedbackChange(nil, nil)
         }
     }
@@ -705,7 +771,16 @@ struct NoteEditorView: View {
     }
 
     private func installNativeFinalizer() {
+        guard ownsCurrentAutosaveSession else { return }
+        if let editorSession, !sessionBelongsToThisEditor(editorSession) {
+            return
+        }
+        let ownedSessionID = autosave.currentEditSessionID ?? activeEditSessionID
         nativeFinalizerHook.wrappedValue = { [titleCoordinator, editorSession] permit, accept in
+            guard permit.editSessionID == ownedSessionID else { return false }
+            if let editorSession, editorSession.editSessionID != ownedSessionID {
+                return false
+            }
             // Title field first — at most one focused field-editor may consume.
             if let titleCoordinator, titleCoordinator.terminallyFinalizeNativeComposition() == false {
                 return false
@@ -735,6 +810,7 @@ struct NoteEditorView: View {
     }
 
     private func rebaseAutosaveAfterTaskCalendarMutation() {
+        guard ownsCurrentAutosaveSession else { return }
         guard let persisted = store.state.notes[identity.noteID] else { return }
         do {
             try autosave.beginSession(
@@ -762,7 +838,12 @@ struct NoteEditorView: View {
         }
     }
 
-    private func handleDocumentChange(_ document: BlockDocument) {
+    private func handleDocumentChange(
+        _ document: BlockDocument,
+        originatingEditSessionID: UUID
+    ) {
+        guard originatingEditSessionID == autosave.currentEditSessionID else { return }
+        guard document != lastAcceptedDocument else { return }
         invalidateWorkbenchUndoForLocalEdit()
         guard pendingLinkedTaskDeletion == nil else { return }
         let linkedBlocks = TaskBlockDeletionConfirmation.requiredLinkedBlocks(
@@ -797,6 +878,9 @@ struct NoteEditorView: View {
         _ document: BlockDocument,
         dispositions: [BlockID: LinkedTaskBlockDeletionDisposition]
     ) {
+        if document == lastAcceptedDocument, dispositions.isEmpty {
+            return
+        }
         do {
             _ = try autosave.update(
                 document: document,
@@ -851,4 +935,67 @@ private struct NoteEditorTaskCalendarAction: View {
 private struct PendingLinkedTaskDeletion {
     let document: BlockDocument
     let blockIDs: [BlockID]
+}
+
+/// AppKit static text so VoiceOver and in-process collectors share one node.
+private final class NoteWorkbenchFeedbackField: NSTextField {
+    var feedbackIdentifier = "notes-workbench-feedback"
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .staticText }
+    override func accessibilityIdentifier() -> String { feedbackIdentifier }
+    override func accessibilityLabel() -> String? { stringValue }
+    override func accessibilityValue() -> String? { stringValue }
+}
+
+private struct NoteWorkbenchFeedbackText: NSViewRepresentable {
+    var message: String
+    var identifier: String
+
+    func makeNSView(context: Context) -> NoteWorkbenchFeedbackField {
+        let field = NoteWorkbenchFeedbackField(labelWithString: message)
+        field.isEditable = false
+        field.isSelectable = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.backgroundColor = .clear
+        field.refusesFirstResponder = true
+        field.lineBreakMode = .byTruncatingTail
+        field.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        field.setContentHuggingPriority(.required, for: .vertical)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        apply(field)
+        return field
+    }
+
+    func updateNSView(_ field: NoteWorkbenchFeedbackField, context: Context) {
+        apply(field)
+    }
+
+    static func dismantleNSView(_ field: NoteWorkbenchFeedbackField, coordinator: ()) {
+        field.feedbackIdentifier = ""
+        field.stringValue = ""
+        field.isHidden = true
+        field.identifier = nil
+        field.setAccessibilityElement(false)
+        field.setAccessibilityIdentifier("")
+        field.setAccessibilityLabel(nil)
+        field.setAccessibilityValue(nil)
+        field.removeFromSuperview()
+    }
+
+    private func apply(_ field: NoteWorkbenchFeedbackField) {
+        field.feedbackIdentifier = identifier
+        if field.stringValue != message {
+            field.stringValue = message
+        }
+        field.font = .systemFont(ofSize: 12, weight: .medium)
+        field.identifier = NSUserInterfaceItemIdentifier(identifier)
+        field.setAccessibilityElement(true)
+        field.setAccessibilityRole(.staticText)
+        field.setAccessibilityIdentifier(identifier)
+        field.setAccessibilityLabel(message)
+        field.setAccessibilityValue(message)
+        field.setAccessibilityTitle(message)
+    }
 }

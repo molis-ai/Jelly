@@ -260,6 +260,8 @@ final class NoteAutosaveCoordinator {
     private var activeFlushFlight: FlushFlight?
     private(set) var autosaveState: NoteAutosaveState = .editable
     private(set) var latestEvidence: NoteAutosaveBarrierEvidence = .unsafeLatestUnprotected
+    var currentEditSessionID: UUID? { session?.editSessionID }
+    var currentNoteID: NoteID? { session?.baseSnapshot.id }
     var currentTriple: NoteAutosaveTriple? {
         latestSubmission.map(NoteAutosaveTriple.init(submission:))
     }
@@ -310,7 +312,7 @@ final class NoteAutosaveCoordinator {
             linkedBlockDeletionDispositions: [:]
         )
         latestSubmission = nil
-        latestEvidence = .unsafeLatestUnprotected
+        latestEvidence = .clean
         autosaveState = .editable
         pruneOperations()
     }
@@ -356,6 +358,17 @@ final class NoteAutosaveCoordinator {
             dispositions: session.linkedBlockDeletionDispositions
         )
         self.session = session
+        let hadNoPendingSubmission = latestSubmission == nil
+        if hadNoPendingSubmission,
+           submission.modifiedFields.isEmpty,
+           submission.linkedBlockDeletionDispositions.isEmpty {
+            latestSubmission = nil
+            latestEvidence = .clean
+            autosaveState = .editable
+            pruneOperations()
+            cancelUnfiredTimers(for: .init(noteID: submission.noteID, editSessionID: .editor(submission.editSessionID)))
+            return submission
+        }
         latestSubmission = submission
         latestEvidence = .unsafeLatestUnprotected
         pruneOperations()
@@ -678,11 +691,7 @@ final class NoteAutosaveCoordinator {
         if activePermit == permit { activePermit = nil }
         stateBeforeNativeFinalization = nil
         guard completed else {
-            if let triple = currentTriple {
-                autosaveState = .nativeInputUnresolved(triple)
-            } else {
-                autosaveState = .editable
-            }
+            if let triple = currentTriple { autosaveState = .nativeInputUnresolved(triple) } else { autosaveState = .editable }
             return false
         }
         if autosaveState == .finalizingNativeInput(permit) {
