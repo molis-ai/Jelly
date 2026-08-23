@@ -338,7 +338,9 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.draft.mode == .manual(reason: .timedOut))
         #expect(model.requestState == .idle)
         #expect(model.draft.question == nil)
-        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.candidates.count == 1)
+        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].completionDescription.isEmpty)
         #expect(model.draft.lastRecoverableError == nil)
     }
 
@@ -359,7 +361,9 @@ struct DecompositionWorkbenchModelTests {
         try await Task.sleep(for: .milliseconds(40))
         #expect(model.draft.question == nil)
         #expect(model.draft.mode == .manual(reason: .timedOut))
-        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.candidates.count == 1)
+        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].completionDescription.isEmpty)
     }
 
     @Test func cancelEndsOuterRequestWithoutWaitingForNonCooperativePlannerAndDiscardsLateResult() async throws {
@@ -406,7 +410,9 @@ struct DecompositionWorkbenchModelTests {
         #expect(planner.candidateRequests[0].validationFeedback == nil)
         #expect(planner.candidateRequests[1].validationFeedback == .invalidCount(1))
         #expect(model.draft.mode == .manual(reason: .repeatedInvalidOutput))
-        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.candidates.count == 1)
+        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].completionDescription.isEmpty)
         #expect(model.requestState == .idle)
     }
 
@@ -421,7 +427,9 @@ struct DecompositionWorkbenchModelTests {
         #expect(planner.clarificationCount == 1)
         #expect(planner.candidateRequests.isEmpty)
         #expect(model.draft.mode == .manual(reason: .localeUnsupported))
-        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.candidates.count == 1)
+        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].completionDescription.isEmpty)
     }
 
     @Test func unavailableReasonsMapWithoutCallingThePlanner() async throws {
@@ -457,7 +465,9 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.draft.mode == .manual(reason: .modelFailure))
         #expect(model.draft.answer == "拿到确认")
         #expect(model.draft.question?.text == "完成后最重要的结果是什么？")
-        #expect(model.draft.candidates.isEmpty)
+        #expect(model.draft.candidates.count == 1)
+        #expect(model.draft.candidates[0].title.isEmpty)
+        #expect(model.draft.candidates[0].completionDescription.isEmpty)
     }
 
     @Test func switchingToManualDoesNotClearUserEdits() async throws {
@@ -1500,6 +1510,53 @@ struct DecompositionWorkbenchModelTests {
         #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
     }
 
+    @Test func unavailableModePreparesOneEditableActionAndMarksMeaningfulDraft() async throws {
+        let fixture = try await WorkbenchModelFixture.make(
+            planner: UnavailableDecompositionPlanner(reason: .deviceNotEligible)
+        )
+        #expect(fixture.model.hasMeaningfulDraft == false)
+        await fixture.model.start()
+        #expect(fixture.model.draft.mode == .manual(reason: .deviceNotEligible))
+        #expect(fixture.model.draft.stage == .split)
+        #expect(fixture.model.draft.candidates.count == 1)
+        #expect(fixture.model.draft.candidates[0].title.isEmpty)
+        #expect(fixture.model.draft.candidates[0].completionDescription.isEmpty)
+        #expect(fixture.model.hasMeaningfulDraft)
+    }
+
+    @Test func meaningfulDraftTracksAnswerCandidatesAndReachedStagesWithoutPersistence() async throws {
+        let fixture = try await WorkbenchModelFixture.make(planner: ScriptedWorkbenchPlanner())
+        #expect(!fixture.model.hasMeaningfulDraft)
+        fixture.model.updateAnswer("下周前完成")
+        #expect(fixture.model.hasMeaningfulDraft)
+    }
+
+    @Test func refreshKeepsUserAdjustedScheduleUnlessOverwriteIsExplicit() async throws {
+        let fixture = try await WorkbenchModelFixture.splitWithCalendar()
+        let first = try #require(fixture.model.draft.candidates.first)
+        let chosen = fixture.date(hour: 16, minute: 30, dayOffset: 2)
+        fixture.model.updateProposalTime(id: first.id, instant: chosen)
+        let locked = try #require(fixture.model.draft.candidates.first?.proposal)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+
+        fixture.model.refreshCalendarProposals()
+        #expect(fixture.model.draft.candidates[0].proposal == locked)
+
+        fixture.model.refreshCalendarProposals(overwriteUserAdjustments: true)
+        #expect(fixture.model.draft.candidates[0].proposal != locked)
+        #expect(!fixture.model.draft.candidates[0].scheduleLockedByUser)
+    }
+
+    @Test func nilProposalBecomesManualOnlyAfterExplicitBegin() async throws {
+        let fixture = try await WorkbenchModelFixture.splitWithoutAvailableSlot()
+        let first = try #require(fixture.model.draft.candidates.first)
+        fixture.model.setSelectedForCalendar(id: first.id, selected: true)
+        #expect(fixture.model.draft.candidates[0].proposal == nil)
+        fixture.model.beginManualCalendarProposal(id: first.id)
+        #expect(fixture.model.draft.candidates[0].proposal != nil)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+    }
+
     fileprivate static let notCommittedMessage = "原笔记和日历没有被改动，可稍后重试"
 }
 
@@ -1516,6 +1573,96 @@ private func makeModel(
         uuid: uuid,
         snapshotRevisionOffset: snapshotRevisionOffset
     ).model
+}
+
+extension ScriptedDecompositionPlanner {
+    init() {
+        self.init([
+            .clarification(.ask(question: "完成后最重要的结果是什么？", quickAnswers: ["拿到确认"]))
+        ])
+    }
+}
+
+private typealias ScriptedWorkbenchPlanner = ScriptedDecompositionPlanner
+
+@MainActor
+private struct WorkbenchModelFixture {
+    let model: DecompositionWorkbenchModel
+    let store: WorkspaceStore
+    let repository: WorkspaceStoreTestRepository
+
+    static func make(
+        planner: any DecompositionPlanning,
+        sleeper: ControllableSleeper = ControllableSleeper(),
+        uuid: @escaping @Sendable () -> UUID = UUID.init,
+        snapshotRevisionOffset: Int64 = 0
+    ) async throws -> WorkbenchModelFixture {
+        let fixture = try await WorkbenchFixture.make(
+            planner: planner,
+            sleeper: sleeper,
+            uuid: uuid,
+            snapshotRevisionOffset: snapshotRevisionOffset
+        )
+        return .init(model: fixture.model, store: fixture.store, repository: fixture.repository)
+    }
+
+    func date(hour: Int, minute: Int, dayOffset: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = WorkbenchFixture.shanghai
+        let day = WorkbenchFixture.day.addingDays(dayOffset)
+        return calendar.date(from: DateComponents(
+            year: day.year,
+            month: day.month,
+            day: day.day,
+            hour: hour,
+            minute: minute
+        ))!
+    }
+
+    static func splitWithCalendar() async throws -> WorkbenchModelFixture {
+        let fixture = try await make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        await fixture.model.start()
+        let first = try #require(fixture.model.draft.candidates.first)
+        fixture.model.setSelectedForCalendar(id: first.id, selected: true)
+        fixture.model.advanceToSchedule()
+        return fixture
+    }
+
+    static func splitWithoutAvailableSlot() async throws -> WorkbenchModelFixture {
+        let fixture = try await make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        for offset in 0...6 {
+            let day = WorkbenchFixture.day.addingDays(offset)
+            let item = try CalendarItem(
+                id: UUID(uuidString: "00000000-0000-0000-0000-00000000087\(offset)")!,
+                kind: .task,
+                title: "占满空档",
+                categoryID: FixtureIDs.categoryID,
+                schedule: try CalendarSchedule(
+                    startDate: day,
+                    endDate: day,
+                    startTime: MinuteOfDay(hour: 9, minute: 0),
+                    endTime: MinuteOfDay(hour: 21, minute: 0)
+                ),
+                creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
+                completedAt: nil,
+                createdAt: WorkbenchFixture.now,
+                updatedAt: WorkbenchFixture.now
+            )
+            _ = try await fixture.store.sendCalendar(.createItem(item), undoLabel: "占满")
+        }
+        await fixture.model.start()
+        return fixture
+    }
 }
 
 @MainActor

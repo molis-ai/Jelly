@@ -85,6 +85,7 @@ struct CandidateAction: Identifiable, Equatable, Sendable {
     var completionLockedByUser: Bool
     var sourceCandidateID: UUID?
     var proposal: CalendarProposal?
+    var scheduleLockedByUser: Bool = false
 }
 
 enum ClarificationDecision: Equatable, Sendable {

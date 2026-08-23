@@ -53,6 +53,17 @@ final class DecompositionWorkbenchModel {
     var canAdvance: Bool { advanceBlockingReason == nil }
     var canCommit: Bool { commitBlockingReason == nil }
 
+    var hasRunningRequest: Bool {
+        if case .running = requestState { return true }
+        return false
+    }
+
+    var hasMeaningfulDraft: Bool {
+        !draft.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !draft.candidates.isEmpty
+            || draft.stage != .understand
+    }
+
     var advanceBlockingReason: DecompositionWorkbenchBlockingReason? {
         workbenchBlockingReason(requiresCalendarProposals: false)
     }
@@ -161,20 +172,7 @@ final class DecompositionWorkbenchModel {
 
     func addManualCandidate() {
         cancelRequest()
-        draft.candidates.append(
-            CandidateAction(
-                id: uuid(),
-                title: "",
-                completionDescription: "",
-                estimatedDuration: .minutes30,
-                selectedForCreation: true,
-                selectedForCalendar: false,
-                titleLockedByUser: false,
-                completionLockedByUser: false,
-                sourceCandidateID: nil,
-                proposal: nil
-            )
-        )
+        draft.candidates.append(makeBlankManualCandidate())
         if draft.stage == .understand {
             draft.stage = .split
         }
@@ -225,30 +223,38 @@ final class DecompositionWorkbenchModel {
     func updateDuration(id: UUID, duration: CandidateDuration) {
         guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
         cancelRequest()
+        let hadProposal = draft.candidates[index].proposal != nil
         draft.candidates[index].estimatedDuration = duration
         rebuildProposalKeepingStart(at: index)
+        if hadProposal {
+            draft.candidates[index].scheduleLockedByUser = true
+        }
         clearCalendarArrangementRecoverableErrors()
     }
 
     func updateProposalDate(id: UUID, instant: Date) {
         guard draft.candidates.contains(where: { $0.id == id }) else { return }
         cancelRequest()
-        applyProposalStart(
+        if applyProposalStart(
             id: id,
             date: CalendarDate.localDay(containing: instant, in: timeZone),
             startTime: nil
-        )
+        ) {
+            lockSchedule(id: id)
+        }
         clearCalendarArrangementRecoverableErrors()
     }
 
     func updateProposalTime(id: UUID, instant: Date) {
         guard draft.candidates.contains(where: { $0.id == id }) else { return }
         cancelRequest()
-        applyProposalStart(
+        if applyProposalStart(
             id: id,
             date: nil,
             startTime: minuteOfDay(containing: instant)
-        )
+        ) {
+            lockSchedule(id: id)
+        }
         clearCalendarArrangementRecoverableErrors()
     }
 
@@ -275,6 +281,7 @@ final class DecompositionWorkbenchModel {
         }
         draft.candidates[index].selectedForCalendar = false
         draft.candidates[index].proposal = nil
+        draft.candidates[index].scheduleLockedByUser = false
         clearCalendarArrangementRecoverableErrors()
     }
 
@@ -291,6 +298,7 @@ final class DecompositionWorkbenchModel {
             return
         }
         draft.candidates[index].proposal = nil
+        draft.candidates[index].scheduleLockedByUser = false
         clearCalendarArrangementRecoverableErrors()
     }
 
@@ -318,16 +326,58 @@ final class DecompositionWorkbenchModel {
         draft.stage = stage
     }
 
-    func refreshCalendarProposals() {
-        let proposals = CalendarProposalEngine.propose(
-            for: draft.candidates,
-            calendarState: store.calendarState,
+    func refreshCalendarProposals(overwriteUserAdjustments: Bool = false) {
+        if overwriteUserAdjustments {
+            for index in draft.candidates.indices {
+                draft.candidates[index].scheduleLockedByUser = false
+            }
+        }
+
+        var occupied = CalendarProposalEngine.occupancy(
+            from: store.calendarState,
             now: clock(),
             timeZone: timeZone
         )
-        for index in draft.candidates.indices {
-            draft.candidates[index].proposal = proposals[draft.candidates[index].id]
+        for candidate in draft.candidates where candidate.scheduleLockedByUser {
+            if let schedule = candidate.proposal?.schedule {
+                occupied.append(schedule)
+            }
         }
+
+        for index in draft.candidates.indices {
+            guard !draft.candidates[index].scheduleLockedByUser else { continue }
+            let candidate = draft.candidates[index]
+            guard candidate.selectedForCreation, candidate.selectedForCalendar else {
+                draft.candidates[index].proposal = nil
+                continue
+            }
+            let proposal = CalendarProposalEngine.propose(
+                durationMinutes: candidate.estimatedDuration.rawValue,
+                occupied: occupied,
+                now: clock(),
+                timeZone: timeZone
+            )
+            draft.candidates[index].proposal = proposal
+            if let schedule = proposal?.schedule {
+                occupied.append(schedule)
+            }
+        }
+        clearCalendarArrangementRecoverableErrors()
+    }
+
+    func beginManualCalendarProposal(id: UUID) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        guard draft.candidates[index].selectedForCreation,
+              draft.candidates[index].selectedForCalendar,
+              draft.candidates[index].proposal == nil else { return }
+        cancelRequest()
+        guard let proposal = makeTimedProposal(
+            date: defaultProposalDate,
+            startTime: defaultProposalStartTime,
+            duration: draft.candidates[index].estimatedDuration
+        ) else { return }
+        draft.candidates[index].proposal = proposal
+        draft.candidates[index].scheduleLockedByUser = true
         clearCalendarArrangementRecoverableErrors()
     }
 
@@ -663,8 +713,25 @@ final class DecompositionWorkbenchModel {
     private func applyManualMode(reason: ManualDecompositionReason) {
         draft.mode = .manual(reason: reason)
         if draft.candidates.isEmpty {
+            draft.candidates.append(makeBlankManualCandidate())
             draft.stage = .split
         }
+    }
+
+    private func makeBlankManualCandidate() -> CandidateAction {
+        CandidateAction(
+            id: uuid(),
+            title: "",
+            completionDescription: "",
+            estimatedDuration: .minutes30,
+            selectedForCreation: true,
+            selectedForCalendar: false,
+            titleLockedByUser: false,
+            completionLockedByUser: false,
+            sourceCandidateID: nil,
+            proposal: nil,
+            scheduleLockedByUser: false
+        )
     }
 
     private func candidateActions(from output: [PlannerCandidate]) -> [CandidateAction] {
@@ -679,7 +746,8 @@ final class DecompositionWorkbenchModel {
                 titleLockedByUser: false,
                 completionLockedByUser: false,
                 sourceCandidateID: nil,
-                proposal: nil
+                proposal: nil,
+                scheduleLockedByUser: false
             )
         }
     }
@@ -753,29 +821,37 @@ final class DecompositionWorkbenchModel {
         MinuteOfDay(hour: 9, minute: 0)!
     }
 
+    private func lockSchedule(id: UUID) {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+        draft.candidates[index].scheduleLockedByUser = true
+    }
+
     private func rebuildProposalKeepingStart(at index: Int) {
         guard let proposal = draft.candidates[index].proposal,
               let startTime = proposal.schedule.startTime else { return }
-        applyProposal(at: index, date: proposal.schedule.startDate, startTime: startTime)
+        _ = applyProposal(at: index, date: proposal.schedule.startDate, startTime: startTime)
     }
 
-    private func applyProposalStart(id: UUID, date: CalendarDate?, startTime: MinuteOfDay?) {
-        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return }
+    @discardableResult
+    private func applyProposalStart(id: UUID, date: CalendarDate?, startTime: MinuteOfDay?) -> Bool {
+        guard let index = draft.candidates.firstIndex(where: { $0.id == id }) else { return false }
         let existing = draft.candidates[index].proposal
-        applyProposal(
+        return applyProposal(
             at: index,
             date: date ?? existing?.schedule.startDate ?? defaultProposalDate,
             startTime: startTime ?? existing?.schedule.startTime ?? defaultProposalStartTime
         )
     }
 
-    private func applyProposal(at index: Int, date: CalendarDate, startTime: MinuteOfDay) {
+    @discardableResult
+    private func applyProposal(at index: Int, date: CalendarDate, startTime: MinuteOfDay) -> Bool {
         guard let proposal = makeTimedProposal(
             date: date,
             startTime: startTime,
             duration: draft.candidates[index].estimatedDuration
-        ) else { return }
+        ) else { return false }
         draft.candidates[index].proposal = proposal
+        return true
     }
 
     private func makeTimedProposal(
