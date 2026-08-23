@@ -33,6 +33,7 @@ final class DecompositionNSButton: NSButton {
 
 final class DecompositionIdentifiedNSTextField: NSTextField {
     var requestsInitialFocus = false
+    nonisolated(unsafe) var isContentInvalid = false
     private var didHandleInitialFocusRequest = false
 
     override var acceptsFirstResponder: Bool { isEditable && isEnabled }
@@ -82,6 +83,21 @@ final class DecompositionIdentifiedNSTextField: NSTextField {
             if field.currentEditor() is NSTextView { return true }
         }
         return false
+    }
+
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        var names = super.accessibilityAttributeNames()
+        if !names.contains(axInvalidAttribute) {
+            names.append(axInvalidAttribute)
+        }
+        return names
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == axInvalidAttribute {
+            return isContentInvalid ? "true" : nil
+        }
+        return super.accessibilityAttributeValue(attribute)
     }
 }
 
@@ -340,6 +356,8 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
     var accessibilityName: String
     var placeholder: String = ""
     var requestsInitialFocus: Bool = false
+    var isInvalid: Bool = false
+    var invalidReason: String = ""
     var onSubmit: () -> Void = {}
 
     func makeNSView(context: Context) -> NSTextField {
@@ -388,6 +406,7 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         field.identifier = NSUserInterfaceItemIdentifier(identifier)
         field.setAccessibilityIdentifier(identifier)
         field.setAccessibilityLabel(accessibilityName)
+        applyInvalidState(field, isInvalid: isInvalid, reason: invalidReason)
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -425,6 +444,7 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
 final class DecompositionMultilineNSTextField: NSTextField {
     static let minLines = 2
     static let maxLines = 6
+    nonisolated(unsafe) var isContentInvalid = false
 
     override var acceptsFirstResponder: Bool { isEditable && isEnabled }
     override var canBecomeKeyView: Bool { isEditable && isEnabled && !isHiddenOrHasHiddenAncestor }
@@ -463,6 +483,21 @@ final class DecompositionMultilineNSTextField: NSTextField {
         let resolved = font ?? .systemFont(ofSize: 12)
         return ceil(resolved.boundingRectForFont.height)
     }
+
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        var names = super.accessibilityAttributeNames()
+        if !names.contains(axInvalidAttribute) {
+            names.append(axInvalidAttribute)
+        }
+        return names
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == axInvalidAttribute {
+            return isContentInvalid ? "true" : nil
+        }
+        return super.accessibilityAttributeValue(attribute)
+    }
 }
 
 struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
@@ -470,6 +505,8 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
     var identifier: String
     var accessibilityName: String
     var placeholder: String
+    var isInvalid: Bool = false
+    var invalidReason: String = ""
 
     func makeNSView(context: Context) -> DecompositionMultilineNSTextField {
         let field = DecompositionMultilineNSTextField()
@@ -534,6 +571,7 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
         field.setAccessibilityIdentifier(identifier)
         field.setAccessibilityLabel(accessibilityName)
         field.cell?.setAccessibilityElement(false)
+        applyInvalidState(field, isInvalid: isInvalid, reason: invalidReason)
     }
 
     private static let maxVisibleLines = DecompositionMultilineNSTextField.maxLines
@@ -645,6 +683,27 @@ struct DecompositionAccessibleLabel: NSViewRepresentable {
     }
 }
 
+// AppKit has no modern AXInvalid setter; required + this attribute mark the control.
+private let axInvalidAttribute = NSAccessibility.Attribute(rawValue: "AXInvalid")
+
+@MainActor
+private func applyInvalidState(_ field: NSTextField, isInvalid: Bool, reason: String) {
+    if let identified = field as? DecompositionIdentifiedNSTextField {
+        identified.isContentInvalid = isInvalid
+    }
+    if let multiline = field as? DecompositionMultilineNSTextField {
+        multiline.isContentInvalid = isInvalid
+    }
+    field.setAccessibilityRequired(isInvalid)
+    if isInvalid, !reason.isEmpty {
+        field.setAccessibilityHelp(reason)
+        field.toolTip = reason
+    } else {
+        field.setAccessibilityHelp(nil)
+        field.toolTip = nil
+    }
+}
+
 enum DecompositionWorkbenchMetrics {
     static let targetSize = CGSize(width: 960, height: 680)
     static let minimumSize = CGSize(width: 720, height: 560)
@@ -695,6 +754,8 @@ enum DecompositionWorkbenchCopy {
     static let keepAction = "保留为行动"
     static let createAction = "创建"
     static let completionPlaceholder = "做到什么算完成？"
+    static let missingTitleField = "请填写行动标题"
+    static let missingCompletionField = "请补充完成标准"
 
     static func sourceScope(_ selectedRange: DecompositionSourceSnapshot.TextRange?) -> String {
         selectedRange == nil ? "整篇笔记" : "所选文字"

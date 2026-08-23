@@ -44,11 +44,17 @@ struct DecompositionActionEditor: View {
         }
         .onChange(of: model.draft.candidates.map(\.id)) { _, ids in
             if let activeCandidateID, ids.contains(activeCandidateID) { return }
-            activeCandidateID = ids.first
+            activeCandidateID = model.firstBlockingCandidateID ?? ids.first
+        }
+        .onChange(of: model.firstBlockingCandidateID) { _, blockingID in
+            // Expand the first problem row, but never steal an in-progress field editor.
+            if let blockingID {
+                activeCandidateID = blockingID
+            }
         }
         .onAppear {
             if activeCandidateID == nil {
-                activeCandidateID = model.draft.candidates.first?.id
+                activeCandidateID = model.firstBlockingCandidateID ?? model.draft.candidates.first?.id
             }
         }
         .allowsHitTesting(!model.isCommitting)
@@ -74,23 +80,16 @@ struct DecompositionActionEditor: View {
             VStack(alignment: .leading, spacing: 6) {
                 if expanded {
                     VStack(alignment: .leading, spacing: 6) {
-                        DecompositionIdentifiedTextField(
-                            text: titleBinding(candidate),
-                            identifier: "decomposition-title-\(candidate.id.uuidString)",
-                            accessibilityName: "行动标题",
-                            placeholder: "行动标题",
-                            requestsInitialFocus: isManual && isFirst(candidate.id)
+                        fieldEditor(
+                            candidate,
+                            kind: .title,
+                            reason: fieldErrorReason(for: candidate, kind: .title)
                         )
-                        .frame(height: 22)
-                        .disabled(model.isCommitting)
-                        DecompositionIdentifiedMultilineTextField(
-                            text: completionBinding(candidate),
-                            identifier: "decomposition-completion-\(candidate.id.uuidString)",
-                            accessibilityName: "完成说明",
-                            placeholder: DecompositionWorkbenchCopy.completionPlaceholder
+                        fieldEditor(
+                            candidate,
+                            kind: .completion,
+                            reason: fieldErrorReason(for: candidate, kind: .completion)
                         )
-                        .frame(minHeight: 32, maxHeight: 96)
-                        .disabled(model.isCommitting)
                     }
                     HStack(spacing: 8) {
                         Picker("时长", selection: durationBinding(candidate)) {
@@ -225,6 +224,89 @@ struct DecompositionActionEditor: View {
     private var isManual: Bool {
         if case .manual = model.draft.mode { return true }
         return false
+    }
+
+    private enum FieldKind {
+        case title
+        case completion
+    }
+
+    @ViewBuilder
+    private func fieldEditor(
+        _ candidate: CandidateAction,
+        kind: FieldKind,
+        reason: String?
+    ) -> some View {
+        let invalid = reason != nil
+        VStack(alignment: .leading, spacing: 2) {
+            switch kind {
+            case .title:
+                DecompositionIdentifiedTextField(
+                    text: titleBinding(candidate),
+                    identifier: "decomposition-title-\(candidate.id.uuidString)",
+                    accessibilityName: "行动标题",
+                    placeholder: "行动标题",
+                    requestsInitialFocus: isManual && isFirst(candidate.id),
+                    isInvalid: invalid,
+                    invalidReason: reason ?? ""
+                )
+                .frame(height: 22)
+                .overlay(alignment: .bottom) {
+                    if invalid {
+                        Rectangle().fill(theme.error).frame(height: 1)
+                    }
+                }
+                .disabled(model.isCommitting)
+            case .completion:
+                DecompositionIdentifiedMultilineTextField(
+                    text: completionBinding(candidate),
+                    identifier: "decomposition-completion-\(candidate.id.uuidString)",
+                    accessibilityName: "完成说明",
+                    placeholder: DecompositionWorkbenchCopy.completionPlaceholder,
+                    isInvalid: invalid,
+                    invalidReason: reason ?? ""
+                )
+                .frame(minHeight: 32, maxHeight: 96)
+                .overlay(alignment: .bottom) {
+                    if invalid {
+                        Rectangle().fill(theme.error).frame(height: 1)
+                    }
+                }
+                .disabled(model.isCommitting)
+            }
+            if let reason {
+                DecompositionAccessibleLabel(
+                    text: reason,
+                    identifier: errorIdentifier(for: candidate.id, kind: kind),
+                    label: reason,
+                    textColor: theme.error
+                )
+            }
+        }
+    }
+
+    private func fieldErrorReason(for candidate: CandidateAction, kind: FieldKind) -> String? {
+        guard model.firstBlockingCandidateID == candidate.id else { return nil }
+        let titleBlank = candidate.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let completionBlank = candidate.completionDescription
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        switch kind {
+        case .title:
+            return titleBlank ? DecompositionWorkbenchCopy.missingTitleField : nil
+        case .completion:
+            guard !titleBlank, completionBlank else { return nil }
+            return DecompositionWorkbenchCopy.missingCompletionField
+        }
+    }
+
+    private func errorIdentifier(for id: UUID, kind: FieldKind) -> String {
+        switch kind {
+        case .title:
+            "decomposition-title-error-\(id.uuidString)"
+        case .completion:
+            "decomposition-completion-error-\(id.uuidString)"
+        }
     }
 
     private func isFirst(_ id: UUID) -> Bool {

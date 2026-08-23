@@ -72,6 +72,31 @@ final class DecompositionWorkbenchModel {
         workbenchBlockingReason(requiresCalendarProposals: true)
     }
 
+    var firstBlockingCandidateID: UUID? {
+        switch draft.lastRecoverableError {
+        case .sourceChanged, .persistenceFailed:
+            return nil
+        default:
+            break
+        }
+        let selected = draft.candidates.filter(\.selectedForCreation)
+        if selected.isEmpty {
+            return nil
+        }
+        let requiresCalendarProposals = draft.stage == .schedule
+        for candidate in draft.candidates where candidate.selectedForCreation {
+            if isBlank(candidate.title) || isBlank(candidate.completionDescription) {
+                return candidate.id
+            }
+            if requiresCalendarProposals,
+               candidate.selectedForCalendar,
+               candidate.proposal == nil {
+                return candidate.id
+            }
+        }
+        return nil
+    }
+
     private var activeRequest: Task<Void, Never>?
     private var hasCommitted = false
     private var lastCommitResult: DecompositionCommitResult?

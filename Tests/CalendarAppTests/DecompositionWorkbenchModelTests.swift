@@ -962,6 +962,95 @@ struct DecompositionWorkbenchModelTests {
         #expect(model.commitBlockingReason == .missingCompletion(count: 1))
     }
 
+    @Test func blockingReasonSelectsAndMarksFirstInvalidCandidate() async throws {
+        let model = try await makeModel(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 3))
+            ])
+        )
+        await model.start()
+        let first = model.draft.candidates[0].id
+        let second = model.draft.candidates[1].id
+        let third = model.draft.candidates[2].id
+        #expect(model.draft.candidates.allSatisfy { $0.selectedForCreation })
+        #expect(model.firstBlockingCandidateID == nil)
+
+        model.updateCompletion(id: second, value: "  \n")
+        model.updateTitle(id: third, value: "\t")
+        #expect(model.firstBlockingCandidateID == second)
+
+        model.updateCompletion(id: second, value: "完成第二项")
+        #expect(model.firstBlockingCandidateID == third)
+
+        model.updateTitle(id: first, value: "")
+        model.setSelectedForCreation(id: first, selected: false)
+        #expect(model.firstBlockingCandidateID == third)
+
+        model.updateTitle(id: third, value: "第三项")
+        #expect(model.firstBlockingCandidateID == nil)
+
+        for candidate in model.draft.candidates {
+            model.setSelectedForCreation(id: candidate.id, selected: false)
+        }
+        #expect(model.advanceBlockingReason == .noSelectedActions)
+        #expect(model.firstBlockingCandidateID == nil)
+
+        model.setSelectedForCreation(id: second, selected: true)
+        model.setSelectedForCreation(id: third, selected: true)
+        model.setSelectedForCalendar(id: second, selected: true)
+        model.setSelectedForCalendar(id: third, selected: true)
+        model.advanceToSchedule()
+        model.setProposal(id: second, proposal: nil)
+        model.setProposal(id: third, proposal: nil)
+        #expect(model.firstBlockingCandidateID == second)
+
+        model.setSelectedForCalendar(id: second, selected: false)
+        #expect(model.firstBlockingCandidateID == third)
+
+        model.setSelectedForCalendar(id: third, selected: false)
+        #expect(model.firstBlockingCandidateID == nil)
+
+        model.returnToStage(.split)
+        model.setSelectedForCalendar(id: third, selected: true)
+        model.setProposal(id: third, proposal: nil)
+        #expect(model.draft.stage == .split)
+        #expect(model.firstBlockingCandidateID == nil)
+
+        let sourceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ]),
+            snapshotRevisionOffset: -1
+        )
+        await sourceFixture.model.start()
+        sourceFixture.model.advanceToSchedule()
+        #expect(await sourceFixture.model.commit() == .sourceChanged)
+        #expect(sourceFixture.model.advanceBlockingReason == .sourceChanged)
+        sourceFixture.model.updateTitle(
+            id: sourceFixture.model.draft.candidates[0].id,
+            value: ""
+        )
+        #expect(sourceFixture.model.firstBlockingCandidateID == nil)
+
+        let persistenceFixture = try await WorkbenchFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates(validSuggestions(count: 2))
+            ])
+        )
+        await persistenceFixture.model.start()
+        persistenceFixture.model.advanceToSchedule()
+        await persistenceFixture.repository.failNextSave()
+        #expect(
+            await persistenceFixture.model.commit()
+                == .notCommitted(message: Self.notCommittedMessage)
+        )
+        #expect(persistenceFixture.model.draft.lastRecoverableError == .persistenceFailed)
+        #expect(persistenceFixture.model.firstBlockingCandidateID == nil)
+    }
+
     @Test func commitBlockingReasonCountsMissingCalendarProposals() async throws {
         let model = try await makeModel(
             planner: ScriptedDecompositionPlanner([

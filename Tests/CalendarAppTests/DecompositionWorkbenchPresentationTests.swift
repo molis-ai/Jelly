@@ -336,6 +336,110 @@ struct DecompositionWorkbenchPresentationTests {
         )
     }
 
+    @Test func blockingReasonSelectsAndMarksFirstInvalidCandidate() async throws {
+        let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions()
+        let first = try #require(fixture.model.draft.candidates.first)
+        let second = try #require(fixture.model.draft.candidates.dropFirst().first)
+        let third = try #require(fixture.model.draft.candidates.last)
+        #expect(fixture.model.draft.candidates.allSatisfy { $0.selectedForCreation })
+
+        fixture.model.updateCompletion(id: second.id, value: "")
+        fixture.model.updateTitle(id: third.id, value: "")
+        #expect(fixture.model.firstBlockingCandidateID == second.id)
+
+        let host = hostedWorkbench(
+            fixture.model,
+            size: DecompositionWorkbenchMetrics.targetSize,
+            colorScheme: .light
+        )
+        defer { host.window.orderOut(nil) }
+
+        #expect(await waitUntil {
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-completion-\(second.id.uuidString)"
+            )?.isEditable == true
+        })
+        let completion = try uniqueMultilineTextField(
+            identifier: "decomposition-completion-\(second.id.uuidString)",
+            in: host.view
+        )
+        try expectInvalidField(
+            completion,
+            reason: "请补充完成标准",
+            identifier: "decomposition-completion-error-\(second.id.uuidString)",
+            in: host.view
+        )
+        #expect(
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-title-\(third.id.uuidString)"
+            )?.isEditable != true
+        )
+        #expect(
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-title-error-\(third.id.uuidString)"
+            ) == nil
+        )
+        #expect(
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-completion-error-\(first.id.uuidString)"
+            ) == nil
+        )
+        let summary = try #require(
+            findTextField(in: host.view, identifier: "decomposition-result-summary")
+        )
+        #expect(summary.stringValue.contains("完成说明") || summary.stringValue.contains("标题"))
+
+        fixture.model.updateCompletion(id: second.id, value: "把证件和钥匙放一起")
+        #expect(fixture.model.firstBlockingCandidateID == third.id)
+        host.view.layoutSubtreeIfNeeded()
+        #expect(await waitUntil {
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-title-\(third.id.uuidString)"
+            )?.isEditable == true
+                && findTextField(
+                    in: host.view,
+                    identifier: "decomposition-completion-error-\(second.id.uuidString)"
+                ) == nil
+        })
+
+        let title = try uniqueEditableTextField(
+            identifier: "decomposition-title-\(third.id.uuidString)",
+            in: host.view
+        )
+        try expectInvalidField(
+            title,
+            reason: "请填写行动标题",
+            identifier: "decomposition-title-error-\(third.id.uuidString)",
+            in: host.view
+        )
+        #expect(
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-completion-error-\(second.id.uuidString)"
+            ) == nil
+        )
+        let collapsedCompletion = findTextField(
+            in: host.view,
+            identifier: "decomposition-completion-\(second.id.uuidString)"
+        )
+        #expect(axInvalidValue(of: collapsedCompletion) != "true")
+        #expect(collapsedCompletion?.isAccessibilityRequired() != true)
+
+        let editor = try actionEditorSource()
+        #expect(editor.contains("firstBlockingCandidateID"))
+        #expect(editor.contains("theme.error"))
+        #expect(editor.contains("请补充完成标准") || editor.contains("missingCompletionField"))
+        #expect(!editor.contains("requestsInitialFocus: model.firstBlockingCandidateID"))
+        #expect(!editor.contains("makeFirstResponder"))
+        #expect(!editor.contains("LinearGradient"))
+        #expect(!editor.contains("Capsule()"))
+    }
+
     @Test func sourceChangedCopyAndModelGatesAreWiredFromViewSource() async throws {
         let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions(
             snapshotRevisionOffset: -1
@@ -1409,6 +1513,31 @@ private func workbenchSourceRoot() -> URL {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+@MainActor
+private func expectInvalidField(
+    _ field: NSTextField,
+    reason: String,
+    identifier: String,
+    in root: NSView
+) throws {
+    #expect(axInvalidValue(of: field) == "true")
+    #expect(field.isAccessibilityRequired() == true)
+    let help = field.accessibilityHelp() ?? field.toolTip
+    #expect(help == reason)
+    let message = try #require(findTextField(in: root, identifier: identifier))
+    #expect(message.stringValue == reason)
+    #expect(message.font?.pointSize == 12)
+    #expect(nsColorsMatch(message.textColor, NSColor(CalendarTheme.light.error)))
+}
+
+@MainActor
+private func axInvalidValue(of field: NSTextField?) -> String? {
+    guard let field else { return nil }
+    return field.accessibilityAttributeValue(
+        NSAccessibility.Attribute(rawValue: "AXInvalid")
+    ) as? String
 }
 
 @MainActor
