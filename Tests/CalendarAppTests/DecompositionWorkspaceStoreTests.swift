@@ -102,9 +102,10 @@ struct DecompositionWorkspaceStoreTests {
         await store.load()
         let original = store.state
         await repository.failNextSave()
+        let payload = try fixture.validPayload()
 
         let outcome = try await store.sendWorkspace(
-            .applyDecompositionPlan(try fixture.validPayload()),
+            .applyDecompositionPlan(payload),
             undoLabel: "拆开并安排"
         )
         guard case let .notCommitted(_, journal, artifacts) = outcome else {
@@ -117,6 +118,25 @@ struct DecompositionWorkspaceStoreTests {
         #expect(planObjectsAreAbsent(store.state))
         #expect(store.canUndo == false)
         #expect(await repository.saveCount == 0)
+        #expect(store.state.revision == original.revision)
+
+        let retry = try await store.sendWorkspace(
+            .applyDecompositionPlan(payload),
+            undoLabel: "拆开并安排"
+        )
+        guard case .committed = retry else {
+            Issue.record("the same payload must commit after a failed save")
+            return
+        }
+        #expect(planObjectsArePresent(store.state))
+        let tasks = store.state.notes[StorePlanFixture.noteID]?.document.blocks.filter { $0.kind == .task } ?? []
+        #expect(tasks.map(\.id) == [StorePlanFixture.firstTaskID, StorePlanFixture.secondTaskID])
+        #expect(store.state.calendar.items.keys.sorted(by: { $0.uuidString < $1.uuidString })
+            == [StorePlanFixture.itemID])
+        #expect(store.state.taskBlockLinks.map(\.calendarItemID) == [StorePlanFixture.itemID])
+        #expect(store.state.revision == original.revision + 1)
+        #expect(await repository.saveCount == 1)
+        #expect(store.canUndo)
     }
 }
 

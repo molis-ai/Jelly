@@ -813,15 +813,24 @@ struct DecompositionWorkbenchModelTests {
         )
         let model = fixture.model
         await model.start()
-        model.setSelectedForCalendar(id: model.draft.candidates[0].id, selected: true)
+        model.updateAnswer("冲突后仍保留回答")
+        let first = model.draft.candidates[0].id
+        let second = model.draft.candidates[1].id
+        model.setSelectedForCalendar(id: first, selected: true)
+        model.setSelectedForCalendar(id: second, selected: true)
         model.advanceToSchedule()
-        let proposal = try #require(model.draft.candidates[0].proposal)
+        model.updateProposalTime(id: first, instant: fixture.date(hour: 16, minute: 30))
+        model.updateDuration(id: first, duration: .minutes45)
+        let lockedProposal = try #require(model.draft.candidates[0].proposal)
+        let unlockedProposal = try #require(model.draft.candidates[1].proposal)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        #expect(!model.draft.candidates[1].scheduleLockedByUser)
         let blocking = try CalendarItem(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000860")!,
             kind: .task,
             title: "挡路事项",
             categoryID: FixtureIDs.categoryID,
-            schedule: proposal.schedule,
+            schedule: unlockedProposal.schedule,
             creationTimeZoneIdentifier: WorkbenchFixture.shanghai.identifier,
             completedAt: nil,
             createdAt: WorkbenchFixture.now,
@@ -829,15 +838,42 @@ struct DecompositionWorkbenchModelTests {
         )
         _ = try await fixture.store.sendCalendar(.createItem(blocking), undoLabel: "挡路")
         let generation = fixture.store.statePublicationGeneration
-        let draft = model.draft
+        let revision = fixture.store.state.revision
+        let saves = await fixture.repository.saveCount
+        let answer = model.draft.answer
+        let snapshot = recoverySnapshot(of: model.draft.candidates)
         let result = await model.commit()
         #expect(result == .calendarConflict)
         #expect(model.draft.stage == .schedule)
-        #expect(model.draft.candidates.map(\.id) == draft.candidates.map(\.id))
+        #expect(model.draft.answer == answer)
+        #expect(recoverySnapshot(of: model.draft.candidates) == snapshot)
+        #expect(model.draft.candidates[0].title == "行动1")
+        #expect(model.draft.candidates[0].completionDescription == "完成行动1")
+        #expect(model.draft.candidates[0].selectedForCreation)
+        #expect(model.draft.candidates[0].selectedForCalendar)
+        #expect(model.draft.candidates[0].proposal == lockedProposal)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        #expect(model.draft.candidates[1].title == "行动2")
+        #expect(model.draft.candidates[1].completionDescription == "完成行动2")
+        #expect(model.draft.candidates[1].selectedForCalendar)
+        #expect(model.draft.candidates[1].proposal == unlockedProposal)
+        #expect(!model.draft.candidates[1].scheduleLockedByUser)
         #expect(model.draft.lastRecoverableError == .calendarConflict)
         #expect(fixture.store.statePublicationGeneration == generation)
+        #expect(fixture.store.state.revision == revision)
+        #expect(await fixture.repository.saveCount == saves)
         #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
         #expect(fixture.store.calendarState.items[blocking.id] != nil)
+
+        model.refreshCalendarProposals(overwriteUserAdjustments: false)
+        #expect(model.draft.stage == .schedule)
+        #expect(model.draft.candidates[0].proposal == lockedProposal)
+        #expect(model.draft.candidates[0].estimatedDuration == .minutes45)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        #expect(!model.draft.candidates[1].scheduleLockedByUser)
+        #expect(model.draft.candidates[1].proposal != unlockedProposal)
+        #expect(model.draft.candidates[1].proposal != nil)
+        #expect(model.draft.candidates[1].selectedForCalendar)
     }
 
     @Test func persistenceFailureKeepsDraftAndDoesNotClaimSuccess() async throws {
@@ -849,18 +885,62 @@ struct DecompositionWorkbenchModelTests {
         )
         let model = fixture.model
         await model.start()
+        model.updateAnswer("保存失败后仍保留回答")
+        let first = model.draft.candidates[0].id
+        model.setSelectedForCalendar(id: first, selected: true)
         model.advanceToSchedule()
+        model.updateProposalTime(id: first, instant: fixture.date(hour: 16, minute: 30))
+        model.updateDuration(id: first, duration: .minutes45)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        let lockedProposal = try #require(model.draft.candidates[0].proposal)
         await fixture.repository.failNextSave()
         let generation = fixture.store.statePublicationGeneration
-        let draft = model.draft
+        let revision = fixture.store.state.revision
+        let noteRevision = try #require(fixture.store.state.notes[FixtureIDs.noteID]).revision
+        let answer = model.draft.answer
+        let snapshot = recoverySnapshot(of: model.draft.candidates)
         let result = await model.commit()
         #expect(result == .notCommitted(message: Self.notCommittedMessage))
         #expect(model.draft.stage == .schedule)
-        #expect(model.draft.candidates == draft.candidates)
+        #expect(model.draft.answer == answer)
+        #expect(recoverySnapshot(of: model.draft.candidates) == snapshot)
+        #expect(model.draft.candidates[0].title == "行动1")
+        #expect(model.draft.candidates[0].completionDescription == "完成行动1")
+        #expect(model.draft.candidates[0].selectedForCreation)
+        #expect(model.draft.candidates[0].selectedForCalendar)
+        #expect(model.draft.candidates[0].proposal == lockedProposal)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        #expect(model.draft.candidates[1].title == "行动2")
+        #expect(model.draft.candidates[1].selectedForCreation)
+        #expect(!model.draft.candidates[1].selectedForCalendar)
         #expect(model.draft.lastRecoverableError == .persistenceFailed)
         #expect(fixture.store.statePublicationGeneration == generation)
+        #expect(fixture.store.state.revision == revision)
+        #expect(fixture.store.state.notes[FixtureIDs.noteID]?.revision == noteRevision)
         #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
         #expect(await fixture.repository.saveCount == 0)
+        #expect(planObjectCounts(fixture.store.state, noteID: FixtureIDs.noteID) == (0, 0, 0))
+
+        let retry = await model.commit()
+        guard case let .committed(created, scheduled, committedGeneration) = retry else {
+            Issue.record("same model must commit after the failed save is cleared, got \(retry)")
+            return
+        }
+        #expect(created == 2)
+        #expect(scheduled == 1)
+        #expect(committedGeneration == fixture.store.statePublicationGeneration)
+        #expect(fixture.store.statePublicationGeneration > generation)
+        #expect(fixture.store.state.revision == revision + 1)
+        #expect(fixture.store.state.notes[FixtureIDs.noteID]?.revision == noteRevision + 1)
+        #expect(await fixture.repository.saveCount == 1)
+        let counts = planObjectCounts(fixture.store.state, noteID: FixtureIDs.noteID)
+        #expect(counts == (2, 1, 1))
+        let tasks = fixture.store.state.notes[FixtureIDs.noteID]?.document.blocks.filter { $0.kind == .task } ?? []
+        #expect(Set(tasks.map(\.id)).count == 2)
+        #expect(tasks.map { $0.inlineContent.spans.map(\.text).joined() } == ["行动1", "行动2"])
+        #expect(fixture.store.calendarState.items.values.map(\.title) == ["行动1"])
+        #expect(Set(fixture.store.state.taskBlockLinks.map(\.calendarItemID)).count == 1)
+        #expect(model.draft.lastRecoverableError == nil)
     }
 
     @Test func missingProposalBlocksCommitWithoutWriting() async throws {
@@ -1089,23 +1169,57 @@ struct DecompositionWorkbenchModelTests {
         )
         let model = fixture.model
         await model.start()
+        model.updateAnswer("来源变化后仍可读")
+        let first = model.draft.candidates[0].id
+        model.updateTitle(id: first, value: "给物业打电话")
+        model.updateCompletion(id: first, value: "拿到明确上门时间")
+        model.setSelectedForCalendar(id: first, selected: true)
         model.advanceToSchedule()
+        model.updateProposalTime(id: first, instant: fixture.date(hour: 16, minute: 30))
+        model.updateDuration(id: first, duration: .minutes45)
+        let lockedProposal = try #require(model.draft.candidates[0].proposal)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        let generation = fixture.store.statePublicationGeneration
+        let revision = fixture.store.state.revision
+        let noteRevision = try #require(fixture.store.state.notes[FixtureIDs.noteID]).revision
+        let saves = await fixture.repository.saveCount
+        let answer = model.draft.answer
+        let snapshot = recoverySnapshot(of: model.draft.candidates)
         let result = await model.commit()
         #expect(result == .sourceChanged)
         #expect(model.draft.lastRecoverableError == .sourceChanged)
         #expect(model.draft.stage == .split)
+        #expect(model.draft.answer == answer)
+        #expect(recoverySnapshot(of: model.draft.candidates) == snapshot)
+        #expect(model.draft.candidates[0].title == "给物业打电话")
+        #expect(model.draft.candidates[0].completionDescription == "拿到明确上门时间")
+        #expect(model.draft.candidates[0].selectedForCreation)
+        #expect(model.draft.candidates[0].selectedForCalendar)
+        #expect(model.draft.candidates[0].proposal == lockedProposal)
+        #expect(model.draft.candidates[0].scheduleLockedByUser)
+        #expect(model.draft.candidates[1].title == "行动2")
+        #expect(model.draft.candidates[1].completionDescription == "完成行动2")
+        #expect(model.draft.candidates[1].selectedForCreation)
+        #expect(!model.draft.candidates[1].selectedForCalendar)
         #expect(model.advanceBlockingReason == .sourceChanged)
         #expect(model.commitBlockingReason == .sourceChanged)
         #expect(!model.canAdvance)
         #expect(!model.canCommit)
+        #expect(fixture.store.statePublicationGeneration == generation)
+        #expect(fixture.store.state.revision == revision)
+        #expect(fixture.store.state.notes[FixtureIDs.noteID]?.revision == noteRevision)
+        #expect(await fixture.repository.saveCount == saves)
+        #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
+        #expect(planObjectCounts(fixture.store.state, noteID: FixtureIDs.noteID) == (0, 0, 0))
 
-        let first = model.draft.candidates[0].id
         model.updateTitle(id: first, value: "改过标题")
         model.updateCompletion(id: first, value: "改过说明")
         model.setSelectedForCreation(id: first, selected: true)
         model.setSelectedForCalendar(id: first, selected: true)
         model.setProposal(id: first, proposal: nil)
         model.refreshCalendarProposals()
+        let editedAnswer = model.draft.answer
+        let editedSnapshot = recoverySnapshot(of: model.draft.candidates)
         #expect(model.draft.lastRecoverableError == .sourceChanged)
         #expect(model.advanceBlockingReason == .sourceChanged)
         #expect(model.commitBlockingReason == .sourceChanged)
@@ -1113,14 +1227,18 @@ struct DecompositionWorkbenchModelTests {
         model.advanceToSchedule()
         model.returnToStage(.schedule)
         #expect(model.draft.stage == .split)
-        let generation = fixture.store.statePublicationGeneration
-        let saves = await fixture.repository.saveCount
         let recommit = await model.commit()
         #expect(recommit == .sourceChanged)
         #expect(model.draft.stage == .split)
+        #expect(model.draft.lastRecoverableError == .sourceChanged)
+        #expect(model.draft.answer == editedAnswer)
+        #expect(recoverySnapshot(of: model.draft.candidates) == editedSnapshot)
         #expect(fixture.store.statePublicationGeneration == generation)
+        #expect(fixture.store.state.revision == revision)
+        #expect(fixture.store.state.notes[FixtureIDs.noteID]?.revision == noteRevision)
         #expect(await fixture.repository.saveCount == saves)
         #expect(planObjectsAreAbsent(fixture.store.state, noteID: FixtureIDs.noteID))
+        #expect(planObjectCounts(fixture.store.state, noteID: FixtureIDs.noteID) == (0, 0, 0))
     }
 
     @Test func calendarAdjustmentClearsCalendarConflict() async throws {
@@ -1764,6 +1882,19 @@ private struct WorkbenchFixture {
     let store: WorkspaceStore
     let repository: WorkspaceStoreTestRepository
 
+    func date(hour: Int, minute: Int, dayOffset: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = Self.shanghai
+        let day = Self.day.addingDays(dayOffset)
+        return calendar.date(from: DateComponents(
+            year: day.year,
+            month: day.month,
+            day: day.day,
+            hour: hour,
+            minute: minute
+        ))!
+    }
+
     static func make(
         planner: any DecompositionPlanning,
         sleeper: ControllableSleeper = ControllableSleeper(),
@@ -1866,6 +1997,46 @@ private func planObjectsAreAbsent(_ state: WorkspaceState, noteID: NoteID) -> Bo
     } ?? []
     return titles == ["预约牙医"]
         && state.taskBlockLinks.isEmpty
+}
+
+private struct CandidateRecoverySnapshot: Equatable {
+    var id: UUID
+    var title: String
+    var completionDescription: String
+    var estimatedDuration: CandidateDuration
+    var selectedForCreation: Bool
+    var selectedForCalendar: Bool
+    var titleLockedByUser: Bool
+    var completionLockedByUser: Bool
+    var sourceCandidateID: UUID?
+    var proposal: CalendarProposal?
+    var scheduleLockedByUser: Bool
+}
+
+private func recoverySnapshot(of candidates: [CandidateAction]) -> [CandidateRecoverySnapshot] {
+    candidates.map {
+        CandidateRecoverySnapshot(
+            id: $0.id,
+            title: $0.title,
+            completionDescription: $0.completionDescription,
+            estimatedDuration: $0.estimatedDuration,
+            selectedForCreation: $0.selectedForCreation,
+            selectedForCalendar: $0.selectedForCalendar,
+            titleLockedByUser: $0.titleLockedByUser,
+            completionLockedByUser: $0.completionLockedByUser,
+            sourceCandidateID: $0.sourceCandidateID,
+            proposal: $0.proposal,
+            scheduleLockedByUser: $0.scheduleLockedByUser
+        )
+    }
+}
+
+private func planObjectCounts(
+    _ state: WorkspaceState,
+    noteID: NoteID
+) -> (tasks: Int, items: Int, links: Int) {
+    let tasks = state.notes[noteID]?.document.blocks.filter { $0.kind == .task }.count ?? 0
+    return (tasks, state.calendar.items.count, state.taskBlockLinks.count)
 }
 
 private func returnedWithin(_ task: Task<Void, Never>, limit: Duration) async -> Bool {
