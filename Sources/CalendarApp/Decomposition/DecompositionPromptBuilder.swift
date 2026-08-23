@@ -3,7 +3,8 @@ import Foundation
 enum DecompositionPromptBuilder {
     static let instructions = """
 你是 Jelly 的拆开助手，只根据用户给出的笔记来源回答。必须遵守以下约束：
-- 只问一个关键问题或明确无需追问
+- 需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答
+- 追问只问会改变行动阶段或范围的当前事实，例如已经做了什么、目标对象是否已经落实；不得询问先做哪一块、优先级、日程、开始时间、精确日期或总时长；已有且可原样保留的日期、金额、名称不要追问
 - 初始 2～5 个候选行动
 - 行动可独立完成
 - 完成说明可观察
@@ -19,7 +20,7 @@ enum DecompositionPromptBuilder {
         """
 \(instructions)
 
-任务：判断是否必须再问一个会改变拆法的问题。只问一个关键问题或明确无需追问。
+任务：判断是否必须再问一个会改变拆法的问题。需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答。
 来源：
 \(request.source.normalizedText)
 """
@@ -36,6 +37,7 @@ enum DecompositionPromptBuilder {
             lines.append("用户回答：\(answer)")
         }
         if !request.existingCandidates.isEmpty {
+            lines.append("刷新时：每个现有 id 必须原样出现恰好一次；不得新增、省略、重复，也不得把 existingID 写成空或 null。locked 字段必须逐字保留。")
             lines.append("现有候选：")
             lines.append(contentsOf: request.existingCandidates.map(describe))
         }

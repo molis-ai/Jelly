@@ -11,7 +11,7 @@ struct AppleFoundationModelsPromptContractTests {
     @Test func instructionsContainEveryRequiredConstraintVerbatim() {
         let text = DecompositionPromptBuilder.instructions
         let required = [
-            "只问一个关键问题或明确无需追问",
+            "需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答",
             "初始 2～5",
             "行动可独立完成",
             "完成说明可观察",
@@ -32,7 +32,35 @@ struct AppleFoundationModelsPromptContractTests {
             ClarificationRequest(source: source)
         )
         #expect(prompt.contains(source.normalizedText))
-        #expect(prompt.contains("只问一个关键问题或明确无需追问"))
+        #expect(prompt.contains("需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答"))
+        #expect(prompt.contains("最多给 3 个简短快捷回答"))
+        #expect(prompt.contains("无需追问时不要给问题或快捷回答"))
+        assertNoFrameworkLeak(prompt)
+        assertNoFrameworkLeak(DecompositionPromptBuilder.instructions)
+    }
+
+    @Test func clarificationPromptAsksCurrentStateFactsNotWhichPartFirst() throws {
+        let source = try makeSnapshot()
+        let prompt = DecompositionPromptBuilder.clarification(
+            ClarificationRequest(source: source)
+        )
+        let constraint = "追问只问会改变行动阶段或范围的当前事实，例如已经做了什么、目标对象是否已经落实；不得询问先做哪一块、优先级、日程、开始时间、精确日期或总时长；已有且可原样保留的日期、金额、名称不要追问"
+        let removed = "追问只用于决定需要哪些候选行动；不得询问日程、开始时间、精确日期、总时长或优先级；已有且可原样保留的日期、金额、名称不要追问"
+        #expect(
+            DecompositionPromptBuilder.instructions.contains(constraint),
+            "缺少约束：\(constraint)"
+        )
+        #expect(prompt.contains(constraint), "缺少约束：\(constraint)")
+        #expect(!DecompositionPromptBuilder.instructions.contains(removed), "旧弱约束仍在 instructions")
+        #expect(!prompt.contains(removed), "旧弱约束仍在 clarification prompt")
+        #expect(!DecompositionPromptBuilder.instructions.contains("需要哪些候选行动"))
+        #expect(!prompt.contains("需要哪些候选行动"))
+        #expect(!DecompositionPromptBuilder.instructions.contains("边界、数量或顺序"))
+        #expect(!prompt.contains("边界、数量或顺序"))
+        #expect(DecompositionPromptBuilder.instructions.contains("需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答"))
+        #expect(prompt.contains("最多给 3 个简短快捷回答"))
+        #expect(prompt.contains("无需追问时不要给问题或快捷回答"))
+        #expect(!DecompositionPromptBuilder.instructions.contains("只问一个关键问题或明确无需追问"))
         assertNoFrameworkLeak(prompt)
         assertNoFrameworkLeak(DecompositionPromptBuilder.instructions)
     }
@@ -65,6 +93,58 @@ struct AppleFoundationModelsPromptContractTests {
         #expect(prompt.contains("15 / 30 / 45 / 60 / 90"))
         #expect(prompt.contains("初始 2～5"))
         assertNoFrameworkLeak(prompt)
+    }
+
+    @Test func candidatePromptStatesRefreshIDSetInvariantWhenExistingCandidatesArePresent() throws {
+        let source = try makeSnapshot()
+        let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+        let secondID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+        let refreshContract = "刷新时：每个现有 id 必须原样出现恰好一次；不得新增、省略、重复，也不得把 existingID 写成空或 null。locked 字段必须逐字保留。"
+
+        let refresh = DecompositionPromptBuilder.candidates(
+            CandidateRequest(
+                source: source,
+                answer: "拿到确认",
+                existingCandidates: [
+                    PlannerCandidateContext(
+                        id: firstID,
+                        title: "给物业打电话",
+                        completionDescription: "拿到明确上门时间",
+                        estimatedMinutes: 30,
+                        titleLockedByUser: true,
+                        completionLockedByUser: false
+                    ),
+                    PlannerCandidateContext(
+                        id: secondID,
+                        title: "记录上门时间",
+                        completionDescription: "把确认写进笔记",
+                        estimatedMinutes: 15,
+                        titleLockedByUser: false,
+                        completionLockedByUser: true
+                    )
+                ],
+                validationFeedback: nil
+            )
+        )
+        #expect(refresh.contains(firstID.uuidString))
+        #expect(refresh.contains(secondID.uuidString))
+        #expect(refresh.contains("titleLockedByUser=true"))
+        #expect(refresh.contains("completionLockedByUser=true"))
+        #expect(refresh.contains(refreshContract), "缺少刷新 ID 集合约束：\(refreshContract)")
+        #expect(refresh.contains("不得覆盖标记为 locked 的字段"))
+        assertNoFrameworkLeak(refresh)
+
+        let initial = DecompositionPromptBuilder.candidates(
+            CandidateRequest(
+                source: source,
+                answer: "拿到确认",
+                existingCandidates: [],
+                validationFeedback: nil
+            )
+        )
+        #expect(!initial.contains(refreshContract))
+        #expect(!initial.contains("每个现有 id 必须原样出现恰好一次"))
+        assertNoFrameworkLeak(initial)
     }
 
     @Test func splitPromptOmitsOtherCandidatesAndKeepsChineseContract() throws {

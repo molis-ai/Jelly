@@ -24,7 +24,7 @@ struct MiniMaxDecompositionLiveTests {
         #expect(clarificationPrompt.hasPrefix(DecompositionPromptBuilder.clarification(clarificationRequest)))
         #expect(clarificationPrompt.contains(MiniMaxJSONContract.clarification))
         #expect(clarificationPrompt.contains(MiniMaxLiveFixtures.vagueMoving))
-        #expect(clarificationPrompt.contains("只问一个关键问题或明确无需追问"))
+        #expect(clarificationPrompt.contains("需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答"))
 
         let dentalPrompt = MiniMaxLivePrompt.clarification(ClarificationRequest(source: dental))
         #expect(dentalPrompt.contains(MiniMaxLiveFixtures.specificDental))
