@@ -33,6 +33,7 @@ final class DecompositionNSButton: NSButton {
 
 final class DecompositionIdentifiedNSTextField: NSTextField {
     var requestsInitialFocus = false
+    private var didHandleInitialFocusRequest = false
 
     override var acceptsFirstResponder: Bool { isEditable && isEnabled }
     override var canBecomeKeyView: Bool { isEditable && isEnabled && !isHiddenOrHasHiddenAncestor }
@@ -51,7 +52,8 @@ final class DecompositionIdentifiedNSTextField: NSTextField {
 
     func attemptInitialFocusIfNeeded() {
         let shouldRequestFocus = requestsInitialFocus || accessibilityIdentifier() == "decomposition-answer"
-        guard shouldRequestFocus, let window else { return }
+        guard shouldRequestFocus, let window, !didHandleInitialFocusRequest else { return }
+        didHandleInitialFocusRequest = true
         let responder = window.firstResponder
         if responder === self || responder === currentEditor() { return }
         if hasMarkedText(in: responder) { return }

@@ -608,6 +608,51 @@ struct DecompositionWorkbenchInteractionTests {
         incoming.attemptInitialFocusIfNeeded()
         #expect(window.firstResponder === textView)
     }
+
+    @Test func initialFocusDoesNotReclaimAfterUserMovesFirstResponderAway() async throws {
+        _ = NSApplication.shared
+        let window = InteractionTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 140),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.animationBehavior = .none
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 140))
+        let field = DecompositionIdentifiedNSTextField(frame: NSRect(x: 8, y: 60, width: 360, height: 24))
+        field.isEditable = true
+        field.isEnabled = true
+        field.requestsInitialFocus = true
+        field.setAccessibilityIdentifier("decomposition-answer")
+        let otherControl = DecompositionNSButton(frame: NSRect(x: 8, y: 20, width: 120, height: 24))
+        otherControl.title = "其他"
+        otherControl.bezelStyle = .rounded
+        otherControl.intendedEnabled = true
+        otherControl.isEnabled = true
+        otherControl.refusesFirstResponder = false
+        root.addSubview(field)
+        root.addSubview(otherControl)
+        window.contentView = root
+        window.makeKey()
+        defer { window.orderOut(nil) }
+
+        field.attemptInitialFocusIfNeeded()
+        #expect(window.firstResponder === field || window.firstResponder === field.currentEditor())
+
+        #expect(window.makeFirstResponder(nil))
+        field.attemptInitialFocusIfNeeded()
+        #expect(
+            window.firstResponder !== field
+                && window.firstResponder !== field.currentEditor()
+        )
+        #expect(window.firstResponder === window || window.firstResponder == nil)
+
+        #expect(window.makeFirstResponder(otherControl))
+        field.attemptInitialFocusIfNeeded()
+        #expect(window.firstResponder === otherControl)
+    }
 }
 
 private struct HostedInteractionWorkbench {
