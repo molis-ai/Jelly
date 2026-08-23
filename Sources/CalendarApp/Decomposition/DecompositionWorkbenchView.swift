@@ -573,6 +573,33 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
     }
 }
 
+struct DecompositionIdentifiedHost: NSViewRepresentable {
+    var identifier: String
+    var accessibilityName: String = ""
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        apply(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        apply(view)
+    }
+
+    private func apply(_ view: NSView) {
+        view.identifier = NSUserInterfaceItemIdentifier(identifier)
+        view.setAccessibilityIdentifier(identifier)
+        if accessibilityName.isEmpty {
+            view.setAccessibilityElement(false)
+        } else {
+            view.setAccessibilityElement(true)
+            view.setAccessibilityRole(.group)
+            view.setAccessibilityLabel(accessibilityName)
+        }
+    }
+}
+
 struct DecompositionAccessibleLabel: NSViewRepresentable {
     var text: String
     var identifier: String = ""
@@ -657,7 +684,13 @@ enum DecompositionWorkbenchCopy {
     static let more = "更多操作"
     static let confirmActions = "确认行动"
     static let refreshProposals = "重新建议时间"
+    static let refreshProposalsHelp = "只更新尚未手动调整的时间"
+    static let refreshAllProposals = "全部重新建议"
+    static let refreshAllProposalsHelp = "会覆盖人工调整，并按当前行动顺序重新建议未来七天的可用时间"
     static let noProposal = "暂无建议"
+    static let noAvailableSlot = "未来七天没有合适空档"
+    static let chooseDateAndTime = "选择日期与时间"
+    static let adjustedSchedule = "已调整"
     static let joinCalendar = "加入日历"
     static let keepAction = "保留为行动"
     static let createAction = "创建"

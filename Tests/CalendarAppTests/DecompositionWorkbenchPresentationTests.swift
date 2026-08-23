@@ -988,6 +988,87 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(editor.contains("if case .manual"))
         #expect(editor.contains("DecompositionWorkbenchCopy.continueSplit"))
     }
+
+    @Test func noProposalShowsExplicitChooseTimeWithoutFakeNineAM() async throws {
+        let fixture = try await WorkbenchPresentationFixture.splitWithoutAvailableSlot()
+        let first = try #require(fixture.model.draft.candidates.first)
+        #expect(fixture.model.draft.stage == .schedule)
+        #expect(first.selectedForCalendar)
+        #expect(first.proposal == nil)
+        #expect(!first.scheduleLockedByUser)
+
+        let host = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
+        defer { host.window.orderOut(nil) }
+        let id = first.id.uuidString
+        let labels = accessibilityLabels(in: host.view)
+        #expect(labels.contains { $0.contains("未来七天没有合适空档") })
+        #expect(findButton(in: host.view, identifier: "decomposition-choose-time-\(id)")?.title == "选择日期与时间")
+        #expect(findView(in: host.view, identifier: "decomposition-time-\(id)") == nil)
+        #expect(findView(in: host.view, identifier: "decomposition-date-\(id)") == nil)
+        #expect(findView(in: host.view, identifier: "decomposition-duration-\(id)") == nil)
+        #expect(!hasIdentifiedControl(identifier: "decomposition-time-\(id)", in: host.view))
+        #expect(!hasIdentifiedControl(identifier: "decomposition-date-\(id)", in: host.view))
+        #expect(!hasIdentifiedControl(identifier: "decomposition-duration-\(id)", in: host.view))
+        #expect(!labels.contains { $0.contains("09:00") })
+        #expect(!labels.contains("开始时间"))
+        #expect(!labels.contains("日期"))
+
+        let choose = try uniqueButton(identifier: "decomposition-choose-time-\(id)", in: host.view)
+        #expect(choose.isBordered)
+        choose.performClick(nil)
+        #expect(fixture.model.draft.candidates[0].proposal != nil)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+        host.window.orderOut(nil)
+
+        let scheduled = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
+        defer { scheduled.window.orderOut(nil) }
+        #expect(findButton(in: scheduled.view, identifier: "decomposition-choose-time-\(id)") == nil)
+        #expect(
+            hasIdentifiedControl(identifier: "decomposition-time-\(id)", in: scheduled.view)
+                || accessibilityLabels(in: scheduled.view).contains("开始时间")
+        )
+        #expect(
+            hasIdentifiedControl(identifier: "decomposition-date-\(id)", in: scheduled.view)
+                || accessibilityLabels(in: scheduled.view).contains("日期")
+        )
+        #expect(
+            hasIdentifiedControl(identifier: "decomposition-duration-\(id)", in: scheduled.view)
+                || accessibilityLabels(in: scheduled.view).contains("预计时长")
+        )
+
+        let adjusted = descendants(of: scheduled.view, as: NSTextField.self).first {
+            $0.stringValue == "已调整"
+        }
+        #expect(adjusted != nil)
+        #expect(adjusted?.font?.pointSize == 12)
+
+        #expect(DecompositionWorkbenchMetrics.resultHeight == 64)
+        let summary = try #require(
+            findTextField(in: scheduled.view, identifier: "decomposition-result-summary")
+        )
+        #expect(
+            isInBottomBand(
+                summary.convert(summary.bounds, to: scheduled.view),
+                hostBounds: scheduled.view.bounds,
+                height: DecompositionWorkbenchMetrics.resultHeight,
+                tolerance: 2
+            )
+        )
+
+        let schedule = try scheduleEditorSource()
+        #expect(schedule.contains("theme.elevatedSurface"))
+        #expect(schedule.contains("theme.subtleBorder"))
+        #expect(schedule.contains("CalendarTheme.cornerRadius"))
+        #expect(schedule.contains("overwriteUserAdjustments: false"))
+        #expect(schedule.contains("beginManualCalendarProposal"))
+        #expect(schedule.contains("未来七天没有合适空档") || schedule.contains("noAvailableSlot"))
+        #expect(schedule.contains("选择日期与时间") || schedule.contains("chooseDateAndTime"))
+        #expect(schedule.contains("已调整") || schedule.contains("adjustedSchedule"))
+        #expect(schedule.contains("spacing: 12") || schedule.contains("spacing: 16"))
+        #expect(!schedule.contains("LinearGradient"))
+        #expect(!schedule.contains(".shadow("))
+        #expect(!schedule.contains("struct DecompositionScheduleCard"))
+    }
 }
 
 private struct HostedWorkbench {
@@ -1149,6 +1230,62 @@ private struct WorkbenchPresentationFixture {
         return fixture
     }
 
+    static func splitWithoutAvailableSlot() async throws -> WorkbenchPresentationFixture {
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000941")!
+        let second = UUID(uuidString: "00000000-0000-0000-0000-000000000942")!
+        let fixture = try await make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates([
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "打电话确认",
+                        completionDescription: "拿到明确上门时间",
+                        estimatedMinutes: 15
+                    ),
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "准备材料",
+                        completionDescription: "把证件和钥匙放一起",
+                        estimatedMinutes: 30
+                    )
+                ])
+            ]),
+            uuid: SequentialWorkbenchUUID([first, second]).next
+        )
+        try await occupyNextSevenDays(in: fixture.store)
+        await fixture.model.start()
+        let candidate = try #require(fixture.model.draft.candidates.first)
+        fixture.model.setSelectedForCalendar(id: candidate.id, selected: true)
+        fixture.model.advanceToSchedule()
+        return fixture
+    }
+
+    static func occupyNextSevenDays(in store: WorkspaceStore) async throws {
+        let today = CalendarDate.localDay(containing: now, in: shanghai)
+        let categoryID = store.state.calendar.uncategorizedID
+        for offset in 0...6 {
+            let day = today.addingDays(offset)
+            let item = try CalendarItem(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000d7\(offset)")!,
+                kind: .task,
+                title: "占满空档",
+                categoryID: categoryID,
+                schedule: try CalendarSchedule(
+                    startDate: day,
+                    endDate: day,
+                    startTime: MinuteOfDay(hour: 9, minute: 0),
+                    endTime: MinuteOfDay(hour: 21, minute: 0)
+                ),
+                creationTimeZoneIdentifier: shanghai.identifier,
+                completedAt: nil,
+                createdAt: now,
+                updatedAt: now
+            )
+            _ = try await store.sendCalendar(.createItem(item), undoLabel: "占满")
+        }
+    }
+
     static func understandWithQuestion() async throws -> WorkbenchPresentationFixture {
         let fixture = try await make(
             planner: ScriptedDecompositionPlanner([
@@ -1237,6 +1374,16 @@ private func actionEditorSource() throws -> String {
     )
 }
 
+@MainActor
+private func scheduleEditorSource() throws -> String {
+    try String(
+        contentsOf: workbenchSourceRoot().appending(
+            path: "Sources/CalendarApp/Decomposition/DecompositionScheduleEditor.swift"
+        ),
+        encoding: .utf8
+    )
+}
+
 private func workbenchSourceRoot() -> URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -1302,6 +1449,23 @@ private func views(withIdentifier identifier: String, in root: NSView) -> [NSVie
 private func findButton(in root: NSView, identifier: String) -> NSButton? {
     descendants(of: root, as: NSButton.self).first {
         $0.accessibilityIdentifier() == identifier
+    }
+}
+
+@MainActor
+private func findView(in root: NSView, identifier: String) -> NSView? {
+    descendants(of: root, as: NSView.self).first {
+        $0.accessibilityIdentifier() == identifier
+    }
+}
+
+@MainActor
+private func hasIdentifiedControl(identifier: String, in root: NSView) -> Bool {
+    if findView(in: root, identifier: identifier) != nil {
+        return true
+    }
+    return accessibilityObjects(from: root).contains { object in
+        object.accessibilityIdentifier?() == identifier
     }
 }
 

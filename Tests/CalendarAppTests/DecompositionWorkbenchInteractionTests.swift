@@ -691,6 +691,102 @@ struct DecompositionWorkbenchInteractionTests {
         #expect((field.currentEditor() as? NSTextView)?.hasMarkedText() == true)
         #expect(harness.text == "原标题")
     }
+
+    @Test func refreshTimeKeepsUserAdjustedRows() async throws {
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000951")!
+        let second = UUID(uuidString: "00000000-0000-0000-0000-000000000952")!
+        let fixture = try await WorkbenchInteractionFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates([
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "打电话确认",
+                        completionDescription: "拿到明确上门时间",
+                        estimatedMinutes: 15
+                    ),
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "准备材料",
+                        completionDescription: "把证件放一起",
+                        estimatedMinutes: 30
+                    )
+                ])
+            ]),
+            uuid: SequentialInteractionUUID([first, second]).next
+        )
+        await fixture.model.start()
+        fixture.model.setSelectedForCalendar(id: first, selected: true)
+        fixture.model.setSelectedForCalendar(id: second, selected: true)
+        fixture.model.advanceToSchedule()
+        let originalFirst = try #require(fixture.model.draft.candidates[0].proposal)
+        let originalSecond = try #require(fixture.model.draft.candidates[1].proposal)
+        #expect(!fixture.model.draft.candidates[0].scheduleLockedByUser)
+
+        let host = hostedInteractionWorkbench(fixture.model)
+        defer { host.window.orderOut(nil) }
+        host.view.layoutSubtreeIfNeeded()
+        #expect(findButton(in: host.view, identifier: "decomposition-refresh-all-proposals") == nil)
+        #expect(
+            descendants(of: host.view, as: NSButton.self).contains { $0.title == "全部重新建议" } == false
+        )
+
+        fixture.model.updateProposalTime(id: first, instant: fixture.date(hour: 16, minute: 30))
+        let locked = try #require(fixture.model.draft.candidates[0].proposal)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+        #expect(locked != originalFirst)
+        host.view.layoutSubtreeIfNeeded()
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return findButton(in: host.view, identifier: "decomposition-refresh-all-proposals") != nil
+                || descendants(of: host.view, as: NSButton.self).contains { $0.title == "全部重新建议" }
+        })
+
+        let adjusted = descendants(of: host.view, as: NSTextField.self).first {
+            $0.stringValue == "已调整"
+        }
+        #expect(adjusted != nil)
+        #expect(adjusted?.font?.pointSize == 12)
+
+        let refresh = try #require(
+            findButton(in: host.view, identifier: "decomposition-refresh-proposals")
+                ?? descendants(of: host.view, as: NSButton.self).first { $0.title == "重新建议时间" }
+        )
+        #expect(refresh.title == "重新建议时间")
+        refresh.performClick(nil)
+        #expect(await waitUntil {
+            fixture.model.draft.candidates[0].proposal == locked
+                && fixture.model.draft.candidates[1].proposal != originalSecond
+        })
+        #expect(fixture.model.draft.candidates[0].proposal == locked)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+        #expect(fixture.model.draft.candidates[1].proposal != originalSecond)
+
+        host.view.layoutSubtreeIfNeeded()
+        let refreshAll = try #require(
+            findButton(in: host.view, identifier: "decomposition-refresh-all-proposals")
+                ?? descendants(of: host.view, as: NSButton.self).first { $0.title == "全部重新建议" }
+        )
+        #expect(refreshAll.title == "全部重新建议")
+        let refreshAllHelp = [refreshAll.toolTip, refreshAll.accessibilityHelp()]
+            .compactMap { $0 }
+            .joined()
+        #expect(refreshAllHelp.contains("覆盖"))
+        #expect(refreshAllHelp.contains("人工调整"))
+        refreshAll.performClick(nil)
+        #expect(await waitUntil {
+            fixture.model.draft.candidates[0].proposal != locked
+                && fixture.model.draft.candidates[0].scheduleLockedByUser == false
+        })
+        #expect(fixture.model.draft.candidates[0].proposal != locked)
+        #expect(!fixture.model.draft.candidates[0].scheduleLockedByUser)
+        #expect(fixture.model.draft.candidates[1].proposal != nil)
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return findButton(in: host.view, identifier: "decomposition-refresh-all-proposals") == nil
+                && descendants(of: host.view, as: NSButton.self).contains { $0.title == "全部重新建议" } == false
+        })
+    }
 }
 
 private struct HostedInteractionWorkbench {
@@ -884,6 +980,19 @@ private struct WorkbenchInteractionFixture {
         )
         await fixture.model.start()
         return fixture
+    }
+
+    func date(hour: Int, minute: Int, dayOffset: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = Self.shanghai
+        let day = CalendarDate.localDay(containing: Self.now, in: Self.shanghai).addingDays(dayOffset)
+        return calendar.date(from: DateComponents(
+            year: day.year,
+            month: day.month,
+            day: day.day,
+            hour: hour,
+            minute: minute
+        ))!
     }
 }
 
