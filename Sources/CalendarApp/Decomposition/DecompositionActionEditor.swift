@@ -1,8 +1,15 @@
 import SwiftUI
 
+private final class CandidateFieldEditing {
+    var candidateID: UUID?
+    var session = 0
+    var deferredBlockingID: UUID?
+}
+
 struct DecompositionActionEditor: View {
     @Bindable var model: DecompositionWorkbenchModel
     @State private var activeCandidateID: UUID?
+    @State private var fieldEditing = CandidateFieldEditing()
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: CalendarSemanticAppearance {
@@ -43,14 +50,17 @@ struct DecompositionActionEditor: View {
             .padding(.vertical, 12)
         }
         .onChange(of: model.draft.candidates.map(\.id)) { _, ids in
+            if let editingID = fieldEditing.candidateID, !ids.contains(editingID) {
+                fieldEditing.candidateID = nil
+            }
+            if let deferredID = fieldEditing.deferredBlockingID, !ids.contains(deferredID) {
+                fieldEditing.deferredBlockingID = nil
+            }
             if let activeCandidateID, ids.contains(activeCandidateID) { return }
             activeCandidateID = model.firstBlockingCandidateID ?? ids.first
         }
         .onChange(of: model.firstBlockingCandidateID) { _, blockingID in
-            // Expand the first problem row, but never steal an in-progress field editor.
-            if let blockingID {
-                activeCandidateID = blockingID
-            }
+            adoptFirstBlockingCandidate(blockingID)
         }
         .onAppear {
             if activeCandidateID == nil {
@@ -248,7 +258,9 @@ struct DecompositionActionEditor: View {
                     placeholder: "行动标题",
                     requestsInitialFocus: isManual && isFirst(candidate.id),
                     isInvalid: invalid,
-                    invalidReason: reason ?? ""
+                    invalidReason: reason ?? "",
+                    onBeginEditing: { beginCandidateFieldEditing(candidate.id) },
+                    onEndEditing: { endCandidateFieldEditing(candidate.id) }
                 )
                 .frame(height: 22)
                 .overlay(alignment: .bottom) {
@@ -264,7 +276,9 @@ struct DecompositionActionEditor: View {
                     accessibilityName: "完成说明",
                     placeholder: DecompositionWorkbenchCopy.completionPlaceholder,
                     isInvalid: invalid,
-                    invalidReason: reason ?? ""
+                    invalidReason: reason ?? "",
+                    onBeginEditing: { beginCandidateFieldEditing(candidate.id) },
+                    onEndEditing: { endCandidateFieldEditing(candidate.id) }
                 )
                 .frame(minHeight: 32, maxHeight: 96)
                 .overlay(alignment: .bottom) {
@@ -297,6 +311,34 @@ struct DecompositionActionEditor: View {
         case .completion:
             guard !titleBlank, completionBlank else { return nil }
             return DecompositionWorkbenchCopy.missingCompletionField
+        }
+    }
+
+    private func adoptFirstBlockingCandidate(_ blockingID: UUID?) {
+        if fieldEditing.candidateID != nil {
+            fieldEditing.deferredBlockingID = blockingID
+            return
+        }
+        if let blockingID {
+            activeCandidateID = blockingID
+        }
+    }
+
+    private func beginCandidateFieldEditing(_ id: UUID) {
+        fieldEditing.candidateID = id
+        fieldEditing.session += 1
+    }
+
+    private func endCandidateFieldEditing(_ id: UUID) {
+        let session = fieldEditing.session
+        let editing = fieldEditing
+        DispatchQueue.main.async {
+            guard editing.session == session, editing.candidateID == id else { return }
+            editing.candidateID = nil
+            let deferred = editing.deferredBlockingID
+            editing.deferredBlockingID = nil
+            guard activeCandidateID == id, let deferred else { return }
+            activeCandidateID = deferred
         }
     }
 

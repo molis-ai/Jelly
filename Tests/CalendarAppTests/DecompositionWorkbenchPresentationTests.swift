@@ -440,6 +440,272 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(!editor.contains("Capsule()"))
     }
 
+    @Test func typingSecondCompletionKeepsTheFieldWhenFirstBlockingMovesToThird() async throws {
+        let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions()
+        let second = try #require(fixture.model.draft.candidates.dropFirst().first)
+        let third = try #require(fixture.model.draft.candidates.last)
+        fixture.model.updateCompletion(id: second.id, value: "")
+        fixture.model.updateTitle(id: third.id, value: "")
+        #expect(fixture.model.firstBlockingCandidateID == second.id)
+
+        let host = hostedWorkbench(
+            fixture.model,
+            size: DecompositionWorkbenchMetrics.targetSize,
+            colorScheme: .light,
+            makeKey: true
+        )
+        defer { host.window.orderOut(nil) }
+
+        let completionIdentifier = "decomposition-completion-\(second.id.uuidString)"
+        #expect(await waitUntil {
+            findTextField(in: host.view, identifier: completionIdentifier)?.isEditable == true
+        })
+        let completion = try uniqueMultilineTextField(
+            identifier: completionIdentifier,
+            in: host.view
+        )
+        try expectInvalidField(
+            completion,
+            reason: "请补充完成标准",
+            identifier: "decomposition-completion-error-\(second.id.uuidString)",
+            in: host.view
+        )
+        #expect(host.window.makeFirstResponder(completion))
+        #expect(await waitUntil {
+            completion.currentEditor() != nil
+                && (
+                    host.window.firstResponder === completion
+                        || host.window.firstResponder === completion.currentEditor()
+                )
+        })
+        let editor = try #require(completion.currentEditor() as? NSTextView)
+
+        editor.insertText("完", replacementRange: editor.selectedRange())
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            let received = fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription.contains("完") == true
+            let blockingMoved = fixture.model.firstBlockingCandidateID == third.id
+            let errorCleared = findTextField(
+                in: host.view,
+                identifier: "decomposition-completion-error-\(second.id.uuidString)"
+            ) == nil
+            return received && blockingMoved && errorCleared
+        })
+        #expect(
+            fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription.contains("完") == true
+        )
+        #expect(fixture.model.firstBlockingCandidateID == third.id)
+
+        let liveCompletion = findTextField(in: host.view, identifier: completionIdentifier)
+        #expect(liveCompletion === completion)
+        #expect(liveCompletion is DecompositionMultilineNSTextField)
+        #expect(liveCompletion?.isEditable == true)
+        #expect(
+            host.window.firstResponder === completion
+                || host.window.firstResponder === completion.currentEditor()
+                || host.window.firstResponder === editor
+        )
+        let liveEditorText = completion.currentEditor()?.string ?? ""
+        #expect(
+            completion.stringValue.contains("完")
+                || editor.string.contains("完")
+                || liveEditorText.contains("完")
+        )
+
+        editor.insertText("成第二项", replacementRange: editor.selectedRange())
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription == "完成第二项"
+        })
+        #expect(
+            fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription == "完成第二项"
+        )
+        let continuedEditorText = completion.currentEditor()?.string ?? ""
+        #expect(
+            completion.stringValue.contains("完成第二项")
+                || editor.string.contains("完成第二项")
+                || continuedEditorText.contains("完成第二项")
+        )
+
+        let addCandidate = try uniqueButton(
+            identifier: "decomposition-add-candidate",
+            in: host.view
+        )
+        #expect(host.window.makeFirstResponder(addCandidate))
+        #expect(await waitUntil {
+            host.window.firstResponder !== completion
+                && host.window.firstResponder !== editor
+                && host.window.firstResponder !== completion.currentEditor()
+        })
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return findTextField(
+                in: host.view,
+                identifier: "decomposition-title-\(third.id.uuidString)"
+            )?.isEditable == true
+        })
+        let title = try uniqueEditableTextField(
+            identifier: "decomposition-title-\(third.id.uuidString)",
+            in: host.view
+        )
+        try expectInvalidField(
+            title,
+            reason: "请填写行动标题",
+            identifier: "decomposition-title-error-\(third.id.uuidString)",
+            in: host.view
+        )
+    }
+
+    @Test func movingFromSecondTitleToCompletionKeepsTheFieldWhenFirstBlockingMovesToThird() async throws {
+        let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions()
+        let second = try #require(fixture.model.draft.candidates.dropFirst().first)
+        let third = try #require(fixture.model.draft.candidates.last)
+        fixture.model.updateTitle(id: second.id, value: "")
+        fixture.model.updateTitle(id: third.id, value: "")
+        #expect(fixture.model.firstBlockingCandidateID == second.id)
+        #expect(
+            fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        )
+
+        let host = hostedWorkbench(
+            fixture.model,
+            size: DecompositionWorkbenchMetrics.targetSize,
+            colorScheme: .light,
+            makeKey: true
+        )
+        defer { host.window.orderOut(nil) }
+
+        let titleIdentifier = "decomposition-title-\(second.id.uuidString)"
+        let completionIdentifier = "decomposition-completion-\(second.id.uuidString)"
+        let thirdTitleIdentifier = "decomposition-title-\(third.id.uuidString)"
+
+        #expect(await waitUntil {
+            findTextField(in: host.view, identifier: titleIdentifier)?.isEditable == true
+        })
+        let title = try uniqueEditableTextField(
+            identifier: titleIdentifier,
+            in: host.view
+        )
+        try expectInvalidField(
+            title,
+            reason: "请填写行动标题",
+            identifier: "decomposition-title-error-\(second.id.uuidString)",
+            in: host.view
+        )
+        #expect(
+            findTextField(in: host.view, identifier: thirdTitleIdentifier)?.isEditable != true
+        )
+
+        #expect(host.window.makeFirstResponder(title))
+        #expect(await waitUntil {
+            title.currentEditor() != nil
+                && (
+                    host.window.firstResponder === title
+                        || host.window.firstResponder === title.currentEditor()
+                )
+        })
+        let titleEditor = try #require(title.currentEditor() as? NSTextView)
+        titleEditor.insertText("第二项标题", replacementRange: titleEditor.selectedRange())
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .title == "第二项标题"
+                && fixture.model.firstBlockingCandidateID == third.id
+        })
+        #expect(fixture.model.firstBlockingCandidateID == third.id)
+
+        #expect(await waitUntil {
+            findTextField(in: host.view, identifier: completionIdentifier)?.isEditable == true
+        })
+        let completion = try uniqueMultilineTextField(
+            identifier: completionIdentifier,
+            in: host.view
+        )
+        #expect(host.window.makeFirstResponder(completion))
+        #expect(await waitUntil {
+            completion.currentEditor() != nil
+                && (
+                    host.window.firstResponder === completion
+                        || host.window.firstResponder === completion.currentEditor()
+                )
+        })
+
+        var flushedDeferredCallback = false
+        DispatchQueue.main.async {
+            flushedDeferredCallback = true
+        }
+        #expect(await waitUntil { flushedDeferredCallback })
+        host.view.layoutSubtreeIfNeeded()
+
+        let liveCompletion = findTextField(in: host.view, identifier: completionIdentifier)
+        #expect(liveCompletion === completion)
+        #expect(liveCompletion is DecompositionMultilineNSTextField)
+        #expect(liveCompletion?.isEditable == true)
+        #expect(
+            host.window.firstResponder === completion
+                || host.window.firstResponder === completion.currentEditor()
+        )
+        #expect(completion.currentEditor() != nil)
+        #expect(
+            findTextField(in: host.view, identifier: thirdTitleIdentifier)?.isEditable != true
+        )
+        #expect(
+            findTextField(
+                in: host.view,
+                identifier: "decomposition-title-error-\(third.id.uuidString)"
+            ) == nil
+        )
+
+        let editor = try #require(completion.currentEditor() as? NSTextView)
+        editor.insertText("完成第二项", replacementRange: editor.selectedRange())
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription.contains("完成第二项") == true
+        })
+        #expect(
+            fixture.model.draft.candidates.first(where: { $0.id == second.id })?
+                .completionDescription.contains("完成第二项") == true
+        )
+        #expect(fixture.model.firstBlockingCandidateID == third.id)
+        #expect(liveCompletion === completion)
+        #expect(
+            host.window.firstResponder === completion
+                || host.window.firstResponder === completion.currentEditor()
+                || host.window.firstResponder === editor
+        )
+
+        let addCandidate = try uniqueButton(
+            identifier: "decomposition-add-candidate",
+            in: host.view
+        )
+        #expect(host.window.makeFirstResponder(addCandidate))
+        #expect(await waitUntil {
+            host.window.firstResponder !== completion
+                && host.window.firstResponder !== editor
+                && host.window.firstResponder !== completion.currentEditor()
+        })
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            return findTextField(in: host.view, identifier: thirdTitleIdentifier)?.isEditable == true
+        })
+        let thirdTitle = try uniqueEditableTextField(
+            identifier: thirdTitleIdentifier,
+            in: host.view
+        )
+        try expectInvalidField(
+            thirdTitle,
+            reason: "请填写行动标题",
+            identifier: "decomposition-title-error-\(third.id.uuidString)",
+            in: host.view
+        )
+    }
+
     @Test func sourceChangedCopyAndModelGatesAreWiredFromViewSource() async throws {
         let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions(
             snapshotRevisionOffset: -1
@@ -1200,11 +1466,27 @@ private struct HostedWorkbench {
     let window: NSWindow
 }
 
+/// Never `orderFront` / `makeKeyAndOrderFront`: the first of those in this
+/// helper makes SwiftPM's AppKit entry point return before remaining tests run.
+private final class PresentationTestWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKey()
+    }
+
+    override func orderFront(_ sender: Any?) {}
+
+    override func orderFrontRegardless() {}
+}
+
 @MainActor
 private func hostedWorkbench(
     _ model: DecompositionWorkbenchModel,
     size: CGSize,
-    colorScheme: ColorScheme? = nil
+    colorScheme: ColorScheme? = nil,
+    makeKey: Bool = false
 ) -> HostedWorkbench {
     _ = NSApplication.shared
     let workbench = DecompositionWorkbenchView(model: model, onCancel: {}, onCommitted: { _ in })
@@ -1221,7 +1503,7 @@ private func hostedWorkbench(
     }
     let hosting = NSHostingView(rootView: root)
     hosting.frame = CGRect(origin: .zero, size: size)
-    let window = NSWindow(
+    let window = PresentationTestWindow(
         contentRect: hosting.frame,
         styleMask: [],
         backing: .buffered,
@@ -1234,6 +1516,9 @@ private func hostedWorkbench(
         window.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
     }
     window.contentView = hosting
+    if makeKey {
+        window.makeKey()
+    }
     hosting.layoutSubtreeIfNeeded()
     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     return .init(view: hosting, window: window)

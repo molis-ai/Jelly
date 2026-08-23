@@ -33,6 +33,7 @@ final class DecompositionNSButton: NSButton {
 
 final class DecompositionIdentifiedNSTextField: NSTextField {
     var requestsInitialFocus = false
+    var onBecomeFirstResponder: (() -> Void)?
     nonisolated(unsafe) var isContentInvalid = false
     private var didHandleInitialFocusRequest = false
 
@@ -43,7 +44,11 @@ final class DecompositionIdentifiedNSTextField: NSTextField {
         if !isEditable || !isEnabled || refusesFirstResponder {
             return false
         }
-        return super.becomeFirstResponder()
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onBecomeFirstResponder?()
+        }
+        return accepted
     }
 
     override func viewDidMoveToWindow() {
@@ -359,6 +364,8 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
     var isInvalid: Bool = false
     var invalidReason: String = ""
     var onSubmit: () -> Void = {}
+    var onBeginEditing: () -> Void = {}
+    var onEndEditing: () -> Void = {}
 
     func makeNSView(context: Context) -> NSTextField {
         let field = DecompositionIdentifiedNSTextField()
@@ -372,7 +379,10 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         field.stringValue = text
         field.requestsInitialFocus = requestsInitialFocus
         context.coordinator.onSubmit = onSubmit
+        context.coordinator.onBeginEditing = onBeginEditing
+        context.coordinator.onEndEditing = onEndEditing
         apply(field, isEnabled: context.environment.isEnabled)
+        field.onBecomeFirstResponder = context.coordinator.onBeginEditing
         return field
     }
 
@@ -387,14 +397,22 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         field.delegate = context.coordinator
         context.coordinator.onSubmit = onSubmit
         context.coordinator.onChange = { text = $0 }
+        context.coordinator.onBeginEditing = onBeginEditing
+        context.coordinator.onEndEditing = onEndEditing
         apply(field, isEnabled: context.environment.isEnabled)
         if let identified = field as? DecompositionIdentifiedNSTextField {
+            identified.onBecomeFirstResponder = context.coordinator.onBeginEditing
             identified.attemptInitialFocusIfNeeded()
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: { text = $0 }, onSubmit: onSubmit)
+        Coordinator(
+            onChange: { text = $0 },
+            onSubmit: onSubmit,
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
+        )
     }
 
     private func apply(_ field: NSTextField, isEnabled: Bool) {
@@ -412,10 +430,27 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var onChange: (String) -> Void
         var onSubmit: () -> Void
+        var onBeginEditing: () -> Void
+        var onEndEditing: () -> Void
 
-        init(onChange: @escaping (String) -> Void, onSubmit: @escaping () -> Void) {
+        init(
+            onChange: @escaping (String) -> Void,
+            onSubmit: @escaping () -> Void,
+            onBeginEditing: @escaping () -> Void,
+            onEndEditing: @escaping () -> Void
+        ) {
             self.onChange = onChange
             self.onSubmit = onSubmit
+            self.onBeginEditing = onBeginEditing
+            self.onEndEditing = onEndEditing
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            onBeginEditing()
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            onEndEditing()
         }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -444,10 +479,22 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
 final class DecompositionMultilineNSTextField: NSTextField {
     static let minLines = 2
     static let maxLines = 6
+    var onBecomeFirstResponder: (() -> Void)?
     nonisolated(unsafe) var isContentInvalid = false
 
     override var acceptsFirstResponder: Bool { isEditable && isEnabled }
     override var canBecomeKeyView: Bool { isEditable && isEnabled && !isHiddenOrHasHiddenAncestor }
+
+    override func becomeFirstResponder() -> Bool {
+        if !isEditable || !isEnabled || refusesFirstResponder {
+            return false
+        }
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onBecomeFirstResponder?()
+        }
+        return accepted
+    }
 
     override var intrinsicContentSize: NSSize {
         let fitted = sizeThatFits(
@@ -507,6 +554,8 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
     var placeholder: String
     var isInvalid: Bool = false
     var invalidReason: String = ""
+    var onBeginEditing: () -> Void = {}
+    var onEndEditing: () -> Void = {}
 
     func makeNSView(context: Context) -> DecompositionMultilineNSTextField {
         let field = DecompositionMultilineNSTextField()
@@ -532,12 +581,18 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
         field.setContentHuggingPriority(.defaultHigh, for: .vertical)
         field.delegate = context.coordinator
         field.stringValue = text
+        context.coordinator.onBeginEditing = onBeginEditing
+        context.coordinator.onEndEditing = onEndEditing
+        field.onBecomeFirstResponder = context.coordinator.onBeginEditing
         apply(field, isEnabled: context.environment.isEnabled)
         return field
     }
 
     func updateNSView(_ field: DecompositionMultilineNSTextField, context: Context) {
         context.coordinator.onChange = { text = $0 }
+        context.coordinator.onBeginEditing = onBeginEditing
+        context.coordinator.onEndEditing = onEndEditing
+        field.onBecomeFirstResponder = context.coordinator.onBeginEditing
         apply(field, isEnabled: context.environment.isEnabled)
         field.placeholderString = placeholder
         let hasMarkedText = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
@@ -557,7 +612,11 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: { text = $0 })
+        Coordinator(
+            onChange: { text = $0 },
+            onBeginEditing: onBeginEditing,
+            onEndEditing: onEndEditing
+        )
     }
 
     private func apply(_ field: DecompositionMultilineNSTextField, isEnabled: Bool) {
@@ -578,9 +637,25 @@ struct DecompositionIdentifiedMultilineTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var onChange: (String) -> Void
+        var onBeginEditing: () -> Void
+        var onEndEditing: () -> Void
 
-        init(onChange: @escaping (String) -> Void) {
+        init(
+            onChange: @escaping (String) -> Void,
+            onBeginEditing: @escaping () -> Void,
+            onEndEditing: @escaping () -> Void
+        ) {
             self.onChange = onChange
+            self.onBeginEditing = onBeginEditing
+            self.onEndEditing = onEndEditing
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) {
+            onBeginEditing()
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            onEndEditing()
         }
 
         func controlTextDidChange(_ notification: Notification) {
