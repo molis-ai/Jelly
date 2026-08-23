@@ -1016,27 +1016,47 @@ struct DecompositionWorkbenchPresentationTests {
         let choose = try uniqueButton(identifier: "decomposition-choose-time-\(id)", in: host.view)
         #expect(choose.isBordered)
         choose.performClick(nil)
+        #expect(await waitUntil {
+            host.view.layoutSubtreeIfNeeded()
+            let labels = accessibilityLabels(in: host.view)
+            return fixture.model.draft.candidates[0].proposal != nil
+                && fixture.model.draft.candidates[0].scheduleLockedByUser
+                && findButton(in: host.view, identifier: "decomposition-choose-time-\(id)") == nil
+                && (
+                    hasIdentifiedControl(identifier: "decomposition-date-\(id)", in: host.view)
+                        || labels.contains("日期")
+                )
+                && (
+                    hasIdentifiedControl(identifier: "decomposition-time-\(id)", in: host.view)
+                        || labels.contains("开始时间")
+                )
+                && (
+                    hasIdentifiedControl(identifier: "decomposition-duration-\(id)", in: host.view)
+                        || labels.contains("预计时长")
+                )
+                && descendants(of: host.view, as: NSTextField.self).contains {
+                    $0.stringValue == "已调整" && $0.font?.pointSize == 12
+                }
+        })
+
         #expect(fixture.model.draft.candidates[0].proposal != nil)
         #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
-        host.window.orderOut(nil)
-
-        let scheduled = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
-        defer { scheduled.window.orderOut(nil) }
-        #expect(findButton(in: scheduled.view, identifier: "decomposition-choose-time-\(id)") == nil)
+        #expect(findButton(in: host.view, identifier: "decomposition-choose-time-\(id)") == nil)
+        let updatedLabels = accessibilityLabels(in: host.view)
         #expect(
-            hasIdentifiedControl(identifier: "decomposition-time-\(id)", in: scheduled.view)
-                || accessibilityLabels(in: scheduled.view).contains("开始时间")
+            hasIdentifiedControl(identifier: "decomposition-time-\(id)", in: host.view)
+                || updatedLabels.contains("开始时间")
         )
         #expect(
-            hasIdentifiedControl(identifier: "decomposition-date-\(id)", in: scheduled.view)
-                || accessibilityLabels(in: scheduled.view).contains("日期")
+            hasIdentifiedControl(identifier: "decomposition-date-\(id)", in: host.view)
+                || updatedLabels.contains("日期")
         )
         #expect(
-            hasIdentifiedControl(identifier: "decomposition-duration-\(id)", in: scheduled.view)
-                || accessibilityLabels(in: scheduled.view).contains("预计时长")
+            hasIdentifiedControl(identifier: "decomposition-duration-\(id)", in: host.view)
+                || updatedLabels.contains("预计时长")
         )
 
-        let adjusted = descendants(of: scheduled.view, as: NSTextField.self).first {
+        let adjusted = descendants(of: host.view, as: NSTextField.self).first {
             $0.stringValue == "已调整"
         }
         #expect(adjusted != nil)
@@ -1044,12 +1064,12 @@ struct DecompositionWorkbenchPresentationTests {
 
         #expect(DecompositionWorkbenchMetrics.resultHeight == 64)
         let summary = try #require(
-            findTextField(in: scheduled.view, identifier: "decomposition-result-summary")
+            findTextField(in: host.view, identifier: "decomposition-result-summary")
         )
         #expect(
             isInBottomBand(
-                summary.convert(summary.bounds, to: scheduled.view),
-                hostBounds: scheduled.view.bounds,
+                summary.convert(summary.bounds, to: host.view),
+                hostBounds: host.view.bounds,
                 height: DecompositionWorkbenchMetrics.resultHeight,
                 tolerance: 2
             )
