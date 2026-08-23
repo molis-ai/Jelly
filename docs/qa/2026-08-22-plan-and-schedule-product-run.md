@@ -2,11 +2,13 @@
 
 > 设计日期：2026-08-22
 > 工程验证日期：2026-08-23
+> MiniMax-M3 真实回归日期：2026-08-24
 > 分支：`codex/jelly-goalboard-plan-and-schedule`
-> 最终功能代码 HEAD：`75a59dd56f9fa3264d9136230deced96d27188e0`
-> 状态：工程验证通过；当前设备可覆盖的最终 App 产品实操通过；真实模型与用户验收尚未完成
+> 此前最终打包 App / 产品实操对应代码：`75a59dd56f9fa3264d9136230deced96d27188e0`
+> 当前分支已继续九分硬化与 MiniMax 回归，尚未对最新代码重打包最终 App
+> 状态：`75a59dd` 当时的工程验证与设备可覆盖最终 App 产品实操仍有效；最新硬化未重打包，因此最新打包 App 为 UNVERIFIED；MiniMax-M3 结构回归见下文；真实 Apple 模型与用户验收尚未完成
 
-本文记录当前真实状态和证据边界。自动化测试绿不能代替打包 App 实操，限定主流程跑通也不能代替用户本人对 9 分体验的判断。
+本文记录当前真实状态和证据边界。自动化测试绿不能代替打包 App 实操，限定主流程跑通也不能代替用户本人对 9 分体验的判断。MiniMax 真实调用不能代替 Apple Foundation Models 在最终 App 中的可用性或质量。
 
 ## 工程验证通过
 
@@ -54,10 +56,60 @@ Codex 于 2026-08-23 从最终 `dist/Jelly.app` 启动，使用独立数据目�
 - 提交后 Jelly 日历精确显示 8 月 25 日 16:30～17:15，没有退回系统建议。日历标记完成后，笔记中的 Task 与相同 `completedAt` 同步完成，完成说明保持可见。
 - 正常退出重启后，日期、开始与结束时间、完成状态、TaskBlockCalendarLink 都保留；JSON 中分钟值为 990～1035，draft journal 的 `records` 为空。
 
-这证明最终打包 App 的“整篇或选区进入 → 手动拆开 → 键盘微调/排序 → 日期/时间/时长微调 → 安排 → 提交 → 跨页面回写 → 精确撤销 → 多篇连续使用 → 代表性日历共存 → 重启恢复”在当前设备可覆盖的范围内已实操通过。真实模型不可用，因此智能提问、无需追问、重试和局部重拆不能用手动结果代替；工作台打开后的外部笔记变化和建议生成后的晚到日历冲突有工程回归，但本轮未用两个最终 App 实例逐条实操。以上边界仍不允许把结果扩大成完整 9 分体验或用户验收。
+这证明最终打包 App 的“整篇或选区进入 → 手动拆开 → 键盘微调/排序 → 日期/时间/时长微调 → 安排 → 提交 → 跨页面回写 → 精确撤销 → 多篇连续使用 → 代表性日历共存 → 重启恢复”在当前设备可覆盖的范围内已实操通过。真实模型不可用，因此智能提问、无需追问、重试和局部重拆不能用手动结果代替；工作台打开后的外部笔记变化和建议生成后的晚到日历冲突有工程回归，但本轮未用两个最终 App 实例逐条实操。以上边界仍不允许把结果扩大成完整 9 分体验或用户验收。该实操证据绑定 `75a59dd` 当时的 `dist/Jelly.app`；其后的九分硬化与 MiniMax 回归尚未重打包，不能把本节写成最新代码的最终 App 实操。
+
+## 2026-08-24 MiniMax-M3 真实回归
+
+本次只在测试轨上用 MiniMax-M3 复用 Jelly production prompt 与真实 `DecompositionOutputValidator` / `DecompositionDraftReducer`。生产 App 仍只装配 Apple Foundation Models；client 与 runner 不进入 `Sources`。
+
+- 日期：2026-08-24
+- 模型：`MiniMax-M3`
+- 国内 base：`https://api.minimaxi.com/anthropic`
+- Runner：`Scripts/test-decomposition-minimax-live.sh`；`--self-test` 通过
+- 取钥：先 `appkey list` 确认 name `minimax`，再同一条 shell `appkey exec minimax -- sh -c 'JELLY_MINIMAX_LIVE=1 JELLY_MINIMAX_BASE_URL=https://api.minimaxi.com/anthropic JELLY_MINIMAX_MODEL=MiniMax-M3 swift test --filter MiniMaxDecompositionLiveTests'`
+- 密钥卫生：未使用 `appkey get`、未读 `~/.appkey/`；日志与提交不含 Authorization / key；self-test 证明 fake secret 不出现在 stdout/stderr
+
+### 首次真实失败与 production prompt 收紧
+
+首次真实结果原样保留，没有为了绿测重跑到偶然成功：
+
+1. `locked_refresh` 首次失败：`DecompositionOutputError.unexpectedExistingIDs`。当时 production prompt 只要求不得覆盖 locked 字段，没有写出 `validateRefresh` 要求的 ID 集合不变量。随后只在非空 `existingCandidates` 时补上：每个现有 id 必须原样出现恰好一次；不得新增、省略、重复，也不得把 existingID 写成空或 null；locked 字段必须逐字保留。
+2. 日程类追问失败：第二次 `specific_dental` 把「下周三」改问成精确日历日期；第三次 `specific_dental` 追问今天哪个开始时间，`vague_moving` 追问总天数。这些都不决定需要哪些行动。clarification 约束因此收成一条：追问只问会改变行动阶段或范围的当前事实，例如已经做了什么、目标对象是否已经落实；不得询问先做哪一块、优先级、日程、开始时间、精确日期或总时长；已有且可原样保留的日期、金额、名称不要追问。
+3. `vague_moving` 返回 4 个快捷回答，超过产品和 UI 的 `prefix(3)`。同一条单问 instruction 改为：需要追问时只问一个关键问题，并最多给 3 个简短快捷回答；无需追问时不要给问题或快捷回答。
+
+以上全部是 production `DecompositionPromptBuilder` 契约收紧，没有放宽 validator，也没有在 test-only JSON 里偷加语义。
+
+### 最终结构套件
+
+最终 `MiniMaxDecompositionLiveTests` 为 9/9，其中 6 次真实 MiniMax-M3 LLM 调用进入真实 validator/reducer：
+
+| 案例 | 结构结果 |
+|---|---|
+| 模糊搬家追问 | 结构 PASS（`needsFollowUp`，question 非空，快捷回答 ≤3） |
+| 具体牙科无需追问 | PASS |
+| 搬家回答后的初始拆解 | PASS |
+| locked 刷新 | PASS（ID 各一次，locked 字段经 `validateRefresh` + `mergeRefresh` 保留） |
+| 局部重拆 | PASS |
+| invalidDuration(20) 修复 | PASS |
+
+同一 suite 的 3 条离线测试（零网络、prompt/JSON 合同、decoder 不校正非法时长）也通过。
+
+### 人工语义复审
+
+- 具体牙科无需追问：PASS
+- 初始拆解：PASS
+- locked 刷新：PASS
+- 局部重拆：PASS
+- 修复请求：PASS
+- 模糊搬家追问：「你现在更想先理清哪个不确定项：入住日期还是预算？」可用，但问的是澄清顺序，而不是直接收集当前事实，约 8/10，因此九分语义门槛 FAIL。
+
+MiniMax-M3 真实 LLM 调用与 Jelly production prompt/validator 回归：PASS。
+九分语义门槛：FAIL。模糊搬家追问「你现在更想先理清哪个不确定项：入住日期还是预算？」可用，但问的是澄清顺序而不是直接收集当前事实，约 8/10。
+该证据不代表 Apple Foundation Models 在最终 App 中可用或质量通过。
 
 ## UNVERIFIED
 
+- 最新硬化后的最终打包 App 与产品实操；当前仍沿用 `75a59dd` 当时的 dist 产物，尚未重打包
 - 真实 Apple 系统模型的问题质量、行动可独立完成程度、完成说明可观察性；当前机器能力不可用，已验证的是清楚降级与手动路径
 - 真实模型下的无需追问、取消/重试、连续无效输出修复和局部重拆；当前设备不能可靠触发
 - 工作台打开后的外部笔记变化，以及时间建议生成后的晚到日历冲突；工程回归通过，最终 App 双实例实操未完成
