@@ -1,4 +1,5 @@
 import Foundation
+import WorkspaceDomain
 @testable import CalendarApp
 
 /// Test-only MiniMax Anthropic Messages client. Keep this out of CalendarApp production sources.
@@ -47,6 +48,7 @@ struct MiniMaxLiveURLSessionTransport: MiniMaxMessagesTransport {
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        MiniMaxLiveNetworkProbe.recordURLSessionSend()
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw MiniMaxLiveError.invalidJSON
@@ -277,5 +279,226 @@ private struct MessagesRequestBody: Encodable {
         case maxTokens = "max_tokens"
         case system
         case messages
+    }
+}
+
+enum MiniMaxJSONContract {
+    static let clarification = """
+只返回一个 JSON 对象，不要 Markdown：
+{"needsFollowUp":true或false,"question":"字符串；无需追问时为空","quickAnswers":["最多3个简短回答"]}
+"""
+
+    static let actions = """
+只返回一个 JSON 对象，不要 Markdown：
+{"actions":[{"existingID":null或现有UUID字符串,"title":"行动标题","completionDescription":"可观察的完成说明","estimatedMinutes":15或30或45或60或90}]}
+"""
+}
+
+enum MiniMaxLiveGate {
+    static var isEnabled: Bool {
+        ProcessInfo.processInfo.environment["JELLY_MINIMAX_LIVE"] == "1"
+    }
+}
+
+enum MiniMaxLiveNetworkProbe {
+    private static let liveClientConstructions = LockedCounter()
+    private static let urlSessionSends = LockedCounter()
+
+    static var liveClientConstructionCount: Int { liveClientConstructions.value }
+    static var urlSessionSendCount: Int { urlSessionSends.value }
+
+    static func recordLiveClientConstruction() {
+        liveClientConstructions.increment()
+    }
+
+    static func recordURLSessionSend() {
+        urlSessionSends.increment()
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
+    }
+}
+
+enum MiniMaxLiveClientFactory {
+    static func makeIfLiveEnabled() -> MiniMaxLiveClient? {
+        guard MiniMaxLiveGate.isEnabled else { return nil }
+        MiniMaxLiveNetworkProbe.recordLiveClientConstruction()
+        return MiniMaxLiveClient(
+            configuration: MiniMaxLiveConfiguration.fromEnvironment(),
+            transport: MiniMaxLiveURLSessionTransport()
+        )
+    }
+}
+
+enum MiniMaxLivePrompt {
+    static func clarification(_ request: ClarificationRequest) -> String {
+        DecompositionPromptBuilder.clarification(request) + "\n" + MiniMaxJSONContract.clarification
+    }
+
+    static func candidates(_ request: CandidateRequest) -> String {
+        DecompositionPromptBuilder.candidates(request) + "\n" + MiniMaxJSONContract.actions
+    }
+
+    static func split(_ request: SplitCandidateRequest) -> String {
+        DecompositionPromptBuilder.split(request) + "\n" + MiniMaxJSONContract.actions
+    }
+}
+
+enum MiniMaxLiveFixtures {
+    static let vagueMoving = "我想把搬家这件事搞定，但入住日期和预算都还没确定。"
+    static let specificDental = "今天下午四点前给牙科诊所打电话，预约下周三上午检查，拿到确认短信后把时间记下来。"
+    static let movingAnswer = "9 月 15 日前搬完，预算两万元，先确定房子和搬家公司"
+    static let splitTargetTitle = "准备搬家"
+    static let splitTargetCompletion = "确认房子、搬家公司和入住日期都已落实"
+    static let lockedTitle = "先确定房子"
+    static let lockedCompletion = "拿到搬家公司书面报价"
+    static let titleLockedID = UUID(uuidString: "00000000-0000-0000-0000-000000000801")!
+    static let completionLockedID = UUID(uuidString: "00000000-0000-0000-0000-000000000802")!
+    static let splitTargetID = UUID(uuidString: "00000000-0000-0000-0000-000000000803")!
+
+    static func source(from text: String) throws -> DecompositionSourceSnapshot {
+        let blockID = BlockID()
+        var note = Note.empty(id: NoteID(), categoryID: UUID(), now: .distantPast)
+        note.document = .init(blocks: [
+            .init(
+                id: blockID,
+                kind: .paragraph,
+                inlineContent: .plain(text),
+                taskState: nil,
+                indentLevel: 0
+            )
+        ])
+        return try DecompositionSourceCapture.capture(
+            note: note,
+            workspaceRevision: 1,
+            selection: .text(
+                anchor: .init(blockID: blockID, graphemeOffset: 0),
+                focus: .init(blockID: blockID, graphemeOffset: 0),
+                preferredColumn: nil,
+                typingAttributes: .init(marks: [], linkURL: nil)
+            )
+        )
+    }
+
+    static func titleLockedContext() -> PlannerCandidateContext {
+        PlannerCandidateContext(
+            id: titleLockedID,
+            title: lockedTitle,
+            completionDescription: "旧说明",
+            estimatedMinutes: 30,
+            titleLockedByUser: true,
+            completionLockedByUser: false
+        )
+    }
+
+    static func completionLockedContext() -> PlannerCandidateContext {
+        PlannerCandidateContext(
+            id: completionLockedID,
+            title: "联系搬家公司",
+            completionDescription: lockedCompletion,
+            estimatedMinutes: 45,
+            titleLockedByUser: false,
+            completionLockedByUser: true
+        )
+    }
+
+    static func lockedCurrentActions() -> [CandidateAction] {
+        [
+            CandidateAction(
+                id: titleLockedID,
+                title: lockedTitle,
+                completionDescription: "旧说明",
+                estimatedDuration: .minutes30,
+                selectedForCreation: true,
+                selectedForCalendar: false,
+                titleLockedByUser: true,
+                completionLockedByUser: false,
+                sourceCandidateID: nil,
+                proposal: nil
+            ),
+            CandidateAction(
+                id: completionLockedID,
+                title: "联系搬家公司",
+                completionDescription: lockedCompletion,
+                estimatedDuration: .minutes45,
+                selectedForCreation: true,
+                selectedForCalendar: false,
+                titleLockedByUser: false,
+                completionLockedByUser: true,
+                sourceCandidateID: nil,
+                proposal: nil
+            )
+        ]
+    }
+
+    static func splitTarget() -> PlannerCandidateContext {
+        PlannerCandidateContext(
+            id: splitTargetID,
+            title: splitTargetTitle,
+            completionDescription: splitTargetCompletion,
+            estimatedMinutes: 60,
+            titleLockedByUser: false,
+            completionLockedByUser: false
+        )
+    }
+}
+
+enum MiniMaxLiveReporter {
+    static func logCase(
+        name: String,
+        model: String,
+        status: String,
+        latencyMS: Int,
+        count: Int? = nil,
+        lines: [String] = [],
+        error: Error? = nil
+    ) {
+        var header = "[\(model)] case=\(name) status=\(status) latency_ms=\(latencyMS)"
+        if let count {
+            header += " count=\(count)"
+        }
+        print(header)
+        for (index, line) in lines.enumerated() {
+            print("  \(index + 1). \(line)")
+        }
+        if let error {
+            print("  error=\(safeError(error))")
+        }
+    }
+
+    static func candidateLine(_ candidate: PlannerCandidate) -> String {
+        "\(candidate.title)｜\(candidate.completionDescription)｜\(candidate.estimatedMinutes)"
+    }
+
+    static func clarificationLines(_ payload: ClarificationPayload) -> [String] {
+        [payload.question] + payload.quickAnswers
+    }
+
+    static func milliseconds(since started: Date) -> Int {
+        Int((Date().timeIntervalSince(started) * 1000).rounded())
+    }
+
+    static func safeError(_ error: Error) -> String {
+        let text: String
+        if let live = error as? MiniMaxLiveError {
+            text = live.description
+        } else {
+            text = error.localizedDescription
+        }
+        return String(text.prefix(300))
     }
 }
