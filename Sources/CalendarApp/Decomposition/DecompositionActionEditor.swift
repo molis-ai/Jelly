@@ -23,7 +23,7 @@ struct DecompositionActionEditor: View {
                             .padding(.vertical, 8)
                             .padding(.horizontal, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(rowBackground(for: candidate))
+                            .background(rowChrome(for: candidate))
                         Divider()
                     }
                 }
@@ -67,28 +67,31 @@ struct DecompositionActionEditor: View {
                 isOn: creationBinding(candidate),
                 identifier: "",
                 accessibilityName: keepActionAccessibilityLabel(for: candidate),
+                visualTitle: DecompositionWorkbenchCopy.createAction,
                 enabled: !model.isCommitting
             )
             .fixedSize()
             VStack(alignment: .leading, spacing: 6) {
                 if expanded {
-                    DecompositionIdentifiedTextField(
-                        text: titleBinding(candidate),
-                        identifier: "decomposition-title-\(candidate.id.uuidString)",
-                        accessibilityName: "行动标题",
-                        placeholder: "行动标题",
-                        requestsInitialFocus: isManual && isFirst(candidate.id)
-                    )
-                    .frame(height: 22)
-                    .disabled(model.isCommitting)
-                    DecompositionIdentifiedMultilineTextField(
-                        text: completionBinding(candidate),
-                        identifier: "decomposition-completion-\(candidate.id.uuidString)",
-                        accessibilityName: "完成说明",
-                        placeholder: "完成说明"
-                    )
-                    .frame(minHeight: 32, maxHeight: 96)
-                    .disabled(model.isCommitting)
+                    VStack(alignment: .leading, spacing: 6) {
+                        DecompositionIdentifiedTextField(
+                            text: titleBinding(candidate),
+                            identifier: "decomposition-title-\(candidate.id.uuidString)",
+                            accessibilityName: "行动标题",
+                            placeholder: "行动标题",
+                            requestsInitialFocus: isManual && isFirst(candidate.id)
+                        )
+                        .frame(height: 22)
+                        .disabled(model.isCommitting)
+                        DecompositionIdentifiedMultilineTextField(
+                            text: completionBinding(candidate),
+                            identifier: "decomposition-completion-\(candidate.id.uuidString)",
+                            accessibilityName: "完成说明",
+                            placeholder: DecompositionWorkbenchCopy.completionPlaceholder
+                        )
+                        .frame(minHeight: 32, maxHeight: 96)
+                        .disabled(model.isCommitting)
+                    }
                     HStack(spacing: 8) {
                         Picker("时长", selection: durationBinding(candidate)) {
                             ForEach(CandidateDuration.allCases, id: \.self) { duration in
@@ -173,7 +176,8 @@ struct DecompositionActionEditor: View {
                         identifier: "decomposition-split-\(candidate.id.uuidString)",
                         accessibilityName: DecompositionWorkbenchCopy.continueSplit,
                         helpText: DecompositionWorkbenchCopy.continueSplitHelp,
-                        enabled: !model.isCommitting
+                        enabled: !model.isCommitting,
+                        subdued: true
                     ) {
                         Task { await model.split(candidate.id) }
                     }
@@ -204,8 +208,18 @@ struct DecompositionActionEditor: View {
         }
     }
 
-    private func rowBackground(for candidate: CandidateAction) -> Color {
-        candidate.id == activeCandidateID ? theme.selectionFill.opacity(0.55) : Color.clear
+    @ViewBuilder
+    private func rowChrome(for candidate: CandidateAction) -> some View {
+        let selected = candidate.id == expandedID
+        RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius)
+            .fill(selected ? theme.selectionFill.opacity(0.55) : Color.clear)
+            .overlay {
+                RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius)
+                    .stroke(
+                        selected ? theme.selectionOutline : theme.subtleBorder,
+                        lineWidth: selected ? 1 : 0.5
+                    )
+            }
     }
 
     private var isManual: Bool {

@@ -446,6 +446,151 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(submitOccurrences >= 3)
     }
 
+    @Test func sourceShowsWholeOrSelectionScopeAndCanExpand() async throws {
+        let longChinese = (1...12).map { index in
+            "第\(index)段需要展开才能读完的中文来源，确认工作台不会把长笔记藏起来，并且内部可以滚动。"
+        }.joined(separator: "\n") + "\n第八段完整长中文结尾标记。"
+        let planner = UnavailableDecompositionPlanner(reason: .modelFailure)
+
+        let whole = try await WorkbenchPresentationFixture.make(
+            planner: planner,
+            sourceText: longChinese,
+            wholeNote: true
+        )
+        #expect(whole.model.draft.source.selectedRange == nil)
+        #expect(whole.model.draft.source.normalizedText.contains("完整长中文结尾标记"))
+
+        let selected = try await WorkbenchPresentationFixture.make(
+            planner: planner,
+            sourceText: longChinese,
+            wholeNote: false
+        )
+        let selectedRange = try #require(selected.model.draft.source.selectedRange)
+        #expect(selectedRange.lowerGraphemeOffset == 0)
+        #expect(selectedRange.upperGraphemeOffset == 4)
+        #expect(selected.model.draft.source.normalizedText.count == 4)
+        #expect(selected.model.draft.source.normalizedText != longChinese)
+
+        let selectedHost = hostedWorkbench(
+            selected.model,
+            size: DecompositionWorkbenchMetrics.targetSize
+        )
+        defer { selectedHost.window.orderOut(nil) }
+        let selectedLabels = accessibilityLabels(in: selectedHost.view)
+        #expect(selectedLabels.contains("所选文字"))
+        #expect(!selectedLabels.contains("整篇笔记"))
+        #expect(
+            findButton(in: selectedHost.view, identifier: "decomposition-source-toggle")?.title
+                == "展开来源"
+        )
+
+        let wholeHost = hostedWorkbench(
+            whole.model,
+            size: DecompositionWorkbenchMetrics.targetSize,
+            colorScheme: .light
+        )
+        defer { wholeHost.window.orderOut(nil) }
+        let wholeLabels = accessibilityLabels(in: wholeHost.view)
+        #expect(wholeLabels.contains("整篇笔记"))
+        #expect(!wholeLabels.contains("所选文字"))
+        let wholeToggle = try uniqueButton(
+            identifier: "decomposition-source-toggle",
+            in: wholeHost.view
+        )
+        #expect(wholeToggle.title == "展开来源")
+
+        let collapsedField = try uniqueSourceTextField(in: wholeHost.view)
+        #expect(collapsedField.maximumNumberOfLines == 6)
+        #expect(collapsedField.stringValue.contains("完整长中文结尾标记"))
+        #expect(collapsedField.accessibilityLabel()?.contains("完整长中文结尾标记") == true)
+        #expect(wholeLabels.contains { $0.contains("完整长中文结尾标记") })
+        expectSourceTextColor(collapsedField, matches: CalendarTheme.light)
+        let collapsedHeight = collapsedField.bounds.height
+        let collapsedIntrinsic = collapsedField.intrinsicContentSize.height
+        let collapsedDocumentHeight = enclosingScrollView(from: collapsedField)?
+            .documentView?.bounds.height ?? 0
+
+        wholeToggle.performClick(nil)
+        wholeHost.view.layoutSubtreeIfNeeded()
+        #expect(await waitUntil {
+            findTextField(in: wholeHost.view, identifier: "decomposition-source-text")?
+                .maximumNumberOfLines == 0
+        })
+        let expandedField = try uniqueSourceTextField(in: wholeHost.view)
+        #expect(expandedField.maximumNumberOfLines == 0)
+        #expect(expandedField.stringValue.contains("完整长中文结尾标记"))
+        #expect(expandedField.accessibilityLabel()?.contains(longChinese) == true)
+        #expect(
+            findButton(in: wholeHost.view, identifier: "decomposition-source-toggle")?.title
+                == "收起来源"
+        )
+        #expect(await waitUntil {
+            guard let field = findTextField(
+                in: wholeHost.view,
+                identifier: "decomposition-source-text"
+            ) else { return false }
+            let documentHeight = enclosingScrollView(from: field)?.documentView?.bounds.height ?? 0
+            return field.bounds.height > collapsedHeight + 1
+                || field.intrinsicContentSize.height > collapsedIntrinsic + 1
+                || documentHeight > collapsedDocumentHeight + 1
+        })
+
+        let expandedToggle = try uniqueButton(
+            identifier: "decomposition-source-toggle",
+            in: wholeHost.view
+        )
+        expandedToggle.performClick(nil)
+        wholeHost.view.layoutSubtreeIfNeeded()
+        #expect(await waitUntil {
+            findTextField(in: wholeHost.view, identifier: "decomposition-source-text")?
+                .maximumNumberOfLines == 6
+        })
+        #expect(try uniqueSourceTextField(in: wholeHost.view).maximumNumberOfLines == 6)
+        #expect(
+            findButton(in: wholeHost.view, identifier: "decomposition-source-toggle")?.title
+                == "展开来源"
+        )
+
+        let darkHost = hostedWorkbench(
+            whole.model,
+            size: DecompositionWorkbenchMetrics.targetSize,
+            colorScheme: .dark
+        )
+        defer { darkHost.window.orderOut(nil) }
+        expectSourceTextColor(
+            try uniqueSourceTextField(in: darkHost.view),
+            matches: CalendarTheme.dark
+        )
+
+        let narrow = hostedWorkbench(whole.model, size: CGSize(width: 720, height: 560))
+        defer { narrow.window.orderOut(nil) }
+        let narrowToggle = try uniqueButton(
+            identifier: "decomposition-source-toggle",
+            in: narrow.view
+        )
+        narrowToggle.performClick(nil)
+        narrow.view.layoutSubtreeIfNeeded()
+        #expect(await waitUntil {
+            findButton(in: narrow.view, identifier: "decomposition-source-toggle")?.title
+                == "收起来源"
+        })
+        let expandedNarrowToggle = try uniqueButton(
+            identifier: "decomposition-source-toggle",
+            in: narrow.view
+        )
+        let paneHeight = stackedSourcePaneHeight(from: expandedNarrowToggle)
+        #expect(paneHeight >= 168)
+        #expect(paneHeight <= 220 + 8)
+        #expect(await waitUntil {
+            guard let scroll = enclosingScrollView(from: expandedNarrowToggle) else { return false }
+            let documentHeight = scroll.documentView?.bounds.height ?? 0
+            return documentHeight > scroll.contentView.bounds.height + 8
+        })
+        let scroll = try #require(enclosingScrollView(from: expandedNarrowToggle))
+        #expect(scroll.documentView != nil)
+        #expect((scroll.documentView?.bounds.height ?? 0) > scroll.contentView.bounds.height + 8)
+    }
+
     @Test func manualBannerCopyDistinguishesEveryUnavailableReason() throws {
         let reasons: [ManualDecompositionReason] = [
             .systemVersionUnsupported,
@@ -692,8 +837,8 @@ struct DecompositionWorkbenchPresentationTests {
         let secondBoxLabel = secondBox.accessibilityLabel() ?? ""
         #expect(firstBoxLabel.contains(first.title))
         #expect(secondBoxLabel.contains(second.title))
-        #expect(firstBox.title.isEmpty)
-        #expect(secondBox.title.isEmpty)
+        #expect(firstBox.title == DecompositionWorkbenchCopy.createAction)
+        #expect(secondBox.title == DecompositionWorkbenchCopy.createAction)
         #expect(firstBox.accessibilityRole() == .checkBox)
         #expect(secondBox.accessibilityRole() == .checkBox)
         #expect((firstBox.accessibilityValue() as? NSNumber)?.intValue == 1)
@@ -720,6 +865,129 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(sources.contains(".accessibilityHint(\"展开后可微调行动标题、完成说明和预计时长\")"))
         #expect(sources.contains(".accessibilityAddTraits(.isButton)"))
     }
+
+    @Test func actionRowsExposeClearCreationAndGroupedSecondaryControls() async throws {
+        let intelligent = try await WorkbenchPresentationFixture.splitWithScheduledActions()
+        let first = try #require(intelligent.model.draft.candidates.first)
+        let second = try #require(intelligent.model.draft.candidates.dropFirst().first)
+        let host = hostedWorkbench(
+            intelligent.model,
+            size: DecompositionWorkbenchMetrics.targetSize
+        )
+        defer { host.window.orderOut(nil) }
+
+        let creationBoxes = checkboxes(in: host.view).filter { box in
+            (box.accessibilityLabel() ?? "").contains(first.title)
+                || (box.accessibilityLabel() ?? "").contains(second.title)
+        }
+        let firstBox = try #require(creationBoxes.first {
+            ($0.accessibilityLabel() ?? "").contains(first.title)
+        })
+        let secondBox = try #require(creationBoxes.first {
+            ($0.accessibilityLabel() ?? "").contains(second.title)
+        })
+        #expect(firstBox.title == "创建")
+        #expect(secondBox.title == "创建")
+        #expect((firstBox.accessibilityLabel() ?? "").contains(first.title))
+        #expect((secondBox.accessibilityLabel() ?? "").contains(second.title))
+
+        let completion = try uniqueMultilineTextField(
+            identifier: "decomposition-completion-\(first.id.uuidString)",
+            in: host.view
+        )
+        #expect(completion.placeholderString == "做到什么算完成？")
+        #expect(completion.accessibilityLabel() == "完成说明")
+
+        let title = try uniqueEditableTextField(
+            identifier: "decomposition-title-\(first.id.uuidString)",
+            in: host.view
+        )
+        let more = try uniqueButton(
+            identifier: "decomposition-more-\(first.id.uuidString)",
+            in: host.view
+        )
+        let moveUp = try uniqueButton(
+            identifier: "decomposition-move-up-\(first.id.uuidString)",
+            in: host.view
+        )
+        let moveDown = try uniqueButton(
+            identifier: "decomposition-move-down-\(first.id.uuidString)",
+            in: host.view
+        )
+        let titleFrame = title.convert(title.bounds, to: host.view)
+        let completionFrame = completion.convert(completion.bounds, to: host.view)
+        let moreFrame = more.convert(more.bounds, to: host.view)
+        let moveUpFrame = moveUp.convert(moveUp.bounds, to: host.view)
+        #expect(titleFrame.maxY <= completionFrame.minY + 8)
+        #expect(completionFrame.maxY <= moreFrame.minY + 8)
+        #expect(abs(moreFrame.midY - moveUpFrame.midY) < 12)
+        #expect(moveDown.convert(moveDown.bounds, to: host.view).minX >= moveUpFrame.maxX - 2)
+
+        let destructiveTitles = (more.menu?.items ?? []).compactMap { item -> String? in
+            let title = item.attributedTitle?.string ?? item.title
+            return item.isEnabled && (item.attributedTitle != nil || title == "删除") ? title : nil
+        }.filter { $0 == "删除" }
+        #expect(destructiveTitles.count == 1)
+        let deleteButtons = descendants(of: host.view, as: NSButton.self).filter {
+            $0.title == "删除" && $0.accessibilityRole() != .checkBox
+        }
+        #expect(deleteButtons.isEmpty)
+
+        let split = try uniqueButton(
+            identifier: "decomposition-split-\(first.id.uuidString)",
+            in: host.view
+        )
+        #expect(split.title == DecompositionWorkbenchCopy.continueSplit)
+        #expect(split.isBordered == false)
+        let advance = try uniqueButton(identifier: "decomposition-advance", in: host.view)
+        #expect(advance.isBordered == true)
+        #expect(split.bezelStyle != advance.bezelStyle)
+
+        let collapsedSplit = try uniqueButton(
+            identifier: "decomposition-split-\(second.id.uuidString)",
+            in: host.view
+        )
+        #expect(collapsedSplit.isBordered == false)
+
+        let manual = try await WorkbenchPresentationFixture.make(
+            planner: UnavailableDecompositionPlanner(reason: .deviceNotEligible)
+        )
+        await manual.model.start()
+        let manualHost = hostedWorkbench(
+            manual.model,
+            size: DecompositionWorkbenchMetrics.targetSize
+        )
+        defer { manualHost.window.orderOut(nil) }
+        let manualID = try #require(manual.model.draft.candidates.first).id
+        #expect(
+            findButton(in: manualHost.view, identifier: "decomposition-split-\(manualID.uuidString)")
+                == nil
+        )
+
+        let editor = try actionEditorSource()
+        #expect(editor.contains("theme.selectionFill"))
+        #expect(editor.contains("theme.selectionOutline"))
+        #expect(editor.contains("theme.subtleBorder"))
+        #expect(editor.contains("CalendarTheme.cornerRadius"))
+        #expect(editor.contains("visualTitle:"))
+        #expect(editor.contains("\"创建\"") || editor.contains("createAction"))
+        #expect(editor.contains("做到什么算完成？") || editor.contains("completionPlaceholder"))
+        #expect(!editor.contains("LinearGradient"))
+        #expect(!editor.contains(".largeTitle"))
+        #expect(!editor.contains(".title2"))
+        #expect(!editor.contains(".title3"))
+        #expect(!editor.contains("Capsule()"))
+        #expect(!editor.contains("Font.system(size: 11"))
+        #expect(!editor.contains("Font.system(size: 13"))
+        #expect(!editor.contains("Font.system(size: 17"))
+        #expect(!editor.contains("Font.system(size: 18"))
+        #expect(!editor.contains("Font.system(size: 22"))
+        #expect(!editor.contains("Font.system(size: 28"))
+        #expect(!editor.contains("selectionFillHex"))
+        #expect(!editor.contains("Color(red:"))
+        #expect(editor.contains("if case .manual"))
+        #expect(editor.contains("DecompositionWorkbenchCopy.continueSplit"))
+    }
 }
 
 private struct HostedWorkbench {
@@ -730,11 +998,22 @@ private struct HostedWorkbench {
 @MainActor
 private func hostedWorkbench(
     _ model: DecompositionWorkbenchModel,
-    size: CGSize
+    size: CGSize,
+    colorScheme: ColorScheme? = nil
 ) -> HostedWorkbench {
     _ = NSApplication.shared
-    let root = DecompositionWorkbenchView(model: model, onCancel: {}, onCommitted: { _ in })
+    let workbench = DecompositionWorkbenchView(model: model, onCancel: {}, onCommitted: { _ in })
         .frame(width: size.width, height: size.height)
+    let root: AnyView
+    if let colorScheme {
+        root = AnyView(
+            workbench
+                .environment(\.colorScheme, colorScheme)
+                .preferredColorScheme(colorScheme)
+        )
+    } else {
+        root = AnyView(workbench)
+    }
     let hosting = NSHostingView(rootView: root)
     hosting.frame = CGRect(origin: .zero, size: size)
     let window = NSWindow(
@@ -746,6 +1025,9 @@ private func hostedWorkbench(
     window.isReleasedWhenClosed = false
     window.animationBehavior = .none
     window.isRestorable = false
+    if let colorScheme {
+        window.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+    }
     window.contentView = hosting
     hosting.layoutSubtreeIfNeeded()
     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -767,7 +1049,9 @@ private struct WorkbenchPresentationFixture {
     static func make(
         planner: any DecompositionPlanning,
         uuid: @escaping @Sendable () -> UUID = UUID.init,
-        snapshotRevisionOffset: Int64 = 0
+        snapshotRevisionOffset: Int64 = 0,
+        sourceText: String = "预约牙医",
+        wholeNote: Bool = false
     ) async throws -> WorkbenchPresentationFixture {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
@@ -781,19 +1065,20 @@ private struct WorkbenchPresentationFixture {
             .init(
                 id: blockID,
                 kind: .paragraph,
-                inlineContent: .plain("预约牙医"),
+                inlineContent: .plain(sourceText),
                 taskState: nil,
                 indentLevel: 0
             )
         ])
         _ = try await store.sendWorkspace(.createNote(.init(note: note)))
         let persisted = try #require(store.state.notes[note.id])
+        let focusOffset = wholeNote ? 0 : 4
         var snapshot = try DecompositionSourceCapture.capture(
             note: persisted,
             workspaceRevision: store.state.revision,
             selection: .text(
                 anchor: .init(blockID: blockID, graphemeOffset: 0),
-                focus: .init(blockID: blockID, graphemeOffset: 4),
+                focus: .init(blockID: blockID, graphemeOffset: focusOffset),
                 preferredColumn: nil,
                 typingAttributes: .init(marks: [], linkURL: nil)
             )
@@ -1173,6 +1458,57 @@ private func isInBottomBand(
 private func descendants<T: NSView>(of view: NSView, as type: T.Type) -> [T] {
     let own = (view as? T).map { [$0] } ?? []
     return own + view.subviews.flatMap { descendants(of: $0, as: type) }
+}
+
+@MainActor
+private func uniqueSourceTextField(in root: NSView) throws -> NSTextField {
+    let matches = views(withIdentifier: "decomposition-source-text", in: root)
+    #expect(matches.count == 1)
+    return try #require(matches.first as? NSTextField)
+}
+
+@MainActor
+private func expectSourceTextColor(
+    _ field: NSTextField,
+    matches theme: CalendarSemanticAppearance
+) {
+    let expected = NSColor(theme.secondaryText)
+    #expect(nsColorsMatch(field.textColor, expected))
+}
+
+@MainActor
+private func nsColorsMatch(_ lhs: NSColor?, _ rhs: NSColor, accuracy: CGFloat = 0.02) -> Bool {
+    guard let lhs, let actual = lhs.usingColorSpace(.sRGB), let expected = rhs.usingColorSpace(.sRGB) else {
+        return false
+    }
+    return abs(actual.redComponent - expected.redComponent) <= accuracy
+        && abs(actual.greenComponent - expected.greenComponent) <= accuracy
+        && abs(actual.blueComponent - expected.blueComponent) <= accuracy
+}
+
+@MainActor
+private func enclosingScrollView(from view: NSView) -> NSScrollView? {
+    var current: NSView? = view
+    while let node = current {
+        if let scroll = node as? NSScrollView {
+            return scroll
+        }
+        current = node.superview
+    }
+    return nil
+}
+
+@MainActor
+private func stackedSourcePaneHeight(from view: NSView) -> CGFloat {
+    var current: NSView? = view
+    while let node = current {
+        let height = node.bounds.height
+        if height >= 168, height <= 228 {
+            return height
+        }
+        current = node.superview
+    }
+    return view.bounds.height
 }
 
 @MainActor

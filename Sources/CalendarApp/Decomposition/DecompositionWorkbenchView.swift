@@ -362,7 +362,8 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         if let identified = field as? DecompositionIdentifiedNSTextField {
             identified.requestsInitialFocus = requestsInitialFocus
         }
-        if field.stringValue != text {
+        let hasMarkedText = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
+        if !hasMarkedText, field.stringValue != text {
             field.stringValue = text
         }
         field.delegate = context.coordinator
@@ -576,6 +577,8 @@ struct DecompositionAccessibleLabel: NSViewRepresentable {
     var text: String
     var identifier: String = ""
     var label: String? = nil
+    var maximumNumberOfLines: Int = 0
+    var textColor: Color? = nil
 
     func makeNSView(context: Context) -> DecompositionWrappingLabel {
         let field = DecompositionWrappingLabel()
@@ -586,7 +589,6 @@ struct DecompositionAccessibleLabel: NSViewRepresentable {
         field.stringValue = text
         field.font = NSFont.systemFont(ofSize: 12)
         field.lineBreakMode = .byWordWrapping
-        field.maximumNumberOfLines = 0
         field.usesSingleLineMode = false
         field.cell?.wraps = true
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -604,6 +606,10 @@ struct DecompositionAccessibleLabel: NSViewRepresentable {
     }
 
     private func apply(_ field: NSTextField) {
+        field.maximumNumberOfLines = maximumNumberOfLines
+        if let textColor {
+            field.textColor = NSColor(textColor)
+        }
         if !identifier.isEmpty {
             field.setAccessibilityIdentifier(identifier)
         }
@@ -634,6 +640,8 @@ enum DecompositionWorkbenchCopy {
     static let continueEditing = "继续编辑"
     static let discardDraftMessage = "这份草稿不会保存"
     static let source = "来源"
+    static let expandSource = "展开来源"
+    static let collapseSource = "收起来源"
     static let actions = "行动草稿"
     static let schedule = "安排时间"
     static let organizing = "正在整理…"
@@ -652,6 +660,12 @@ enum DecompositionWorkbenchCopy {
     static let noProposal = "暂无建议"
     static let joinCalendar = "加入日历"
     static let keepAction = "保留为行动"
+    static let createAction = "创建"
+    static let completionPlaceholder = "做到什么算完成？"
+
+    static func sourceScope(_ selectedRange: DecompositionSourceSnapshot.TextRange?) -> String {
+        selectedRange == nil ? "整篇笔记" : "所选文字"
+    }
 
     static func stageTitle(_ stage: DecompositionStage) -> String {
         switch stage {

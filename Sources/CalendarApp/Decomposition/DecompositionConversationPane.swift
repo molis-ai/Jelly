@@ -3,6 +3,7 @@ import SwiftUI
 struct DecompositionConversationPane: View {
     @Bindable var model: DecompositionWorkbenchModel
     @Environment(\.colorScheme) private var colorScheme
+    @State private var sourceExpanded = false
 
     private var theme: CalendarSemanticAppearance {
         CalendarTheme.appearance(for: colorScheme)
@@ -14,11 +15,37 @@ struct DecompositionConversationPane: View {
                 Text(DecompositionWorkbenchCopy.source)
                     .font(DecompositionTypography.sectionTitle)
                     .foregroundStyle(theme.primaryText)
-                Text(model.draft.source.normalizedText)
-                    .font(DecompositionTypography.auxiliary)
-                    .foregroundStyle(theme.secondaryText)
-                    .lineLimit(6)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .center, spacing: 10) {
+                    DecompositionAccessibleLabel(
+                        text: DecompositionWorkbenchCopy.sourceScope(model.draft.source.selectedRange),
+                        identifier: "decomposition-source-scope",
+                        label: DecompositionWorkbenchCopy.sourceScope(model.draft.source.selectedRange),
+                        textColor: theme.secondaryText
+                    )
+                    Spacer(minLength: 8)
+                    DecompositionIdentifiedButton(
+                        title: sourceExpanded
+                            ? DecompositionWorkbenchCopy.collapseSource
+                            : DecompositionWorkbenchCopy.expandSource,
+                        identifier: "decomposition-source-toggle",
+                        accessibilityName: sourceExpanded
+                            ? DecompositionWorkbenchCopy.collapseSource
+                            : DecompositionWorkbenchCopy.expandSource,
+                        enabled: !model.isCommitting
+                    ) {
+                        sourceExpanded.toggle()
+                    }
+                    .frame(height: 22)
+                }
+                DecompositionAccessibleLabel(
+                    text: model.draft.source.normalizedText,
+                    identifier: "decomposition-source-text",
+                    label: model.draft.source.normalizedText,
+                    maximumNumberOfLines: sourceExpanded ? 0 : 6,
+                    textColor: theme.secondaryText
+                )
+                .lineLimit(sourceExpanded ? nil : 6)
+                .fixedSize(horizontal: false, vertical: true)
 
                 if case .manual(let reason) = model.draft.mode {
                     let banner = DecompositionWorkbenchCopy.manualBanner(for: reason)

@@ -653,11 +653,103 @@ struct DecompositionWorkbenchInteractionTests {
         field.attemptInitialFocusIfNeeded()
         #expect(window.firstResponder === otherControl)
     }
+
+    @Test func singleLineFieldDoesNotOverwriteMarkedText() async throws {
+        _ = NSApplication.shared
+        let harness = SingleLineMarkedTextHarness()
+        let hosting = NSHostingView(rootView: HostedSingleLineMarkedTextField(harness: harness))
+        hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 48)
+        let window = MarkedTextReportingWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.animationBehavior = .none
+        window.contentView = hosting
+        window.makeKey()
+        hosting.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(50))
+        defer { window.orderOut(nil) }
+
+        let field = try #require(descendants(of: hosting, as: NSTextField.self).first {
+            $0.accessibilityIdentifier() == "decomposition-single-line-marked"
+        })
+        #expect(field.stringValue == "原标题")
+        #expect(window.makeFirstResponder(field))
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        #expect(editor.hasMarkedText())
+        field.stringValue = "原标题拼"
+        #expect(field.stringValue == "原标题拼")
+
+        harness.refreshToken += 1
+        hosting.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(field.stringValue == "原标题拼")
+        #expect((field.currentEditor() as? NSTextView)?.hasMarkedText() == true)
+        #expect(harness.text == "原标题")
+    }
 }
 
 private struct HostedInteractionWorkbench {
     let view: NSView
     let window: NSWindow
+}
+
+private final class SingleLineMarkedTextHarness: ObservableObject {
+    @Published var text = "原标题"
+    @Published var refreshToken = 0
+}
+
+private struct HostedSingleLineMarkedTextField: View {
+    @ObservedObject var harness: SingleLineMarkedTextHarness
+
+    var body: some View {
+        VStack {
+            DecompositionIdentifiedTextField(
+                text: $harness.text,
+                identifier: "decomposition-single-line-marked",
+                accessibilityName: "行动标题"
+            )
+            .frame(width: 280, height: 24)
+            Text(String(harness.refreshToken))
+                .hidden()
+        }
+        .frame(width: 320, height: 48)
+    }
+}
+
+private final class MarkedTextReportingFieldEditor: NSTextView {
+    override func hasMarkedText() -> Bool { true }
+}
+
+private final class MarkedTextReportingWindow: NSWindow {
+    private let markedEditor: MarkedTextReportingFieldEditor = {
+        let editor = MarkedTextReportingFieldEditor()
+        editor.isFieldEditor = true
+        return editor
+    }()
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKey()
+    }
+
+    override func orderFront(_ sender: Any?) {}
+
+    override func orderFrontRegardless() {}
+
+    override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+        if object is NSTextField {
+            markedEditor.isFieldEditor = true
+            return markedEditor
+        }
+        return super.fieldEditor(createFlag, for: object)
+    }
 }
 
 /// Never `orderFront` / `makeKeyAndOrderFront`: the first of those in this
