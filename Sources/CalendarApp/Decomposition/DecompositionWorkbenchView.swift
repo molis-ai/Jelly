@@ -3,6 +3,8 @@ import SwiftUI
 
 final class DecompositionNSButton: NSButton {
     var intendedEnabled = true
+    var requestsInitialFocus = false
+    private var didScheduleInitialFocus = false
 
     override var acceptsFirstResponder: Bool { intendedEnabled && !isHiddenOrHasHiddenAncestor }
     override var canBecomeKeyView: Bool { intendedEnabled && !isHiddenOrHasHiddenAncestor }
@@ -12,6 +14,33 @@ final class DecompositionNSButton: NSButton {
         isEnabled = intendedEnabled
         cell?.isEnabled = intendedEnabled
         refusesFirstResponder = !intendedEnabled
+        scheduleInitialFocusRequest()
+    }
+
+    func scheduleInitialFocusRequest() {
+        guard requestsInitialFocus, !didScheduleInitialFocus else { return }
+        didScheduleInitialFocus = true
+        DispatchQueue.main.async { [weak self] in
+            self?.requestInitialFocusIfVacant()
+            for delay in [0.05, 0.15, 0.3] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.requestInitialFocusIfVacant()
+                }
+            }
+        }
+    }
+
+    private func requestInitialFocusIfVacant() {
+        guard requestsInitialFocus, intendedEnabled, let window else { return }
+        let responder = window.firstResponder
+        if let responderView = responder as? NSView,
+           responderView !== window.contentView,
+           responderView.window === window,
+           !responderView.isHiddenOrHasHiddenAncestor {
+            return
+        }
+        window.recalculateKeyViewLoop()
+        window.makeFirstResponder(self)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -276,6 +305,7 @@ struct DecompositionIdentifiedCheckbox: NSViewRepresentable {
     var accessibilityName: String
     var visualTitle: String = ""
     var enabled: Bool = true
+    var requestsInitialFocus: Bool = false
 
     func makeNSView(context: Context) -> DecompositionNSButton {
         let button = DecompositionNSButton(frame: .zero)
@@ -316,6 +346,8 @@ struct DecompositionIdentifiedCheckbox: NSViewRepresentable {
             button.state = desired
         }
         button.intendedEnabled = enabled
+        button.requestsInitialFocus = requestsInitialFocus
+        button.scheduleInitialFocusRequest()
         button.isEnabled = enabled
         button.cell?.isEnabled = enabled
         if identifier.isEmpty {
@@ -821,6 +853,9 @@ enum DecompositionWorkbenchCopy {
     static let refreshProposalsHelp = "只更新尚未手动调整的时间"
     static let refreshAllProposals = "全部重新建议"
     static let refreshAllProposalsHelp = "会覆盖人工调整，并按当前行动顺序重新建议未来七天的可用时间"
+    static let overwriteAdjustedSchedules = "覆盖已调整的时间？"
+    static let confirmOverwriteAdjustedSchedules = "覆盖并重新建议"
+    static let keepAdjustedSchedules = "保留人工调整"
     static let noProposal = "暂无建议"
     static let noAvailableSlot = "未来七天没有合适空档"
     static let chooseDateAndTime = "选择日期与时间"
@@ -831,6 +866,10 @@ enum DecompositionWorkbenchCopy {
     static let completionPlaceholder = "做到什么算完成？"
     static let missingTitleField = "请填写行动标题"
     static let missingCompletionField = "请补充完成标准"
+
+    static func overwriteAdjustedSchedulesMessage(count: Int) -> String {
+        "将覆盖 \(count) 个你已经调整过的时间。行动内容不会改变。"
+    }
 
     static func sourceScope(_ selectedRange: DecompositionSourceSnapshot.TextRange?) -> String {
         selectedRange == nil ? "整篇笔记" : "所选文字"
@@ -854,6 +893,17 @@ enum DecompositionWorkbenchCopy {
         if created == 0 { return "至少保留一个行动" }
         if scheduled == 0 { return "创建 \(created) 个行动，暂不安排" }
         return "创建 \(created) 个行动，并安排其中 \(scheduled) 个"
+    }
+
+    static func commitVisualTitle(created: Int, scheduled: Int) -> String {
+        if created == 0 { return "至少保留一个行动" }
+        return scheduled == 0 ? "创建行动" : "创建并安排"
+    }
+
+    static func readySummary(created: Int, scheduled: Int) -> String {
+        if created == 0 { return "尚未选择行动" }
+        if scheduled == 0 { return "\(created) 个行动已就绪" }
+        return "\(created) 个行动 · \(scheduled) 个日历安排"
     }
 
     static func completionMessage(created: Int, scheduled: Int) -> String {
@@ -938,7 +988,7 @@ enum DecompositionWorkbenchCopy {
         if let lastRecoverableError, let message = recoverableError(lastRecoverableError) {
             return message
         }
-        return commitTitle(created: created, scheduled: scheduled)
+        return readySummary(created: created, scheduled: scheduled)
     }
 }
 
@@ -994,7 +1044,7 @@ struct DecompositionWorkbenchView: View {
             minHeight: DecompositionWorkbenchMetrics.minimumSize.height,
             idealHeight: DecompositionWorkbenchMetrics.targetSize.height
         )
-        .onExitCommand(perform: requestClose)
+        .onExitCommand(perform: requestEscape)
         .confirmationDialog(
             DecompositionWorkbenchCopy.discardDraft,
             isPresented: $showsDiscardConfirmation,
@@ -1010,7 +1060,7 @@ struct DecompositionWorkbenchView: View {
             Text(DecompositionWorkbenchCopy.discardDraftMessage)
         }
         .background {
-            Button("") { requestClose() }
+            Button("") { requestEscape() }
                 .keyboardShortcut(.cancelAction)
                 .hidden()
             if model.draft.stage == .schedule, model.canCommit, !model.isCommitting {
@@ -1080,9 +1130,16 @@ struct DecompositionWorkbenchView: View {
     private var stackedBody: some View {
         VStack(spacing: 0) {
             conversationPane
-                .frame(minHeight: 168, maxHeight: 220)
+                .frame(height: stackedConversationHeight)
             Rectangle().fill(theme.separator).frame(height: 1)
             editorPane
+        }
+    }
+
+    private var stackedConversationHeight: CGFloat {
+        switch model.draft.stage {
+        case .understand: 220
+        case .split, .schedule: 168
         }
     }
 
@@ -1136,7 +1193,7 @@ struct DecompositionWorkbenchView: View {
             }
             if model.draft.stage == .schedule {
                 DecompositionIdentifiedButton(
-                    title: commitTitle,
+                    title: commitVisualTitle,
                     identifier: "decomposition-commit",
                     accessibilityName: commitTitle,
                     enabled: model.canCommit && !model.isCommitting,
@@ -1145,7 +1202,7 @@ struct DecompositionWorkbenchView: View {
                     Task { await commit() }
                 }
                 .id("commit-\(commitTitle)-\(createdCount)-\(model.canCommit)")
-                .frame(minWidth: 160, maxHeight: 28)
+                .frame(width: 200, height: 28)
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -1173,6 +1230,10 @@ struct DecompositionWorkbenchView: View {
         DecompositionWorkbenchCopy.commitTitle(created: createdCount, scheduled: scheduledCount)
     }
 
+    private var commitVisualTitle: String {
+        DecompositionWorkbenchCopy.commitVisualTitle(created: createdCount, scheduled: scheduledCount)
+    }
+
     private var resultSummary: String {
         DecompositionWorkbenchCopy.resultSummary(
             isCommitting: model.isCommitting,
@@ -1196,13 +1257,21 @@ struct DecompositionWorkbenchView: View {
         if model.isCommitting { return }
         if model.hasRunningRequest {
             model.cancelRequest()
-            return
         }
         if model.hasMeaningfulDraft {
             showsDiscardConfirmation = true
             return
         }
         onCancel()
+    }
+
+    private func requestEscape() {
+        if model.isCommitting { return }
+        if model.hasRunningRequest {
+            model.cancelRequest()
+            return
+        }
+        requestClose()
     }
 
     private func commit() async {

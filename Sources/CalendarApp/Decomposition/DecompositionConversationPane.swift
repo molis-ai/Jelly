@@ -105,19 +105,30 @@ struct DecompositionConversationPane: View {
                         }
                         .frame(width: 52, height: 24)
                     }
-                    HStack(spacing: 10) {
-                        ForEach(question.quickAnswers.prefix(3), id: \.self) { answer in
-                            Button(answer) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(question.quickAnswers.prefix(3).enumerated()), id: \.offset) { index, answer in
+                            Button {
                                 Task {
                                     model.updateAnswer(answer)
                                     await model.submitAnswer(answer)
                                 }
+                            } label: {
+                                Text(answer)
+                                    .font(DecompositionTypography.auxiliary)
+                                    .foregroundStyle(theme.controlAccent)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
-                            .font(DecompositionTypography.auxiliary)
-                            .foregroundStyle(theme.controlAccent)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .disabled(model.isCommitting)
                             .accessibilityLabel(answer)
+                            .accessibilityIdentifier("decomposition-quick-answer-\(index)")
+                            .background {
+                                DecompositionIdentifiedHost(
+                                    identifier: "decomposition-quick-answer-\(index)"
+                                )
+                            }
                         }
                     }
                 }

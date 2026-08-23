@@ -19,7 +19,7 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(labels.contains("理解"))
         #expect(labels.contains("拆开"))
         #expect(labels.contains("安排"))
-        #expect(labels.contains("创建 3 个行动，并安排其中 2 个"))
+        #expect(labels.contains("3 个行动 · 2 个日历安排"))
 
         let identifiers = [
             "decomposition-stage-0",
@@ -89,6 +89,39 @@ struct DecompositionWorkbenchPresentationTests {
             max(narrowAnswerFrame.minX, narrowAddFrame.minX)
                 < min(narrowAnswerFrame.maxX, narrowAddFrame.maxX)
         )
+    }
+
+    @Test func narrowScheduleCompactsSourceUsesFullWidthRowsAndKeepsTheCTAFocused() async throws {
+        let fixture = try await WorkbenchPresentationFixture.splitWithScheduledActions()
+        fixture.model.advanceToSchedule()
+        let first = try #require(fixture.model.draft.candidates.first)
+        let second = try #require(fixture.model.draft.candidates.dropFirst().first)
+        let host = hostedWorkbench(fixture.model, size: CGSize(width: 720, height: 560))
+        defer { host.window.orderOut(nil) }
+
+        let sourceToggle = try uniqueButton(
+            identifier: "decomposition-source-toggle",
+            in: host.view
+        )
+        let sourceScroll = try #require(enclosingScrollView(from: sourceToggle))
+        #expect(sourceScroll.bounds.height <= 172)
+
+        let firstToggle = try #require(
+            findButton(in: host.view, identifier: "decomposition-calendar-\(first.id.uuidString)")
+        )
+        let secondToggle = try #require(
+            findButton(in: host.view, identifier: "decomposition-calendar-\(second.id.uuidString)")
+        )
+        let firstFrame = firstToggle.convert(firstToggle.bounds, to: host.view)
+        let secondFrame = secondToggle.convert(secondToggle.bounds, to: host.view)
+        #expect(abs(firstFrame.maxX - secondFrame.maxX) <= 4)
+        #expect(firstFrame.minX >= 500)
+        #expect(abs(firstFrame.midY - secondFrame.midY) >= 56)
+
+        let commit = try uniqueButton(identifier: "decomposition-commit", in: host.view)
+        #expect(commit.frame.width <= 220)
+        #expect(commit.title == "创建并安排")
+        #expect(commit.accessibilityLabel() == "创建 3 个行动，并安排其中 2 个")
     }
 
     @Test func resultBarStaysFullWidthAndFixedHeight() async throws {
@@ -266,7 +299,7 @@ struct DecompositionWorkbenchPresentationTests {
                 lastRecoverableError: .requestCancelled,
                 created: 3,
                 scheduled: 2
-            ) == "创建 3 个行动，并安排其中 2 个"
+            ) == "3 个行动 · 2 个日历安排"
         )
         #expect(
             DecompositionWorkbenchCopy.resultSummary(
@@ -275,7 +308,7 @@ struct DecompositionWorkbenchPresentationTests {
                 lastRecoverableError: nil,
                 created: 3,
                 scheduled: 2
-            ) == "创建 3 个行动，并安排其中 2 个"
+            ) == "3 个行动 · 2 个日历安排"
         )
         #expect(
             DecompositionWorkbenchCopy.resultSummary(
@@ -816,6 +849,40 @@ struct DecompositionWorkbenchPresentationTests {
         #expect(submitOccurrences >= 3)
     }
 
+    @Test func longQuickAnswersStackVerticallyInsideTheConversationPane() async throws {
+        let answers = [
+            "交接日已经确定但预算还没分清",
+            "预算已经确定但交接日还在等待回复",
+            "交接日和预算都还没有确认",
+        ]
+        let fixture = try await WorkbenchPresentationFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.ask(
+                    question: "哪些现状会改变这次要拆出的行动？",
+                    quickAnswers: answers
+                ))
+            ])
+        )
+        await fixture.model.start()
+        let host = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
+        defer { host.window.orderOut(nil) }
+
+        let answerElements = try answers.indices.map { index in
+            try #require(
+                views(withIdentifier: "decomposition-quick-answer-\(index)", in: host.view).first
+            )
+        }
+        let frames = answerElements.map { $0.convert($0.bounds, to: host.view) }
+        #expect(frames[0].maxY <= frames[1].minY + 2)
+        #expect(frames[1].maxY <= frames[2].minY + 2)
+
+        let maximumAnswerWidth = DecompositionWorkbenchMetrics.targetSize.width
+            * DecompositionWorkbenchMetrics.conversationRatio - 40
+        for frame in frames {
+            #expect(frame.width <= maximumAnswerWidth + 2)
+        }
+    }
+
     @Test func sourceShowsWholeOrSelectionScopeAndCanExpand() async throws {
         let longChinese = (1...12).map { index in
             "第\(index)段需要展开才能读完的中文来源，确认工作台不会把长笔记藏起来，并且内部可以滚动。"
@@ -1058,8 +1125,9 @@ struct DecompositionWorkbenchPresentationTests {
         fixture.model.advanceToSchedule()
         let noneScheduled = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
         defer { noneScheduled.window.orderOut(nil) }
-        #expect(findButton(in: noneScheduled.view, identifier: "decomposition-commit")?.title
-            == "创建 3 个行动，暂不安排")
+        let create = try #require(findButton(in: noneScheduled.view, identifier: "decomposition-commit"))
+        #expect(create.title == "创建行动")
+        #expect(create.accessibilityLabel() == "创建 3 个行动，暂不安排")
 
         for candidate in fixture.model.draft.candidates {
             fixture.model.setSelectedForCreation(id: candidate.id, selected: false)
@@ -1446,9 +1514,9 @@ struct DecompositionWorkbenchPresentationTests {
         )
 
         let schedule = try scheduleEditorSource()
-        #expect(schedule.contains("theme.elevatedSurface"))
+        #expect(schedule.contains("theme.canvas"))
         #expect(schedule.contains("theme.subtleBorder"))
-        #expect(schedule.contains("CalendarTheme.cornerRadius"))
+        #expect(schedule.contains("cornerRadius: 10"))
         #expect(schedule.contains("overwriteUserAdjustments: false"))
         #expect(schedule.contains("beginManualCalendarProposal"))
         #expect(schedule.contains("未来七天没有合适空档") || schedule.contains("noAvailableSlot"))

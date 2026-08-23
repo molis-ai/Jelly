@@ -65,7 +65,7 @@ struct DecompositionWorkbenchInteractionTests {
         let titleField = try #require(await waitForField(in: host.view, identifier: titleIdentifier))
         #expect(titleField.canBecomeKeyView)
         #expect(titleField.acceptsFirstResponder)
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        try await tabUntil(in: host.window, view: host.view, target: "first title") { responder in
             isFieldEditor(of: titleField, responder: responder) || responder === titleField
         }
         sendKey(tabKey(in: host.window, shift: true), in: host.window)
@@ -73,7 +73,7 @@ struct DecompositionWorkbenchInteractionTests {
         #expect(
             !(isFieldEditor(of: titleField, responder: host.window.firstResponder) || host.window.firstResponder === titleField)
         )
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        try await tabUntil(in: host.window, view: host.view, target: "first title after reverse tab") { responder in
             isFieldEditor(of: titleField, responder: responder) || responder === titleField
         }
         try typeIntoFieldEditor("手改标题", window: host.window)
@@ -88,7 +88,7 @@ struct DecompositionWorkbenchInteractionTests {
             in: host.view,
             identifier: "decomposition-move-down-\(first.uuidString)"
         ))
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        try await tabUntil(in: host.window, view: host.view, target: "move down") { responder in
             isControl(moveDown, responder: responder)
         }
         sendKey(spaceKey(in: host.window), in: host.window)
@@ -98,7 +98,7 @@ struct DecompositionWorkbenchInteractionTests {
             in: host.view,
             identifier: "decomposition-split-\(first.uuidString)"
         ))
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        try await tabUntil(in: host.window, view: host.view, target: "continue split") { responder in
             isControl(split, responder: responder)
         }
         sendKey(spaceKey(in: host.window), in: host.window)
@@ -106,7 +106,7 @@ struct DecompositionWorkbenchInteractionTests {
         #expect(fixture.model.draft.candidates[0].title == "准备材料")
 
         let advance = try #require(findButton(in: host.view, identifier: "decomposition-advance"))
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        try await tabUntil(in: host.window, view: host.view, target: "confirm actions") { responder in
             isControl(advance, responder: responder)
         }
         sendKey(spaceKey(in: host.window), in: host.window)
@@ -124,7 +124,11 @@ struct DecompositionWorkbenchInteractionTests {
             identifier: "decomposition-calendar-\(second.uuidString)"
         ))
         #expect(calendarToggle.accessibilityRole() == .checkBox)
-        try await tabUntil(in: host.window, view: host.view) { responder in
+        #expect(calendarToggle.isHidden == false)
+        #expect(calendarToggle.window === host.window)
+        #expect(calendarToggle.acceptsFirstResponder)
+        #expect(calendarToggle.canBecomeKeyView)
+        try await tabUntil(in: host.window, view: host.view, target: "calendar toggle") { responder in
             isControl(calendarToggle, responder: responder)
         }
         let calendarWasOn = fixture.model.draft.candidates.first(where: { $0.id == second })?.selectedForCalendar == true
@@ -451,11 +455,8 @@ struct DecompositionWorkbenchInteractionTests {
             if case .idle = fixture.model.requestState { return true }
             return false
         })
-        #expect(cancelCount == 0)
-        await secondStart.value
-
-        close.performClick(close)
         #expect(await waitUntil { cancelCount == 1 })
+        await secondStart.value
 
         #expect(fixture.store.statePublicationGeneration == generation)
         #expect(fixture.store.state.notes[fixture.noteID]?.document.blocks.count == originalBlockCount)
@@ -774,6 +775,11 @@ struct DecompositionWorkbenchInteractionTests {
         #expect(refreshAllHelp.contains("覆盖"))
         #expect(refreshAllHelp.contains("人工调整"))
         refreshAll.performClick(nil)
+        #expect(fixture.model.draft.candidates[0].proposal == locked)
+        #expect(fixture.model.draft.candidates[0].scheduleLockedByUser)
+        let overwrite = try #require(await waitForButtonTitled("覆盖并重新建议"))
+        #expect(findButtonTitled("保留人工调整") != nil)
+        overwrite.performClick(nil)
         #expect(await waitUntil {
             fixture.model.draft.candidates[0].proposal != locked
                 && fixture.model.draft.candidates[0].scheduleLockedByUser == false
@@ -1277,6 +1283,7 @@ private func tabUntil(
     in window: NSWindow,
     view: NSView,
     limit: Int = 48,
+    target: String = "unspecified control",
     matches: (NSResponder?) -> Bool
 ) async throws {
     view.layoutSubtreeIfNeeded()
@@ -1291,7 +1298,7 @@ private func tabUntil(
     let identifier = (responder as? NSView)?.accessibilityIdentifier() ?? "nil"
     let next = (responder as? NSView)?.nextKeyView.map { String(describing: type(of: $0)) } ?? "nil"
     Issue.record(
-        "tab did not reach expected responder, firstResponder=\(String(describing: responder)) id=\(identifier) nextKeyView=\(next)"
+        "tab did not reach \(target), firstResponder=\(String(describing: responder)) id=\(identifier) nextKeyView=\(next)"
     )
     throw KeyboardJourneyError.tabTargetMissing
 }
