@@ -54,20 +54,30 @@ struct DecompositionConversationPane: View {
                         .font(DecompositionTypography.body)
                         .foregroundStyle(theme.primaryText)
                         .fixedSize(horizontal: false, vertical: true)
-                    DecompositionIdentifiedTextField(
-                        text: answerBinding,
-                        identifier: "decomposition-answer",
-                        accessibilityName: "回答",
-                        placeholder: "用一句话回答",
-                        onSubmit: {
-                            Task { await model.submitAnswer(model.draft.answer) }
+                    HStack(spacing: 10) {
+                        DecompositionIdentifiedTextField(
+                            text: answerBinding,
+                            identifier: "decomposition-answer",
+                            accessibilityName: "回答",
+                            placeholder: "用一句话回答",
+                            onSubmit: { submitAnswer() }
+                        )
+                        .frame(height: 24)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(theme.separator).frame(height: 1)
                         }
-                    )
-                    .frame(height: 24)
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(theme.separator).frame(height: 1)
+                        .disabled(model.isCommitting)
+                        DecompositionIdentifiedButton(
+                            title: DecompositionWorkbenchCopy.continueAnswer,
+                            identifier: "decomposition-answer-continue",
+                            accessibilityName: DecompositionWorkbenchCopy.continueAnswer,
+                            enabled: canSubmitAnswer,
+                            isBordered: true
+                        ) {
+                            submitAnswer()
+                        }
+                        .frame(width: 52, height: 24)
                     }
-                    .disabled(model.isCommitting)
                     HStack(spacing: 10) {
                         ForEach(question.quickAnswers.prefix(3), id: \.self) { answer in
                             Button(answer) {
@@ -105,6 +115,17 @@ struct DecompositionConversationPane: View {
     private var isManual: Bool {
         if case .manual = model.draft.mode { return true }
         return false
+    }
+
+    private var canSubmitAnswer: Bool {
+        !model.draft.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !model.hasRunningRequest
+            && !model.isCommitting
+    }
+
+    private func submitAnswer() {
+        guard canSubmitAnswer else { return }
+        Task { await model.submitAnswer(model.draft.answer) }
     }
 
     private var answerBinding: Binding<String> {

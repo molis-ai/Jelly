@@ -410,7 +410,40 @@ struct DecompositionWorkbenchPresentationTests {
         )
         #expect(banner.stringValue == expected)
         #expect(fixture.model.draft.mode == .manual(reason: .systemVersionUnsupported))
-        #expect(fixture.model.draft.candidates.isEmpty)
+        #expect(fixture.model.draft.candidates.count == 1)
+        #expect(fixture.model.draft.candidates[0].title.isEmpty)
+        #expect(fixture.model.draft.candidates[0].completionDescription.isEmpty)
+        let firstID = try #require(fixture.model.draft.candidates.first).id
+        let titleField = try uniqueEditableTextField(
+            identifier: "decomposition-title-\(firstID.uuidString)",
+            in: host.view
+        )
+        #expect(titleField.isEditable)
+        #expect(titleField.stringValue.isEmpty)
+    }
+
+    @Test func answerHasVisibleContinueAndReturnUsesSameSubmission() async throws {
+        let fixture = try await WorkbenchPresentationFixture.understandWithQuestion()
+        let host = hostedWorkbench(fixture.model, size: DecompositionWorkbenchMetrics.targetSize)
+        defer { host.window.orderOut(nil) }
+        let button = try uniqueButton(identifier: "decomposition-answer-continue", in: host.view)
+        #expect(button.title == "继续")
+        #expect(!button.isEnabled)
+        fixture.model.updateAnswer("下周前完成")
+        host.view.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(50))
+        let enabledButton = try uniqueButton(identifier: "decomposition-answer-continue", in: host.view)
+        #expect(enabledButton.isEnabled)
+
+        let paneSource = try workbenchConversationSource()
+        #expect(paneSource.contains("private func submitAnswer()"))
+        #expect(paneSource.contains("onSubmit: {"))
+        #expect(paneSource.contains("submitAnswer()"))
+        #expect(paneSource.contains("identifier: \"decomposition-answer-continue\""))
+        #expect(paneSource.contains("DecompositionWorkbenchCopy.continueAnswer"))
+        #expect(paneSource.contains("onSubmit: { submitAnswer() }"))
+        let submitOccurrences = paneSource.components(separatedBy: "submitAnswer()").count - 1
+        #expect(submitOccurrences >= 3)
     }
 
     @Test func manualBannerCopyDistinguishesEveryUnavailableReason() throws {

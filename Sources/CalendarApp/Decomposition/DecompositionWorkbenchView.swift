@@ -32,6 +32,8 @@ final class DecompositionNSButton: NSButton {
 }
 
 final class DecompositionIdentifiedNSTextField: NSTextField {
+    var requestsInitialFocus = false
+
     override var acceptsFirstResponder: Bool { isEditable && isEnabled }
     override var canBecomeKeyView: Bool { isEditable && isEnabled && !isHiddenOrHasHiddenAncestor }
 
@@ -44,13 +46,40 @@ final class DecompositionIdentifiedNSTextField: NSTextField {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard accessibilityIdentifier() == "decomposition-answer" else { return }
-        guard let window else { return }
+        attemptInitialFocusIfNeeded()
+    }
+
+    func attemptInitialFocusIfNeeded() {
+        let shouldRequestFocus = requestsInitialFocus || accessibilityIdentifier() == "decomposition-answer"
+        guard shouldRequestFocus, let window else { return }
         let responder = window.firstResponder
-        let hasValidFocus = responder != nil && !(responder is NSWindow)
-        if !hasValidFocus {
-            window.makeFirstResponder(self)
+        if responder === self || responder === currentEditor() { return }
+        if hasMarkedText(in: responder) { return }
+        if hasValidTextResponder(responder) { return }
+        window.makeFirstResponder(self)
+    }
+
+    private func hasMarkedText(in responder: NSResponder?) -> Bool {
+        if let textView = responder as? NSTextView, textView.hasMarkedText() {
+            return true
         }
+        if let field = responder as? NSTextField,
+           let editor = field.currentEditor() as? NSTextView,
+           editor.hasMarkedText() {
+            return true
+        }
+        return false
+    }
+
+    private func hasValidTextResponder(_ responder: NSResponder?) -> Bool {
+        if responder is NSTextView {
+            return true
+        }
+        if let field = responder as? NSTextField, field !== self {
+            if field.isEditable { return true }
+            if field.currentEditor() is NSTextView { return true }
+        }
+        return false
     }
 }
 
@@ -308,6 +337,7 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
     var identifier: String
     var accessibilityName: String
     var placeholder: String = ""
+    var requestsInitialFocus: Bool = false
     var onSubmit: () -> Void = {}
 
     func makeNSView(context: Context) -> NSTextField {
@@ -320,12 +350,16 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         field.isSelectable = true
         field.delegate = context.coordinator
         field.stringValue = text
+        field.requestsInitialFocus = requestsInitialFocus
         context.coordinator.onSubmit = onSubmit
         apply(field, isEnabled: context.environment.isEnabled)
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
+        if let identified = field as? DecompositionIdentifiedNSTextField {
+            identified.requestsInitialFocus = requestsInitialFocus
+        }
         if field.stringValue != text {
             field.stringValue = text
         }
@@ -333,6 +367,9 @@ struct DecompositionIdentifiedTextField: NSViewRepresentable {
         context.coordinator.onSubmit = onSubmit
         context.coordinator.onChange = { text = $0 }
         apply(field, isEnabled: context.environment.isEnabled)
+        if let identified = field as? DecompositionIdentifiedNSTextField {
+            identified.attemptInitialFocusIfNeeded()
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -589,6 +626,11 @@ enum DecompositionTypography {
 }
 
 enum DecompositionWorkbenchCopy {
+    static let workbenchTitle = "拆开并安排"
+    static let continueAnswer = "继续"
+    static let discardDraft = "丢弃这次拆解"
+    static let continueEditing = "继续编辑"
+    static let discardDraftMessage = "这份草稿不会保存"
     static let source = "来源"
     static let actions = "行动草稿"
     static let schedule = "安排时间"
@@ -734,6 +776,7 @@ struct DecompositionWorkbenchView: View {
     @Bindable var model: DecompositionWorkbenchModel
     let onCancel: () -> Void
     let onCommitted: (DecompositionCommitResult) -> Void
+    @State private var showsDiscardConfirmation = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -766,9 +809,23 @@ struct DecompositionWorkbenchView: View {
             minHeight: DecompositionWorkbenchMetrics.minimumSize.height,
             idealHeight: DecompositionWorkbenchMetrics.targetSize.height
         )
-        .onExitCommand(perform: handleEscape)
+        .onExitCommand(perform: requestClose)
+        .confirmationDialog(
+            DecompositionWorkbenchCopy.discardDraft,
+            isPresented: $showsDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(DecompositionWorkbenchCopy.discardDraft, role: .destructive) {
+                onCancel()
+            }
+            Button(DecompositionWorkbenchCopy.continueEditing, role: .cancel) {
+                showsDiscardConfirmation = false
+            }
+        } message: {
+            Text(DecompositionWorkbenchCopy.discardDraftMessage)
+        }
         .background {
-            Button("") { handleEscape() }
+            Button("") { requestClose() }
                 .keyboardShortcut(.cancelAction)
                 .hidden()
             if model.draft.stage == .schedule, model.canCommit, !model.isCommitting {
@@ -781,6 +838,10 @@ struct DecompositionWorkbenchView: View {
 
     private var stageNavigation: some View {
         HStack(spacing: 18) {
+            Text(DecompositionWorkbenchCopy.workbenchTitle)
+                .font(DecompositionTypography.functionTitle)
+                .foregroundStyle(theme.primaryText)
+                .fixedSize()
             ForEach(DecompositionStage.allCases, id: \.self) { stage in
                 let isCurrent = stage == model.draft.stage
                 let isCompleted = stage.rawValue < model.draft.stage.rawValue
@@ -808,7 +869,7 @@ struct DecompositionWorkbenchView: View {
                 helpText: "关闭工作台，不保存这次拆解",
                 enabled: !model.isCommitting
             ) {
-                closeWorkbench()
+                requestClose()
             }
             .frame(width: 44, height: 22)
         }
@@ -946,19 +1007,16 @@ struct DecompositionWorkbenchView: View {
         }
     }
 
-    private func closeWorkbench() {
+    private func requestClose() {
         if model.isCommitting { return }
-        model.cancelRequest()
-        onCancel()
-    }
-
-    private func handleEscape() {
-        if model.isCommitting { return }
-        if case .running = model.requestState {
+        if model.hasRunningRequest {
             model.cancelRequest()
             return
         }
-        model.cancelRequest()
+        if model.hasMeaningfulDraft {
+            showsDiscardConfirmation = true
+            return
+        }
         onCancel()
     }
 

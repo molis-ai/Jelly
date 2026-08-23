@@ -76,7 +76,8 @@ struct DecompositionActionEditor: View {
                         text: titleBinding(candidate),
                         identifier: "decomposition-title-\(candidate.id.uuidString)",
                         accessibilityName: "行动标题",
-                        placeholder: "行动标题"
+                        placeholder: "行动标题",
+                        requestsInitialFocus: isManual && isFirst(candidate.id)
                     )
                     .frame(height: 22)
                     .disabled(model.isCommitting)

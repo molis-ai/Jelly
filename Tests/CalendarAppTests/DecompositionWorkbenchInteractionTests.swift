@@ -292,8 +292,11 @@ struct DecompositionWorkbenchInteractionTests {
 
         let generation = fixture.store.statePublicationGeneration
         sendKey(escapeKey(in: host.window), in: host.window)
+        #expect(!cancelled)
+        let discard = try #require(await waitForButtonTitled("丢弃这次拆解"))
+        #expect(findButtonTitled("继续编辑") != nil)
+        discard.performClick(nil)
         #expect(await waitUntil { cancelled })
-        #expect(cancelled)
         #expect(fixture.store.statePublicationGeneration == generation)
         #expect(fixture.store.state.notes[fixture.noteID]?.document.blocks.count == 1)
     }
@@ -448,12 +451,162 @@ struct DecompositionWorkbenchInteractionTests {
             if case .idle = fixture.model.requestState { return true }
             return false
         })
-        #expect(cancelCount == 1)
+        #expect(cancelCount == 0)
         await secondStart.value
+
+        close.performClick(close)
+        #expect(await waitUntil { cancelCount == 1 })
 
         #expect(fixture.store.statePublicationGeneration == generation)
         #expect(fixture.store.state.notes[fixture.noteID]?.document.blocks.count == originalBlockCount)
         #expect(originalBlockCount == 1)
+    }
+
+    @Test func escapeStopsRunningRequestBeforeClosing() async throws {
+        let planner = CancellableLongClarificationPlanner()
+        let fixture = try await WorkbenchInteractionFixture.make(planner: planner)
+        var closed = false
+        let host = hostedInteractionWorkbench(fixture.model, onCancel: { closed = true })
+        defer { host.window.orderOut(nil) }
+        let starting = Task { await fixture.model.start() }
+        await planner.waitUntilStarted(count: 1)
+        #expect(await waitUntil { fixture.model.hasRunningRequest })
+        sendKey(escapeKey(in: host.window), in: host.window)
+        #expect(await waitUntil { !fixture.model.hasRunningRequest })
+        #expect(!closed)
+        await starting.value
+    }
+
+    @Test func emptyWorkbenchClosesWithoutConfirmation() async throws {
+        let fixture = try await WorkbenchInteractionFixture.make(planner: CancellableLongClarificationPlanner())
+        var closeCount = 0
+        let host = hostedInteractionWorkbench(fixture.model, onCancel: { closeCount += 1 })
+        defer { host.window.orderOut(nil) }
+        try #require(findButton(in: host.view, identifier: "decomposition-close")).performClick(nil)
+        #expect(closeCount == 1)
+        #expect(findButtonTitled("丢弃这次拆解") == nil)
+    }
+
+    @Test func meaningfulDraftRequiresExplicitDiscard() async throws {
+        let fixture = try await WorkbenchInteractionFixture.make(planner: CancellableLongClarificationPlanner())
+        fixture.model.updateAnswer("下周前完成")
+        var closed = false
+        let host = hostedInteractionWorkbench(fixture.model, onCancel: { closed = true })
+        defer { host.window.orderOut(nil) }
+        try #require(findButton(in: host.view, identifier: "decomposition-close")).performClick(nil)
+        #expect(!closed)
+        let discard = try #require(await waitForButtonTitled("丢弃这次拆解"))
+        #expect(findButtonTitled("继续编辑") != nil)
+        #expect(discardConfirmationMentionsUnsavedDraft())
+        #expect(fixture.model.draft.answer == "下周前完成")
+        discard.performClick(nil)
+        #expect(await waitUntil { closed })
+    }
+
+    @Test func escapeOnMeaningfulDraftShowsDiscardConfirmationInsteadOfClosing() async throws {
+        let fixture = try await WorkbenchInteractionFixture.make(planner: CancellableLongClarificationPlanner())
+        fixture.model.updateAnswer("下周前完成")
+        var closed = false
+        let host = hostedInteractionWorkbench(fixture.model, onCancel: { closed = true })
+        defer { host.window.orderOut(nil) }
+        sendKey(escapeKey(in: host.window), in: host.window)
+        #expect(!closed)
+        let discard = try #require(await waitForButtonTitled("丢弃这次拆解"))
+        #expect(findButtonTitled("继续编辑") != nil)
+        #expect(discardConfirmationMentionsUnsavedDraft())
+        discard.performClick(nil)
+        #expect(await waitUntil { closed })
+    }
+
+    @Test func manualFirstTitleTakesInitialFocusWhenWindowHasNoTextResponder() async throws {
+        let fixture = try await WorkbenchInteractionFixture.make(
+            planner: UnavailableDecompositionPlanner(reason: .deviceNotEligible)
+        )
+        await fixture.model.start()
+        let first = try #require(fixture.model.draft.candidates.first)
+        let host = hostedInteractionWorkbench(fixture.model)
+        defer { host.window.orderOut(nil) }
+        let title = try #require(await waitForField(
+            in: host.view,
+            identifier: "decomposition-title-\(first.id.uuidString)"
+        ))
+        #expect(await waitUntil {
+            isFieldEditor(of: title, responder: host.window.firstResponder) || host.window.firstResponder === title
+        })
+    }
+
+    @Test func intelligentTitleKeepsExistingFieldEditorFocus() async throws {
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000941")!
+        let fixture = try await WorkbenchInteractionFixture.make(
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates([
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "打电话确认",
+                        completionDescription: "拿到明确上门时间",
+                        estimatedMinutes: 15
+                    )
+                ])
+            ]),
+            uuid: SequentialInteractionUUID([first]).next
+        )
+        await fixture.model.start()
+        let host = hostedInteractionWorkbench(fixture.model)
+        defer { host.window.orderOut(nil) }
+        let firstTitle = try #require(await waitForField(
+            in: host.view,
+            identifier: "decomposition-title-\(first.uuidString)"
+        ))
+        #expect(host.window.makeFirstResponder(firstTitle))
+        host.view.layoutSubtreeIfNeeded()
+        if let identified = firstTitle as? DecompositionIdentifiedNSTextField {
+            identified.requestsInitialFocus = true
+            identified.attemptInitialFocusIfNeeded()
+        }
+        #expect(
+            isFieldEditor(of: firstTitle, responder: host.window.firstResponder)
+                || host.window.firstResponder === firstTitle
+        )
+    }
+
+    @Test func initialFocusDoesNotStealExistingTextViewOrFieldEditor() async throws {
+        _ = NSApplication.shared
+        let window = InteractionTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 120),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.animationBehavior = .none
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+        let existing = DecompositionIdentifiedNSTextField(frame: NSRect(x: 8, y: 60, width: 360, height: 24))
+        existing.isEditable = true
+        existing.isEnabled = true
+        existing.stringValue = "已有输入"
+        let incoming = DecompositionIdentifiedNSTextField(frame: NSRect(x: 8, y: 20, width: 360, height: 24))
+        incoming.isEditable = true
+        incoming.isEnabled = true
+        incoming.requestsInitialFocus = true
+        incoming.setAccessibilityIdentifier("incoming-title")
+        root.addSubview(existing)
+        root.addSubview(incoming)
+        window.contentView = root
+        window.makeKey()
+        defer { window.orderOut(nil) }
+        #expect(window.makeFirstResponder(existing))
+        let editor = existing.currentEditor()
+        incoming.attemptInitialFocusIfNeeded()
+        #expect(window.firstResponder === existing || window.firstResponder === editor)
+
+        let textView = NSTextView(frame: NSRect(x: 8, y: 80, width: 360, height: 24))
+        textView.isEditable = true
+        root.addSubview(textView)
+        #expect(window.makeFirstResponder(textView))
+        incoming.attemptInitialFocusIfNeeded()
+        #expect(window.firstResponder === textView)
     }
 }
 
@@ -687,6 +840,65 @@ private actor CancellableLongClarificationPlanner: DecompositionPlanning {
             await withCheckedContinuation { startWaiters.append($0) }
         }
     }
+}
+
+@MainActor
+private func findButtonTitled(_ title: String) -> NSButton? {
+    for window in NSApp.windows {
+        if let content = window.contentView,
+           let button = descendants(of: content, as: NSButton.self).first(where: { $0.title == title }) {
+            return button
+        }
+        if let sheet = window.attachedSheet,
+           let content = sheet.contentView,
+           let button = descendants(of: content, as: NSButton.self).first(where: { $0.title == title }) {
+            return button
+        }
+        for child in window.childWindows ?? [] {
+            if let content = child.contentView,
+               let button = descendants(of: content, as: NSButton.self).first(where: { $0.title == title }) {
+                return button
+            }
+        }
+    }
+    return nil
+}
+
+@MainActor
+private func waitForButtonTitled(_ title: String) async -> NSButton? {
+    _ = await waitUntil {
+        findButtonTitled(title) != nil
+    }
+    return findButtonTitled(title)
+}
+
+@MainActor
+private func discardConfirmationMentionsUnsavedDraft() -> Bool {
+    for window in NSApp.windows {
+        let views: [NSView] = {
+            var collected: [NSView] = []
+            if let content = window.contentView {
+                collected.append(contentsOf: descendants(of: content, as: NSView.self))
+            }
+            if let sheet = window.attachedSheet, let content = sheet.contentView {
+                collected.append(contentsOf: descendants(of: content, as: NSView.self))
+            }
+            return collected
+        }()
+        for view in views {
+            if let field = view as? NSTextField, field.stringValue.contains("这份草稿不会保存") {
+                return true
+            }
+            if (view.accessibilityLabel() ?? "").contains("这份草稿不会保存") {
+                return true
+            }
+            if (view.accessibilityValue() as? String)?.contains("这份草稿不会保存") == true {
+                return true
+            }
+        }
+        if window.title.contains("这份草稿不会保存") { return true }
+    }
+    return false
 }
 
 @MainActor
