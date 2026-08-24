@@ -50,14 +50,17 @@ struct AppEnvironment {
                 dataRoot: dataURLs.root
             )
         )
+        let httpClient = MaterialHTTPClient()
         let coordinator = MaterialDigestCoordinator(
             store: store,
-            acquirer: RoutedMaterialAcquirer(),
-            audioDownloader: TemporaryMaterialAudioDownloader(),
+            acquirer: RoutedMaterialAcquirer(client: httpClient),
+            audioDownloader: TemporaryMaterialAudioDownloader(client: httpClient),
             transcriber: WhisperKitMaterialTranscriber(modelDirectory: whisperDirectory),
-            summarizer: OpenAICompatibleMaterialSummarizer(
-                settings: digestSettingsStore,
-                credentials: digestCredentialStore
+            summarizer: HierarchicalMaterialSummarizer(
+                base: OpenAICompatibleMaterialSummarizer(
+                    settings: digestSettingsStore,
+                    credentials: digestCredentialStore
+                )
             )
         )
         return AppEnvironment(

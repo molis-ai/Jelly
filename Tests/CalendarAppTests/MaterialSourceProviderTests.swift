@@ -5,6 +5,53 @@ import WorkspaceDomain
 
 @Suite("MaterialSourceProviderTests", .serialized)
 struct MaterialSourceProviderTests {
+    @Test func routedAcquirerNeverSendsUnsupportedLocalFileToBilibili() async throws {
+        let router = RoutedMaterialAcquirer(recordingAdapters: true)
+        await #expect(throws: MaterialDigestPipelineError.unsupportedSource) {
+            _ = try await router.acquire(.fixture(descriptor: .localFile))
+        }
+        #expect(router.bilibiliInvocationCount == 0)
+    }
+
+    @Test func publicArticleUsesSafeHTMLExtractorAndRejectsNonHTML() async throws {
+        MaterialSourceURLProtocol.reset()
+        MaterialSourceURLProtocol.setHTML(
+            url: "https://example.com/article",
+            html: "<main><h1>文章</h1><p>第一段正文</p><p>第二段正文</p></main>"
+        )
+        let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
+        let source = MaterialSource(
+            inspirationID: InspirationID(),
+            url: URL(string: "https://example.com/article")!,
+            kind: .article,
+            sourceChecksum: "checksum",
+            descriptor: MaterialSourceDescriptor(kind: .publicWebArticle)
+        )
+
+        let acquisition = try await acquirer.acquire(source)
+        guard case let .blocks(batch) = acquisition else {
+            Issue.record("expected article blocks")
+            return
+        }
+        #expect(batch.blocks.map(\.text) == ["文章", "第一段正文", "第二段正文"])
+
+        MaterialSourceURLProtocol.setData(
+            url: "https://example.com/not-html",
+            contentType: "application/json",
+            data: Data("{}".utf8)
+        )
+        let nonHTML = MaterialSource(
+            inspirationID: InspirationID(),
+            url: URL(string: "https://example.com/not-html")!,
+            kind: .article,
+            sourceChecksum: "checksum-2",
+            descriptor: MaterialSourceDescriptor(kind: .publicWebArticle)
+        )
+        await #expect(throws: MaterialDigestPipelineError.unsupportedSource) {
+            _ = try await acquirer.acquire(nonHTML)
+        }
+    }
+
     @Test func networkPolicyRejectsLocalAndPrivateTargets() {
         #expect(MaterialURLSafety.isPublicHTTPS(URL(string: "https://localhost/private")!) == false)
         #expect(MaterialURLSafety.isPublicHTTPS(URL(string: "https://127.0.0.1/private")!) == false)
@@ -75,10 +122,11 @@ struct MaterialSourceProviderTests {
 
         let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
         let result = try await acquirer.acquire(videoSource(url: "https://b23.tv/jKx2Ab"))
-        guard case let .transcript(transcript) = result else {
+        guard case let .blocks(batch) = result else {
             Issue.record("expected transcript")
             return
         }
+        let transcript = batch.timestampedTranscript
         #expect(transcript.segments.count >= 30)
         #expect(transcript.segments[0].text.contains("人工"))
         #expect(transcript.segments[0].startSeconds == 0)
@@ -106,11 +154,11 @@ struct MaterialSourceProviderTests {
         )
         let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
         let result = try await acquirer.acquire(videoSource())
-        guard case let .transcript(transcript) = result else {
+        guard case let .blocks(batch) = result else {
             Issue.record("expected transcript from undefined-tolerant INITIAL_STATE")
             return
         }
-        #expect(transcript.segments[0].text.contains("人工"))
+        #expect(batch.timestampedTranscript.segments[0].text.contains("人工"))
     }
 
     @Test func emptyPlayerSubtitlesFallBackToPlayurlDashAudio() async throws {
@@ -134,10 +182,11 @@ struct MaterialSourceProviderTests {
 
         let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
         let result = try await acquirer.acquire(videoSource())
-        guard case let .remoteAudio(asset) = result else {
+        guard case let .remoteMedia(asset) = result else {
             Issue.record("expected playurl dash audio when player v2 has no captions or dash")
             return
         }
+        #expect(asset.kind == .audio)
         #expect(asset.url == URL(string: "https://upos.test/playurl-audio.m4s"))
         #expect(asset.estimatedBytes == 4096)
         #expect(asset.requestHeaders["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD/")
@@ -163,10 +212,11 @@ struct MaterialSourceProviderTests {
 
         let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
         let result = try await acquirer.acquire(videoSource())
-        guard case let .remoteAudio(asset) = result else {
+        guard case let .remoteMedia(asset) = result else {
             Issue.record("expected remote audio")
             return
         }
+        #expect(asset.kind == .audio)
         #expect(asset.url == URL(string: "https://upos.test/audio.m4s"))
         #expect(asset.estimatedBytes == 2048)
         #expect(asset.requestHeaders["Referer"] == "https://www.bilibili.com/video/BV1xx411c7mD/")
@@ -201,11 +251,11 @@ struct MaterialSourceProviderTests {
 
         let acquirer = RoutedMaterialAcquirer(client: testHTTPClient())
         let result = try await acquirer.acquire(videoSource())
-        guard case let .transcript(transcript) = result else {
+        guard case let .blocks(batch) = result else {
             Issue.record("expected fallback transcript after a forbidden preferred subtitle")
             return
         }
-        #expect(transcript.segments.first?.text.contains("后备") == true)
+        #expect(batch.timestampedTranscript.segments.first?.text.contains("后备") == true)
     }
 
     @Test func bilibiliForbiddenPageMapsToRestricted() async throws {
@@ -235,7 +285,7 @@ struct MaterialSourceProviderTests {
         let og = try await XiaoyuzhouMaterialAcquirer(
             client: testHTTPClient()
         ).acquire(audioSource(url: episode))
-        guard case let .remoteAudio(ogAsset) = og else {
+        guard case let .remoteMedia(ogAsset) = og else {
             Issue.record("og:audio missing")
             return
         }
@@ -249,7 +299,7 @@ struct MaterialSourceProviderTests {
         let ld = try await XiaoyuzhouMaterialAcquirer(
             client: testHTTPClient()
         ).acquire(audioSource(url: episode))
-        guard case let .remoteAudio(ldAsset) = ld else {
+        guard case let .remoteMedia(ldAsset) = ld else {
             Issue.record("json-ld missing")
             return
         }
@@ -263,7 +313,7 @@ struct MaterialSourceProviderTests {
         let next = try await XiaoyuzhouMaterialAcquirer(
             client: testHTTPClient()
         ).acquire(audioSource(url: episode))
-        guard case let .remoteAudio(nextAsset) = next else {
+        guard case let .remoteMedia(nextAsset) = next else {
             Issue.record("next data missing")
             return
         }
@@ -527,6 +577,18 @@ private func waitForChunkedProtocol(
         try? await Task.sleep(for: .milliseconds(5))
     }
     return predicate()
+}
+
+private extension MaterialSource {
+    static func fixture(descriptor kind: MaterialSourceDescriptor.Kind) -> MaterialSource {
+        MaterialSource(
+            inspirationID: InspirationID(),
+            url: URL(string: "https://example.com/video/1")!,
+            kind: .video,
+            sourceChecksum: "checksum",
+            descriptor: MaterialSourceDescriptor(kind: kind)
+        )
+    }
 }
 
 private func videoSource(

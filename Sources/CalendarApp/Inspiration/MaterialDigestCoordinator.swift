@@ -17,12 +17,25 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         let task: Task<Void, Never>
     }
 
+    private struct PendingComposite {
+        let runID: MaterialDigestRunID
+        let sourceChecksum: String
+        let acquisition: MaterialCompositeAcquisition
+    }
+
     @ObservationIgnored private let store: WorkspaceStore
     @ObservationIgnored private let acquirer: any MaterialAcquiring
     @ObservationIgnored private let audioDownloader: any MaterialAudioDownloading
     @ObservationIgnored private let transcriber: any MaterialTranscribing
     @ObservationIgnored private let summarizer: any MaterialSummarizing
+    @ObservationIgnored private let fileAccess: any MaterialFileAccessing
+    @ObservationIgnored private let textExtractor: TextMaterialExtractor
+    @ObservationIgnored private let htmlExtractor: HTMLMaterialExtractor
+    @ObservationIgnored private let imageExtractor: ImageMaterialExtractor
+    @ObservationIgnored private let pdfExtractor: PDFMaterialExtractor
+    @ObservationIgnored private let mediaExtractor: MediaMaterialExtractor
     @ObservationIgnored private var tasks: [InspirationID: TaskEntry] = [:]
+    @ObservationIgnored private var pendingComposites: [InspirationID: PendingComposite] = [:]
     private var progressValues: [InspirationID: Double] = [:]
 
     init(
@@ -30,18 +43,42 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         acquirer: any MaterialAcquiring,
         audioDownloader: any MaterialAudioDownloading,
         transcriber: any MaterialTranscribing,
-        summarizer: any MaterialSummarizing
+        summarizer: any MaterialSummarizing,
+        fileAccess: any MaterialFileAccessing = LocalMaterialFileAccess(),
+        textExtractor: TextMaterialExtractor = TextMaterialExtractor(),
+        htmlExtractor: HTMLMaterialExtractor = HTMLMaterialExtractor(),
+        imageExtractor: ImageMaterialExtractor = ImageMaterialExtractor(),
+        pdfExtractor: PDFMaterialExtractor = PDFMaterialExtractor(),
+        mediaExtractor: MediaMaterialExtractor? = nil
     ) {
         self.store = store
         self.acquirer = acquirer
         self.audioDownloader = audioDownloader
         self.transcriber = transcriber
         self.summarizer = summarizer
+        self.fileAccess = fileAccess
+        self.textExtractor = textExtractor
+        self.htmlExtractor = htmlExtractor
+        self.imageExtractor = imageExtractor
+        self.pdfExtractor = pdfExtractor
+        self.mediaExtractor = mediaExtractor ?? MediaMaterialExtractor(transcriber: transcriber)
     }
 
-    func start(inspirationID: InspirationID) async {
+    func start(
+        inspirationID: InspirationID,
+        mode: MaterialDigestStartMode = .reusePreparedSnapshot
+    ) async {
         guard let source = materialSource(for: inspirationID) else { return }
-        let digestID = store.state.materialDigests[inspirationID]?.id ?? MaterialDigestID()
+        let digest = store.state.materialDigests[inspirationID]
+        let resolvedMode: MaterialDigestStartMode
+        if mode == .reusePreparedSnapshot,
+           let snapshot = digest?.pendingSnapshot ?? digest?.preparedSnapshot,
+           snapshot.sourceChecksum == source.sourceChecksum {
+            resolvedMode = .reusePreparedSnapshot
+        } else {
+            resolvedMode = .refreshSource
+        }
+        let digestID = digest?.id ?? MaterialDigestID()
         let runID = MaterialDigestRunID()
         let outcome = try? await store.sendWorkspace(
             .startMaterialDigest(
@@ -49,18 +86,26 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
                     inspirationID: inspirationID,
                     digestID: digestID,
                     runID: runID,
-                    expectedSourceChecksum: source.sourceChecksum
+                    expectedSourceChecksum: source.sourceChecksum,
+                    mode: resolvedMode
                 )
             )
         )
         guard case .committed = outcome else { return }
+        if let stale = pendingComposites.removeValue(forKey: inspirationID) {
+            cleanupExternalArtifacts(runID: stale.runID)
+        }
         launch(
             inspirationID: inspirationID,
             runID: runID,
             checksum: source.sourceChecksum,
             purpose: .pipeline
         ) {
-            try await self.runFromFetching(source: source, runID: runID)
+            if resolvedMode == .reusePreparedSnapshot {
+                try await self.summarizePreparedSnapshot(source: source, runID: runID)
+            } else {
+                try await self.runFromResolving(source: source, runID: runID)
+            }
         }
     }
 
@@ -102,12 +147,21 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             )
         }
         runningTask?.cancel()
+        pendingComposites.removeValue(forKey: inspirationID)
         progressValues.removeValue(forKey: inspirationID)
     }
 
     func stopExternalWork(inspirationID: InspirationID) async {
+        let taskRunID = tasks[inspirationID]?.runID
+        let pendingRunID = pendingComposites[inspirationID]?.runID
+        let currentRunID = store.state.materialDigests[inspirationID]?.currentRun?.id
         tasks[inspirationID]?.task.cancel()
+        tasks[inspirationID] = nil
+        pendingComposites.removeValue(forKey: inspirationID)
         progressValues.removeValue(forKey: inspirationID)
+        for runID in Set([taskRunID, pendingRunID, currentRunID].compactMap { $0 }) {
+            cleanupExternalArtifacts(runID: runID)
+        }
     }
 
     func progress(for inspirationID: InspirationID) -> Double? {
@@ -192,17 +246,23 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         runID: MaterialDigestRunID,
         token: UUID
     ) {
-        guard let current = tasks[inspirationID] else {
-            audioDownloader.cleanup(runID: runID)
-            return
-        }
+        guard let current = tasks[inspirationID] else { return }
         guard current.token == token else {
-            if current.runID != runID { audioDownloader.cleanup(runID: runID) }
+            if current.runID != runID { cleanupExternalArtifacts(runID: runID) }
             return
         }
         tasks[inspirationID] = nil
         progressValues.removeValue(forKey: inspirationID)
+        cleanupExternalArtifacts(runID: runID)
+        if store.state.materialDigests[inspirationID]?.currentRun?.stage
+            != .awaitingModelDownloadConsent {
+            pendingComposites.removeValue(forKey: inspirationID)
+        }
+    }
+
+    private func cleanupExternalArtifacts(runID: MaterialDigestRunID) {
         audioDownloader.cleanup(runID: runID)
+        mediaExtractor.audioTrackExtractor.cleanup(runID: runID)
     }
 
     private func runConfirmedDownload(
@@ -216,16 +276,33 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         ))
         try Task.checkCancellation()
         try await advance(.fetchingSource, source: source, runID: runID)
-        try await runFromFetching(source: source, runID: runID)
+        if let pending = pendingComposites[source.inspirationID],
+           pending.runID == runID,
+           pending.sourceChecksum == source.sourceChecksum {
+            pendingComposites.removeValue(forKey: source.inspirationID)
+            try await runComposite(pending.acquisition, source: source, runID: runID)
+            return
+        }
+        try await runFromResolving(source: source, runID: runID)
     }
 
-    private func runFromFetching(
+    private func runFromResolving(
         source: MaterialSource,
         runID: MaterialDigestRunID
     ) async throws {
         try Task.checkCancellation()
-        guard summarizer.isConfigured else {
-            throw MaterialDigestPipelineError.modelNotConfigured
+        if store.state.materialDigests[source.inspirationID]?.currentRun?.stage == .resolvingSource {
+            try await advance(.fetchingSource, source: source, runID: runID)
+        }
+        switch source.descriptor.kind {
+        case .localText:
+            try await runDirectText(source: source, runID: runID)
+            return
+        case .localFile:
+            try await runLocalFile(source: source, runID: runID)
+            return
+        case .bilibiliVideo, .xiaoyuzhouEpisode, .publicWebArticle, .xiaohongshuNote:
+            break
         }
         let acquisition: MaterialAcquisition
         do {
@@ -240,12 +317,239 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         guard isCurrent(inspirationID: source.inspirationID, runID: runID, checksum: source.sourceChecksum) else {
             return
         }
+        let contextualSource = try await sourceWaitingForLatestTitle(source, runID: runID)
         switch acquisition {
-        case let .transcript(transcript):
-            try await summarize(transcript, source: source, runID: runID)
-        case let .remoteAudio(asset):
-            try await runAudio(asset, source: source, runID: runID)
+        case let .blocks(batch):
+            try await persistAndSummarize(batch, source: contextualSource, runID: runID)
+        case let .remoteMedia(asset):
+            try await runAudio(RemoteAudioAsset(asset), source: contextualSource, runID: runID)
+        case let .composite(value):
+            try await runComposite(value, source: contextualSource, runID: runID)
         }
+    }
+
+    private func runComposite(
+        _ acquisition: MaterialCompositeAcquisition,
+        source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws {
+        var blocks = acquisition.seedBlocks
+        var issues = acquisition.issues
+        var processedAssets = 0
+
+        if !acquisition.images.isEmpty || (acquisition.expectedAssetCount > 0 && acquisition.remoteMedia == nil) {
+            try await advance(.recognizingImages, source: source, runID: runID)
+            let imageBatch = try await imageExtractor.extract(acquisition.images)
+            blocks.append(contentsOf: imageBatch.blocks)
+            switch imageBatch.coverage {
+            case .sufficient:
+                processedAssets += acquisition.images.count
+            case let .partial(processed, _, imageIssues):
+                processedAssets += processed
+                Self.appendUnique(imageIssues, to: &issues)
+            case .insufficient:
+                if !issues.contains(.ocrFailed) { issues.append(.ocrFailed) }
+            }
+        }
+
+        if let media = acquisition.remoteMedia {
+            let requirement = await transcriber.modelRequirement()
+            switch requirement {
+            case let .downloadRequired(approximateBytes):
+                pendingComposites[source.inspirationID] = PendingComposite(
+                    runID: runID,
+                    sourceChecksum: source.sourceChecksum,
+                    acquisition: acquisition
+                )
+                try await advance(
+                    .awaitingModelDownloadConsent,
+                    source: source,
+                    runID: runID,
+                    modelDownloadApproximateBytes: approximateBytes
+                )
+                return
+            case .ready:
+                try await advance(.transcribing, source: source, runID: runID)
+            }
+            do {
+                let fileURL = try await audioDownloader.download(
+                    RemoteAudioAsset(media),
+                    runID: runID,
+                    progress: progressHandler(inspirationID: source.inspirationID, runID: runID)
+                )
+                let mediaBatch = try await mediaExtractor.extract(
+                    url: fileURL,
+                    kind: media.kind,
+                    runID: runID,
+                    progress: progressHandler(inspirationID: source.inspirationID, runID: runID)
+                )
+                blocks.append(contentsOf: mediaBatch.blocks)
+                if !mediaBatch.blocks.isEmpty { processedAssets += 1 }
+                switch mediaBatch.coverage {
+                case .sufficient:
+                    break
+                case let .partial(_, _, mediaIssues):
+                    Self.appendUnique(mediaIssues, to: &issues)
+                case .insufficient:
+                    if !issues.contains(.transcriptionFailed) { issues.append(.transcriptionFailed) }
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if !issues.contains(.inaccessibleAsset) { issues.append(.inaccessibleAsset) }
+            }
+        }
+
+        let semanticBlocks = blocks.filter {
+            $0.role != .metadata && MaterialTranscriptSemantics.hasSemanticContent($0.text)
+        }
+        let coverage: MaterialCoverage
+        if semanticBlocks.isEmpty {
+            coverage = .insufficient(code: .metadataOnly)
+        } else if issues.isEmpty,
+                  processedAssets >= acquisition.expectedAssetCount {
+            coverage = .sufficient
+        } else {
+            coverage = .partial(
+                processed: min(processedAssets, acquisition.expectedAssetCount),
+                expected: acquisition.expectedAssetCount > 0 ? acquisition.expectedAssetCount : nil,
+                issues: issues
+            )
+        }
+        try await persistAndSummarize(
+            MaterialBlockBatch(
+                blocks: blocks,
+                coverage: coverage,
+                provenance: acquisition.provenance
+            ),
+            source: source,
+            runID: runID
+        )
+    }
+
+    private static func appendUnique(
+        _ additions: [MaterialCoverageIssue],
+        to issues: inout [MaterialCoverageIssue]
+    ) {
+        for issue in additions where !issues.contains(issue) { issues.append(issue) }
+    }
+
+    private func runDirectText(
+        source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws {
+        guard let text = source.text else { throw MaterialDigestPipelineError.sourceUnavailable }
+        try await advance(.extractingText, source: source, runID: runID)
+        let batch = try await textExtractor.extract(.direct(text: text))
+        try await persistAndSummarize(batch, source: source, runID: runID)
+    }
+
+    private func runLocalFile(
+        source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws {
+        guard let reference = source.fileReference else {
+            throw MaterialDigestPipelineError.sourceUnavailable
+        }
+        if source.kind == .audio || source.kind == .video {
+            let requirement = await transcriber.modelRequirement()
+            switch requirement {
+            case let .downloadRequired(approximateBytes):
+                try await advance(
+                    .awaitingModelDownloadConsent,
+                    source: source,
+                    runID: runID,
+                    modelDownloadApproximateBytes: approximateBytes
+                )
+                return
+            case .ready:
+                try await advance(.transcribing, source: source, runID: runID)
+            }
+        } else if source.kind == .image {
+            try await advance(.recognizingImages, source: source, runID: runID)
+        } else {
+            try await advance(.extractingText, source: source, runID: runID)
+        }
+
+        let kind = source.kind
+        let textExtractor = textExtractor
+        let htmlExtractor = htmlExtractor
+        let imageExtractor = imageExtractor
+        let pdfExtractor = pdfExtractor
+        let mediaExtractor = mediaExtractor
+        let progress = progressHandler(inspirationID: source.inspirationID, runID: runID)
+        let batch = try await fileAccess.withAccess(to: reference) { url in
+            switch kind {
+            case .plainText:
+                return try await textExtractor.extract(.file(url: url, utiIdentifier: nil))
+            case .article:
+                let data = try Self.boundedFileData(
+                    at: url,
+                    maximumBytes: MaterialDigestContentLimits.maximumMaterialCharacters * 4 + 4
+                )
+                return try htmlExtractor.extract(data: data, baseURL: url)
+            case .image:
+                let data = try Self.boundedFileData(at: url, maximumBytes: 100_000_000)
+                return try await imageExtractor.extract([
+                    MaterialImageAsset(index: 1, data: data)
+                ])
+            case .document:
+                return try await pdfExtractor.extract(url: url)
+            case .audio:
+                return try await mediaExtractor.extract(
+                    url: url,
+                    kind: .audio,
+                    runID: runID,
+                    progress: progress
+                )
+            case .video:
+                return try await mediaExtractor.extract(
+                    url: url,
+                    kind: .video,
+                    runID: runID,
+                    progress: progress
+                )
+            case .socialPost, .unknown:
+                throw MaterialDigestPipelineError.unsupportedSource
+            }
+        }
+        try await persistAndSummarize(batch, source: source, runID: runID)
+    }
+
+    private func persistAndSummarize(
+        _ batch: MaterialBlockBatch,
+        source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws {
+        try await saveSnapshot(
+            Self.snapshot(from: batch, sourceChecksum: source.sourceChecksum),
+            source: source,
+            runID: runID
+        )
+        if case .insufficient = batch.coverage {
+            throw MaterialDigestPipelineError.insufficientContent
+        }
+        try await summarizePreparedSnapshot(source: source, runID: runID)
+    }
+
+    nonisolated private static func boundedFileData(
+        at url: URL,
+        maximumBytes: Int
+    ) throws -> Data {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > maximumBytes {
+            throw MaterialDigestPipelineError.contextTooLong
+        }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        } catch {
+            throw MaterialDigestPipelineError.sourceUnavailable
+        }
+        guard data.count <= maximumBytes else {
+            throw MaterialDigestPipelineError.contextTooLong
+        }
+        return data
     }
 
     private func runAudio(
@@ -276,12 +580,16 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             guard isCurrent(inspirationID: source.inspirationID, runID: runID, checksum: source.sourceChecksum) else {
                 return
             }
-            try await advance(.transcribing, source: source, runID: runID)
+            let contextualSource = sourceWithLatestTitle(source)
+            try await advance(.transcribing, source: contextualSource, runID: runID)
             let transcript: TimestampedTranscript
             do {
                 transcript = try await transcriber.transcribe(
                     fileURL,
-                    progress: progressHandler(inspirationID: source.inspirationID, runID: runID)
+                    progress: progressHandler(
+                        inspirationID: contextualSource.inspirationID,
+                        runID: runID
+                    )
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -290,19 +598,37 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             } catch {
                 throw MaterialDigestPipelineError.transcriptionFailed
             }
-            try await summarize(transcript, source: source, runID: runID)
+            try await saveSnapshot(
+                Self.snapshot(
+                    from: .transcript(transcript, adapterIdentifier: "whisper"),
+                    sourceChecksum: contextualSource.sourceChecksum
+                ),
+                source: sourceWithLatestTitle(contextualSource),
+                runID: runID
+            )
+            try await summarizePreparedSnapshot(
+                source: sourceWithLatestTitle(contextualSource),
+                runID: runID
+            )
         }
     }
 
-    private func summarize(
-        _ transcript: TimestampedTranscript,
+    private func summarizePreparedSnapshot(
         source: MaterialSource,
         runID: MaterialDigestRunID
     ) async throws {
+        guard let snapshot = store.state.materialDigests[source.inspirationID]?.pendingSnapshot,
+              snapshot.sourceChecksum == source.sourceChecksum
+        else {
+            throw MaterialDigestPipelineError.sourceUnavailable
+        }
+        guard summarizer.isConfigured else {
+            throw MaterialDigestPipelineError.modelNotConfigured
+        }
         try await advance(.summarizing, source: source, runID: runID)
         let output: MaterialSummarizerOutput
         do {
-            output = try await summarizer.summarize(transcript, source: source)
+            output = try await summarizer.summarize(snapshot, source: source)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as MaterialDigestPipelineError {
@@ -311,9 +637,13 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             throw MaterialDigestPipelineError.summarizationFailed
         }
         try Task.checkCancellation()
-        guard isCurrent(inspirationID: source.inspirationID, runID: runID, checksum: source.sourceChecksum) else {
+        guard isCurrent(inspirationID: source.inspirationID, runID: runID, checksum: source.sourceChecksum),
+              store.state.materialDigests[source.inspirationID]?.pendingSnapshot?.contentFingerprint
+                == snapshot.contentFingerprint
+        else {
             return
         }
+        let contentFingerprint = snapshot.contentFingerprint
         _ = try await store.sendWorkspace(
             .completeMaterialDigest(
                 .init(
@@ -322,16 +652,65 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
                         runID: runID,
                         sourceChecksum: source.sourceChecksum
                     ),
-                    transcript: transcript,
+                    expectedContentFingerprint: contentFingerprint,
                     summary: output.summary,
                     provenance: DigestProvenance(
                         modelIdentifier: "\(output.endpointHost)/\(output.model)",
                         generatedAt: Date.distantPast,
-                        inputFingerprint: source.sourceChecksum,
+                        inputFingerprint: source.inputFingerprint,
                         summaryContractVersion: output.summaryContractVersion
                     )
                 )
             )
+        )
+    }
+
+    private func saveSnapshot(
+        _ snapshot: MaterialSnapshot,
+        source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws {
+        try Task.checkCancellation()
+        guard isCurrent(inspirationID: source.inspirationID, runID: runID, checksum: source.sourceChecksum) else {
+            throw CancellationError()
+        }
+        let outcome = try await store.sendWorkspace(
+            .saveMaterialSnapshot(
+                .init(
+                    expectation: .init(
+                        inspirationID: source.inspirationID,
+                        runID: runID,
+                        sourceChecksum: source.sourceChecksum
+                    ),
+                    snapshot: snapshot
+                )
+            )
+        )
+        guard case .committed = outcome else {
+            throw CancellationError()
+        }
+    }
+
+    private static func snapshot(
+        from batch: MaterialBlockBatch,
+        sourceChecksum: String
+    ) throws -> MaterialSnapshot {
+        let draft = MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: "pending",
+            blocks: batch.blocks,
+            coverage: batch.coverage,
+            provenance: batch.provenance,
+            createdAt: Date()
+        )
+        let fingerprint = try WorkspaceChecksum.materialSnapshotContentFingerprint(draft)
+        return MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: fingerprint,
+            blocks: batch.blocks,
+            coverage: batch.coverage,
+            provenance: batch.provenance,
+            createdAt: draft.createdAt
         )
     }
 
@@ -435,16 +814,43 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
     private func materialSource(for inspirationID: InspirationID) -> MaterialSource? {
         guard let inspiration = store.state.inspirations[inspirationID],
               inspiration.lifecycle == .active,
-              let url = inspiration.rawURL,
-              inspiration.inputKind == .url,
-              inspiration.resolvedSourceKind == .video || inspiration.resolvedSourceKind == .audio
+              inspiration.supportsMaterialDigest,
+              let source = MaterialSourceResolver.resolve(inspiration)
         else { return nil }
-        return MaterialSource(
-            inspirationID: inspirationID,
-            url: url,
-            kind: inspiration.resolvedSourceKind,
-            sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(inspiration)
-        )
+        return source
+    }
+
+    private func sourceWithLatestTitle(_ source: MaterialSource) -> MaterialSource {
+        guard let latest = materialSource(for: source.inspirationID),
+              latest.sourceChecksum == source.sourceChecksum,
+              latest.sourceTitle != nil
+        else { return source }
+        return latest
+    }
+
+    private func sourceWaitingForLatestTitle(
+        _ source: MaterialSource,
+        runID: MaterialDigestRunID
+    ) async throws -> MaterialSource {
+        let observedTitle = source.sourceTitle
+        for _ in 0..<40 {
+            try Task.checkCancellation()
+            guard isCurrent(
+                inspirationID: source.inspirationID,
+                runID: runID,
+                checksum: source.sourceChecksum
+            ) else {
+                throw CancellationError()
+            }
+            let latest = sourceWithLatestTitle(source)
+            let fetchStatus = store.state.inspirations[source.inspirationID]?
+                .resolvedMetadata?.fetchStatus
+            if latest.sourceTitle != observedTitle || fetchStatus != .loading {
+                return latest
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return sourceWithLatestTitle(source)
     }
 
     private static func mappedFailure(
@@ -452,15 +858,15 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
     ) -> (code: MaterialDigestFailure.Code, message: String) {
         switch error {
         case .unsupportedSource:
-            (.unsupportedSource, "这个链接还不能提炼。")
+            (.unsupportedSource, "这类材料还不能提炼。")
         case .restrictedSource:
-            (.restrictedSource, "来源受限，无法获取字幕或音频。")
+            (.restrictedSource, "来源受限，无法读取材料。")
         case .sourceUnavailable:
-            (.sourceUnavailable, "暂时无法获取材料，原始链接仍然保留。")
+            (.sourceUnavailable, "暂时无法读取材料，原始材料仍然保留。")
         case .modelDownloadFailed:
             (.modelDownloadFailed, "模型下载失败，可以稍后重试。")
         case .transcriptionFailed:
-            (.transcriptionFailed, "本机识别失败，原始链接仍然保留。")
+            (.transcriptionFailed, "本机识别失败，原始材料仍然保留。")
         case .modelNotConfigured:
             (.modelNotConfigured, "尚未配置摘要模型，请先在设置中填写。")
         case .authenticationFailed:
@@ -476,9 +882,9 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         case .invalidSummary:
             (.invalidSummary, "模型返回的摘要无法校验，没有写入占位内容。")
         case .insufficientContent:
-            (.insufficientContent, "没有识别到可提炼的内容，原始链接仍然保留。")
+            (.insufficientContent, "没有识别到可提炼的内容，原始材料仍然保留。")
         case .cancelled, .none:
-            (.summarizationFailed, "提炼未完成，原始链接仍然保留。")
+            (.summarizationFailed, "提炼未完成，原始材料仍然保留。")
         }
     }
 }

@@ -6,6 +6,285 @@ import WorkspaceDomain
 @Suite("MaterialDigestCoordinatorTests")
 @MainActor
 struct MaterialDigestCoordinatorTests {
+    @Test func directTextSavesSnapshotBeforeSummaryWithoutCallingURLAcquirer() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let inspiration = Inspiration.text(
+            rawText: "第一段正文\n\n第二段正文",
+            categoryID: calendar.uncategorizedID,
+            now: Date(timeIntervalSince1970: 1_800_300_000)
+        )
+        _ = try await store.sendWorkspace(.createInspiration(.init(inspiration: inspiration)))
+        let acquirer = FixtureMaterialAcquirer(result: .transcript(.init(segments: [])))
+        let downloader = RecordingMaterialAudioDownloader()
+        let transcriber = FakeMaterialTranscriber(requirement: .ready, transcript: .init(segments: []))
+        let summarizer = ControllableMaterialSummarizer(
+            mode: .immediate,
+            output: MaterialSummarizerOutput(
+                summary: InspirationSummary(
+                    thesis: "核心论点",
+                    takeaways: ["第一条"],
+                    chapters: [],
+                    quotes: [],
+                    dropped: []
+                ),
+                endpointHost: "api.example.com",
+                model: "fixture",
+                summaryContractVersion: MaterialDigestSummaryContract.v3
+            )
+        )
+        let coordinator = MaterialDigestCoordinator(
+            store: store,
+            acquirer: acquirer,
+            audioDownloader: downloader,
+            transcriber: transcriber,
+            summarizer: summarizer
+        )
+
+        await coordinator.start(inspirationID: inspiration.id, mode: .refreshSource)
+
+        #expect(await waitUntil { store.state.materialDigests[inspiration.id]?.result != nil })
+        #expect(await acquirer.acquireCount == 0)
+        let snapshot = try #require(store.state.materialDigests[inspiration.id]?.preparedSnapshot)
+        #expect(snapshot.blocks.map(\.text) == ["第一段正文", "第二段正文"])
+        #expect(snapshot.blocks.map(\.locator) == [
+            .paragraph(index: 1), .paragraph(index: 2)
+        ])
+    }
+
+    @Test func localTextFileUsesBookmarkAccessAndCompletesTheSameDigestFlow() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-material-\(UUID().uuidString).txt")
+        try Data("文件第一段\n\n文件第二段".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let inspiration = Inspiration(
+            id: InspirationID(),
+            inputKind: .file,
+            rawText: nil,
+            rawURL: nil,
+            rawFile: FileReference(bookmarkData: Data([9, 8, 7]), displayName: "采访.txt"),
+            resolvedSourceKind: .plainText,
+            resolvedMetadata: nil,
+            categoryID: calendar.uncategorizedID,
+            lifecycle: .active,
+            createdAt: Date(timeIntervalSince1970: 1_800_300_000),
+            updatedAt: Date(timeIntervalSince1970: 1_800_300_000)
+        )
+        _ = try await store.sendWorkspace(.createInspiration(.init(inspiration: inspiration)))
+        let acquirer = FixtureMaterialAcquirer(result: .transcript(.init(segments: [])))
+        let summarizer = ControllableMaterialSummarizer(
+            mode: .immediate,
+            output: MaterialSummarizerOutput(
+                summary: InspirationSummary(
+                    thesis: "核心论点",
+                    takeaways: ["第一条"],
+                    chapters: [],
+                    quotes: [],
+                    dropped: []
+                ),
+                endpointHost: "api.example.com",
+                model: "fixture",
+                summaryContractVersion: MaterialDigestSummaryContract.v3
+            )
+        )
+        let coordinator = MaterialDigestCoordinator(
+            store: store,
+            acquirer: acquirer,
+            audioDownloader: RecordingMaterialAudioDownloader(),
+            transcriber: FakeMaterialTranscriber(requirement: .ready, transcript: .init(segments: [])),
+            summarizer: summarizer,
+            fileAccess: FixtureMaterialFileAccess(url: fileURL)
+        )
+
+        await coordinator.start(inspirationID: inspiration.id, mode: .refreshSource)
+
+        #expect(await waitUntil { store.state.materialDigests[inspiration.id]?.result != nil })
+        #expect(await acquirer.acquireCount == 0)
+        let snapshot = try #require(store.state.materialDigests[inspiration.id]?.preparedSnapshot)
+        #expect(snapshot.blocks.map(\.text) == ["文件第一段", "文件第二段"])
+        #expect(summarizer.receivedSourceTitle == "采访.txt")
+    }
+
+    @Test func xiaohongshuImagesCombineBodyAndPartialOCRBeforeSummary() async throws {
+        let context = try await makeXiaohongshuCoordinatorContext(
+            acquisition: MaterialCompositeAcquisition(
+                seedBlocks: xiaohongshuSeedBlocks(),
+                images: (1...3).map { MaterialImageAsset(index: $0, data: Data([UInt8($0)])) },
+                remoteMedia: nil,
+                expectedAssetCount: 3,
+                issues: [],
+                provenance: xiaohongshuProvenance()
+            ),
+            imageExtractor: ImageMaterialExtractor(recognizer: CoordinatorFixtureOCR(
+                results: [
+                    1: .success([.init(text: "图片一", confidence: 0.98)]),
+                    2: .success([.init(text: "图片二", confidence: 0.96)]),
+                    3: .failure(.unreadable)
+                ]
+            ))
+        )
+
+        await context.coordinator.start(inspirationID: context.inspiration.id, mode: .refreshSource)
+
+        #expect(await waitUntil { context.store.state.materialDigests[context.inspiration.id]?.result != nil })
+        let snapshot = try #require(
+            context.store.state.materialDigests[context.inspiration.id]?.preparedSnapshot
+        )
+        #expect(snapshot.blocks.map(\.role) == [.metadata, .body, .metadata, .ocr, .ocr])
+        #expect(snapshot.blocks.map(\.text).suffix(2) == ["图片一", "图片二"])
+        #expect(snapshot.coverage == .partial(processed: 2, expected: 3, issues: [.ocrFailed]))
+    }
+
+    @Test func xiaohongshuVideoCombinesBodyTranscriptAndFrameOCR() async throws {
+        let transcriber = FakeMaterialTranscriber(
+            requirement: .ready,
+            transcript: .init(segments: [
+                .init(startSeconds: 0, endSeconds: 5, text: "视频口播")
+            ])
+        )
+        let mediaExtractor = MediaMaterialExtractor(
+            transcriber: transcriber,
+            audioTrackExtractor: CoordinatorPassthroughAudioTrackExtractor(),
+            frameSampler: CoordinatorFixtureFrameSampler(images: [
+                MaterialImageAsset(index: 1, data: Data([1]))
+            ]),
+            ocr: CoordinatorFixtureOCR(results: [
+                1: .success([.init(text: "画面标题", confidence: 0.97)])
+            ])
+        )
+        let context = try await makeXiaohongshuCoordinatorContext(
+            acquisition: MaterialCompositeAcquisition(
+                seedBlocks: xiaohongshuSeedBlocks(),
+                images: [],
+                remoteMedia: RemoteMediaAsset(
+                    kind: .video,
+                    url: URL(string: "https://media.example/video.mp4")!,
+                    requestHeaders: [:],
+                    estimatedBytes: nil
+                ),
+                expectedAssetCount: 1,
+                issues: [],
+                provenance: xiaohongshuProvenance()
+            ),
+            transcriber: transcriber,
+            mediaExtractor: mediaExtractor
+        )
+
+        await context.coordinator.start(inspirationID: context.inspiration.id, mode: .refreshSource)
+
+        #expect(await waitUntil { context.store.state.materialDigests[context.inspiration.id]?.result != nil })
+        let snapshot = try #require(
+            context.store.state.materialDigests[context.inspiration.id]?.preparedSnapshot
+        )
+        #expect(snapshot.blocks.map(\.role) == [.metadata, .body, .metadata, .transcript, .ocr])
+        #expect(snapshot.blocks.map(\.text).suffix(2) == ["视频口播", "画面标题"])
+        guard case let .partial(_, _, issues) = snapshot.coverage else {
+            Issue.record("video snapshot must expose its visual semantics boundary")
+            return
+        }
+        #expect(issues.contains(.visualSemanticsUnavailable))
+    }
+
+    @Test func xiaohongshuModelConsentResumesWithoutFetchingThePageAndImagesAgain() async throws {
+        let transcriber = FakeMaterialTranscriber(
+            requirement: .downloadRequired(approximateBytes: 700_000_000),
+            transcript: .init(segments: [
+                .init(startSeconds: 0, endSeconds: 5, text: "视频口播")
+            ])
+        )
+        await transcriber.setReadyAfterPrepare(true)
+        let mediaExtractor = MediaMaterialExtractor(
+            transcriber: transcriber,
+            audioTrackExtractor: CoordinatorPassthroughAudioTrackExtractor(),
+            frameSampler: CoordinatorFixtureFrameSampler(images: []),
+            ocr: CoordinatorFixtureOCR(results: [:])
+        )
+        let context = try await makeXiaohongshuCoordinatorContext(
+            acquisition: MaterialCompositeAcquisition(
+                seedBlocks: xiaohongshuSeedBlocks(),
+                images: [],
+                remoteMedia: RemoteMediaAsset(
+                    kind: .video,
+                    url: URL(string: "https://media.example/video.mp4")!,
+                    requestHeaders: [:],
+                    estimatedBytes: nil
+                ),
+                expectedAssetCount: 1,
+                issues: [],
+                provenance: xiaohongshuProvenance()
+            ),
+            transcriber: transcriber,
+            mediaExtractor: mediaExtractor
+        )
+
+        await context.coordinator.start(inspirationID: context.inspiration.id, mode: .refreshSource)
+        #expect(await waitUntil {
+            context.store.state.materialDigests[context.inspiration.id]?.currentRun?.stage
+                == .awaitingModelDownloadConsent
+        })
+        #expect(await context.acquirer.acquireCount == 1)
+
+        await context.coordinator.confirmModelDownload(inspirationID: context.inspiration.id)
+
+        #expect(await waitUntil { context.store.state.materialDigests[context.inspiration.id]?.result != nil })
+        #expect(await context.acquirer.acquireCount == 1)
+        #expect(await transcriber.prepareCount == 1)
+    }
+
+    @Test func sourceTitleNormalizationPreservesWordBoundariesAcrossWhitespace() {
+        let source = MaterialSource(
+            inspirationID: InspirationID(),
+            url: URL(string: "https://example.com/material")!,
+            kind: .audio,
+            sourceChecksum: "checksum",
+            sourceTitle: "  Claude\nCode\tAnthropic  "
+        )
+
+        #expect(source.sourceTitle == "Claude Code Anthropic")
+    }
+
+    @Test func sourceTitleHasAHardUnicodeScalarBound() throws {
+        let source = MaterialSource(
+            inspirationID: InspirationID(),
+            url: URL(string: "https://example.com/material")!,
+            kind: .audio,
+            sourceChecksum: "checksum",
+            sourceTitle: "A" + String(repeating: "\u{0301}", count: 400)
+        )
+
+        let title = try #require(source.sourceTitle)
+        #expect(title.unicodeScalars.count <= 200)
+    }
+
+    @Test func summaryRetryReusesSavedSnapshotWithoutAcquiringOrTranscribingAgain() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.audio(modelReady: true)
+        harness.summarizer.error = .summarizationFailed
+        await harness.coordinator.start(inspirationID: harness.inspirationID, mode: .refreshSource)
+        #expect(await waitUntil {
+            harness.digest?.pendingSnapshot != nil
+                && harness.digest?.currentRun == nil
+                && harness.digest?.lastFailure?.code == .summarizationFailed
+        })
+        #expect(await harness.acquirer.acquireCount == 1)
+        #expect(await harness.transcriber.transcribeCount == 1)
+
+        harness.summarizer.error = nil
+        await harness.coordinator.start(inspirationID: harness.inspirationID, mode: .reusePreparedSnapshot)
+        #expect(await waitUntil { harness.digest?.result != nil })
+        #expect(await harness.acquirer.acquireCount == 1)
+        #expect(await harness.transcriber.transcribeCount == 1)
+    }
+
     @Test func captionPathSkipsDownloaderAndTranscriberThenCompletes() async throws {
         let harness = try await MaterialDigestCoordinatorHarness.caption()
         await harness.coordinator.start(inspirationID: harness.inspirationID)
@@ -18,7 +297,7 @@ struct MaterialDigestCoordinatorTests {
         let digest = try #require(harness.store.state.materialDigests[harness.inspirationID])
         #expect(digest.currentRun == nil)
         #expect(digest.result?.summary.thesis == "核心论点")
-        #expect(digest.result?.provenance.summaryContractVersion == "summary-contract-v2")
+        #expect(digest.result?.provenance.summaryContractVersion == MaterialDigestSummaryContract.v3)
         #expect(await waitUntil { harness.downloader.cleanedRunIDs.count == 1 })
     }
 
@@ -31,6 +310,170 @@ struct MaterialDigestCoordinatorTests {
         #expect(harness.downloader.downloadCount == 1)
         #expect(await harness.transcriber.transcribeCount == 1)
         #expect(await harness.transcriber.prepareCount == 0)
+    }
+
+    @Test func audioPathPassesSourceTitleAsReadOnlyNamingContext() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.audio(modelReady: true)
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+
+        #expect(await waitUntil {
+            harness.store.state.materialDigests[harness.inspirationID]?.result != nil
+        })
+        #expect(harness.summarizer.receivedSourceTitle == MaterialDigestCoordinatorHarness.sourceTitle)
+        let digest = try #require(harness.store.state.materialDigests[harness.inspirationID])
+        #expect(digest.result?.provenance.inputFingerprint != digest.sourceChecksum)
+        #expect(
+            harness.store.state.materialDigests[harness.inspirationID]?.preparedSnapshot?.timestampedTranscript
+                == MaterialDigestCoordinatorHarness.transcript
+        )
+    }
+
+    @Test func titleThatArrivesDuringAcquisitionStillReachesTranscriptionAndSummary() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.audio(
+            modelReady: true,
+            sourceTitle: nil
+        )
+        await harness.acquirer.setHoldAcquire(true)
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        await harness.acquirer.waitUntilAcquireStarted()
+
+        let current = try #require(harness.store.state.inspirations[harness.inspirationID])
+        _ = try await harness.store.sendWorkspace(
+            .updateInspirationMetadata(
+                harness.inspirationID,
+                expectedSource: .init(
+                    sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(current)
+                ),
+                metadata: SourceMetadata(
+                    title: MaterialDigestCoordinatorHarness.sourceTitle,
+                    siteName: "小宇宙",
+                    domain: current.rawURL?.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .succeeded
+                ),
+                resolvedKind: current.resolvedSourceKind
+            )
+        )
+        await harness.acquirer.resumeAcquire()
+
+        #expect(await waitUntil {
+            harness.store.state.materialDigests[harness.inspirationID]?.result != nil
+        })
+        #expect(harness.summarizer.receivedSourceTitle == MaterialDigestCoordinatorHarness.sourceTitle)
+    }
+
+    @Test func titleThatArrivesJustAfterAcquisitionStillReachesSummary() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.captionWithSourceTitle(nil)
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        await harness.acquirer.waitUntilAcquireStarted()
+        try await Task.sleep(for: .milliseconds(25))
+
+        let current = try #require(harness.store.state.inspirations[harness.inspirationID])
+        _ = try await harness.store.sendWorkspace(
+            .updateInspirationMetadata(
+                harness.inspirationID,
+                expectedSource: .init(
+                    sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(current)
+                ),
+                metadata: SourceMetadata(
+                    title: MaterialDigestCoordinatorHarness.sourceTitle,
+                    siteName: "哔哩哔哩",
+                    domain: current.rawURL?.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .succeeded
+                ),
+                resolvedKind: current.resolvedSourceKind
+            )
+        )
+
+        #expect(await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            harness.store.state.materialDigests[harness.inspirationID]?.result != nil
+        })
+        #expect(harness.summarizer.receivedSourceTitle == MaterialDigestCoordinatorHarness.sourceTitle)
+        let digest = try #require(harness.store.state.materialDigests[harness.inspirationID])
+        #expect(digest.result?.provenance.inputFingerprint != digest.sourceChecksum)
+    }
+
+    @Test func refreshedTitleReplacesOldTitleWhenMetadataIsStillLoading() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.captionWithSourceTitle("旧标题")
+        let initial = try #require(harness.store.state.inspirations[harness.inspirationID])
+        _ = try await harness.store.sendWorkspace(
+            .updateInspirationMetadata(
+                harness.inspirationID,
+                expectedSource: .init(
+                    sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(initial)
+                ),
+                metadata: SourceMetadata(
+                    title: "旧标题",
+                    siteName: "哔哩哔哩",
+                    domain: initial.rawURL?.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .loading
+                ),
+                resolvedKind: initial.resolvedSourceKind
+            )
+        )
+
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        await harness.acquirer.waitUntilAcquireStarted()
+        try await Task.sleep(for: .milliseconds(25))
+
+        let current = try #require(harness.store.state.inspirations[harness.inspirationID])
+        _ = try await harness.store.sendWorkspace(
+            .updateInspirationMetadata(
+                harness.inspirationID,
+                expectedSource: .init(
+                    sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(current)
+                ),
+                metadata: SourceMetadata(
+                    title: MaterialDigestCoordinatorHarness.sourceTitle,
+                    siteName: "哔哩哔哩",
+                    domain: current.rawURL?.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .succeeded
+                ),
+                resolvedKind: current.resolvedSourceKind
+            )
+        )
+
+        #expect(await waitUntil(timeoutNanoseconds: 2_000_000_000) {
+            harness.store.state.materialDigests[harness.inspirationID]?.result != nil
+        })
+        #expect(harness.summarizer.receivedSourceTitle == MaterialDigestCoordinatorHarness.sourceTitle)
+    }
+
+    @Test func titleThatChangesDuringTranscriptionIsRefreshedBeforeSummary() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.audio(
+            modelReady: true,
+            sourceTitle: "旧标题"
+        )
+        await harness.transcriber.setHoldTranscribe(true)
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        await harness.transcriber.waitUntilTranscribeStarted()
+
+        let current = try #require(harness.store.state.inspirations[harness.inspirationID])
+        _ = try await harness.store.sendWorkspace(
+            .updateInspirationMetadata(
+                harness.inspirationID,
+                expectedSource: .init(
+                    sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(current)
+                ),
+                metadata: SourceMetadata(
+                    title: MaterialDigestCoordinatorHarness.sourceTitle,
+                    siteName: "哔哩哔哩",
+                    domain: current.rawURL?.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .succeeded
+                ),
+                resolvedKind: current.resolvedSourceKind
+            )
+        )
+        await harness.transcriber.resumeTranscribe()
+
+        #expect(await waitUntil {
+            harness.store.state.materialDigests[harness.inspirationID]?.result != nil
+        })
+        #expect(harness.summarizer.receivedSourceTitle == MaterialDigestCoordinatorHarness.sourceTitle)
     }
 
     @Test func audioPathStopsAtAwaitingConsentWithoutDownloading() async throws {
@@ -48,6 +491,21 @@ struct MaterialDigestCoordinatorTests {
             harness.store.state.materialDigests[harness.inspirationID]?.currentRun?.modelDownloadApproximateBytes
                 == 700_000_000
         )
+    }
+
+    @Test func stopExternalWorkCleansAwaitingConsentRunArtifacts() async throws {
+        let harness = try await MaterialDigestCoordinatorHarness.audio(modelReady: false)
+        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        #expect(await waitUntil {
+            harness.store.state.materialDigests[harness.inspirationID]?.currentRun?.stage
+                == .awaitingModelDownloadConsent
+        })
+        let runID = try #require(harness.digest?.currentRun?.id)
+        harness.downloader.cleanedRunIDs.removeAll()
+
+        await harness.coordinator.stopExternalWork(inspirationID: harness.inspirationID)
+
+        #expect(harness.downloader.cleanedRunIDs == [runID])
     }
 
     @Test func modelDownloadFailureMapsToSafeFailureAndKeepsRetry() async throws {
@@ -105,7 +563,7 @@ struct MaterialDigestCoordinatorTests {
             harness.store.state.materialDigests[harness.inspirationID]?.result != nil
         })
         #expect(await harness.transcriber.prepareCount == 1)
-        #expect(harness.acquirer.acquireCount == 2)
+        #expect(await harness.acquirer.acquireCount == 2)
         #expect(harness.downloader.downloadCount == 1)
         #expect(await harness.transcriber.transcribeCount == 1)
     }
@@ -156,9 +614,9 @@ struct MaterialDigestCoordinatorTests {
         })
         let first = try #require(harness.store.state.materialDigests[harness.inspirationID]?.result)
 
-        harness.acquirer.result = .remoteAudio(MaterialDigestCoordinatorHarness.audioAsset)
+        await harness.acquirer.setResult(.remoteAudio(MaterialDigestCoordinatorHarness.audioAsset))
         await harness.transcriber.setRequirement(.downloadRequired(approximateBytes: 700_000_000))
-        await harness.coordinator.start(inspirationID: harness.inspirationID)
+        await harness.coordinator.start(inspirationID: harness.inspirationID, mode: .refreshSource)
         #expect(await waitUntil {
             harness.store.state.materialDigests[harness.inspirationID]?.currentRun?.stage
                 == .awaitingModelDownloadConsent
@@ -168,7 +626,7 @@ struct MaterialDigestCoordinatorTests {
 
     @Test func pipelineErrorsMapToSafeChineseMessages() async throws {
         let restricted = try await MaterialDigestCoordinatorHarness.caption()
-        restricted.acquirer.error = MaterialDigestPipelineError.restrictedSource
+        await restricted.acquirer.setError(MaterialDigestPipelineError.restrictedSource)
         await restricted.coordinator.start(inspirationID: restricted.inspirationID)
         #expect(await waitUntil {
             restricted.store.state.materialDigests[restricted.inspirationID]?.lastFailure?.code
@@ -188,7 +646,8 @@ struct MaterialDigestCoordinatorTests {
             unconfigured.store.state.materialDigests[unconfigured.inspirationID]?.lastFailure?.code
                 == .modelNotConfigured
         })
-        #expect(unconfigured.acquirer.acquireCount == 0)
+        #expect(await unconfigured.acquirer.acquireCount == 1)
+        #expect(unconfigured.store.state.materialDigests[unconfigured.inspirationID]?.pendingSnapshot != nil)
         let unconfiguredMessage = try #require(
             unconfigured.store.state.materialDigests[unconfigured.inspirationID]?.lastFailure?.userMessage
         )
@@ -217,9 +676,89 @@ struct MaterialDigestCoordinatorTests {
         #expect(empty.store.state.materialDigests[empty.inspirationID]?.currentRun == nil)
         #expect(
             empty.store.state.materialDigests[empty.inspirationID]?.lastFailure?.userMessage
-                == "没有识别到可提炼的内容，原始链接仍然保留。"
+                == "没有识别到可提炼的内容，原始材料仍然保留。"
         )
     }
+}
+
+@MainActor
+private func makeXiaohongshuCoordinatorContext(
+    acquisition: MaterialCompositeAcquisition,
+    imageExtractor: ImageMaterialExtractor = ImageMaterialExtractor(),
+    transcriber: FakeMaterialTranscriber = FakeMaterialTranscriber(
+        requirement: .ready,
+        transcript: .init(segments: [])
+    ),
+    mediaExtractor: MediaMaterialExtractor? = nil
+) async throws -> (
+    store: WorkspaceStore,
+    inspiration: Inspiration,
+    coordinator: MaterialDigestCoordinator,
+    acquirer: FixtureMaterialAcquirer
+) {
+    let calendar = makeEmptyState()
+    let store = WorkspaceStore(
+        initialState: .empty(calendar: calendar),
+        repository: InMemoryWorkspaceRepository(initialState: calendar)
+    )
+    await store.load()
+    let now = Date(timeIntervalSince1970: 1_800_300_000)
+    let inspiration = Inspiration(
+        id: InspirationID(),
+        inputKind: .url,
+        rawText: nil,
+        rawURL: URL(string: "https://www.xiaohongshu.com/explore/public-note")!,
+        rawFile: nil,
+        resolvedSourceKind: .socialPost,
+        resolvedMetadata: nil,
+        categoryID: calendar.uncategorizedID,
+        lifecycle: .active,
+        createdAt: now,
+        updatedAt: now
+    )
+    _ = try await store.sendWorkspace(.createInspiration(.init(inspiration: inspiration)))
+    let summarizer = ControllableMaterialSummarizer(
+        mode: .immediate,
+        output: MaterialSummarizerOutput(
+            summary: InspirationSummary(
+                thesis: "核心论点",
+                takeaways: ["第一条"],
+                chapters: [],
+                quotes: [],
+                dropped: []
+            ),
+            endpointHost: "api.example.com",
+            model: "fixture",
+            summaryContractVersion: MaterialDigestSummaryContract.v3
+        )
+    )
+    let acquirer = FixtureMaterialAcquirer(result: .composite(acquisition))
+    let coordinator = MaterialDigestCoordinator(
+        store: store,
+        acquirer: acquirer,
+        audioDownloader: RecordingMaterialAudioDownloader(),
+        transcriber: transcriber,
+        summarizer: summarizer,
+        imageExtractor: imageExtractor,
+        mediaExtractor: mediaExtractor
+    )
+    return (store, inspiration, coordinator, acquirer)
+}
+
+private func xiaohongshuSeedBlocks() -> [MaterialBlock] {
+    [
+        .init(id: MaterialBlockID(), role: .metadata, text: "标题", locator: .paragraph(index: 1), confidence: nil),
+        .init(id: MaterialBlockID(), role: .body, text: "公开正文", locator: .paragraph(index: 1), confidence: nil),
+        .init(id: MaterialBlockID(), role: .metadata, text: "话题：#效率", locator: .paragraph(index: 2), confidence: nil)
+    ]
+}
+
+private func xiaohongshuProvenance() -> MaterialAcquisitionProvenance {
+    .init(
+        adapterIdentifier: "xiaohongshu-public-page",
+        adapterVersion: "1",
+        acquiredAt: Date(timeIntervalSince1970: 1_800_300_000)
+    )
 }
 
 @MainActor
@@ -232,11 +771,16 @@ private struct MaterialDigestCoordinatorHarness {
     let summarizer: ControllableMaterialSummarizer
     let coordinator: MaterialDigestCoordinator
 
+    var digest: MaterialDigest? {
+        store.state.materialDigests[inspirationID]
+    }
+
     static let audioAsset = RemoteAudioAsset(
         url: URL(string: "https://cdn.example.com/episode.m4a")!,
         requestHeaders: ["Referer": "https://www.xiaoyuzhoufm.com/episode/1"],
         estimatedBytes: 1_024
     )
+    static let sourceTitle = "Claude Code 源码泄露｜Anthropic 工程实践"
 
     static let validOutput = MaterialSummarizerOutput(
         summary: InspirationSummary(
@@ -251,7 +795,7 @@ private struct MaterialDigestCoordinatorHarness {
         ),
         endpointHost: "api.example.com",
         model: "test-model",
-        summaryContractVersion: "summary-contract-v2"
+        summaryContractVersion: MaterialDigestSummaryContract.v3
     )
 
     static let transcript = TimestampedTranscript(segments: [
@@ -272,18 +816,34 @@ private struct MaterialDigestCoordinatorHarness {
         )
     }
 
-    static func audio(modelReady: Bool) async throws -> MaterialDigestCoordinatorHarness {
+    static func captionWithSourceTitle(
+        _ sourceTitle: String?
+    ) async throws -> MaterialDigestCoordinatorHarness {
+        try await make(
+            acquisition: .transcript(transcript),
+            modelReady: true,
+            summarizer: .immediate,
+            sourceTitle: sourceTitle
+        )
+    }
+
+    static func audio(
+        modelReady: Bool,
+        sourceTitle: String? = sourceTitle
+    ) async throws -> MaterialDigestCoordinatorHarness {
         try await make(
             acquisition: .remoteAudio(audioAsset),
             modelReady: modelReady,
-            summarizer: .immediate
+            summarizer: .immediate,
+            sourceTitle: sourceTitle
         )
     }
 
     private static func make(
         acquisition: MaterialAcquisition,
         modelReady: Bool,
-        summarizer mode: SummarizerMode
+        summarizer mode: SummarizerMode,
+        sourceTitle: String? = sourceTitle
     ) async throws -> MaterialDigestCoordinatorHarness {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
@@ -300,7 +860,21 @@ private struct MaterialDigestCoordinatorHarness {
             rawURL: url,
             rawFile: nil,
             resolvedSourceKind: .video,
-            resolvedMetadata: nil,
+            resolvedMetadata: sourceTitle.map {
+                SourceMetadata(
+                    title: $0,
+                    siteName: "哔哩哔哩",
+                    domain: url.host,
+                    thumbnailURL: nil,
+                    fetchStatus: .succeeded
+                )
+            } ?? SourceMetadata(
+                title: nil,
+                siteName: nil,
+                domain: url.host,
+                thumbnailURL: nil,
+                fetchStatus: .loading
+            ),
             categoryID: calendar.uncategorizedID,
             lifecycle: .active,
             createdAt: now,
@@ -338,17 +912,42 @@ private struct MaterialDigestCoordinatorHarness {
     }
 }
 
-private final class FixtureMaterialAcquirer: MaterialAcquiring, @unchecked Sendable {
+private actor FixtureMaterialAcquirer: MaterialAcquiring {
     var result: MaterialAcquisition
     var error: MaterialDigestPipelineError?
     var acquireCount = 0
+    private var holdAcquire = false
+    private var acquireStarted = false
+    private var acquireWaiters: [CheckedContinuation<Void, Never>] = []
+    private var acquireContinuation: CheckedContinuation<Void, Never>?
 
     init(result: MaterialAcquisition) {
         self.result = result
     }
 
+    func setResult(_ value: MaterialAcquisition) { result = value }
+    func setError(_ value: MaterialDigestPipelineError?) { error = value }
+    func setHoldAcquire(_ value: Bool) { holdAcquire = value }
+
+    func waitUntilAcquireStarted() async {
+        if acquireStarted { return }
+        await withCheckedContinuation { acquireWaiters.append($0) }
+    }
+
+    func resumeAcquire() {
+        acquireContinuation?.resume()
+        acquireContinuation = nil
+    }
+
     func acquire(_ source: MaterialSource) async throws -> MaterialAcquisition {
         acquireCount += 1
+        acquireStarted = true
+        let waiters = acquireWaiters
+        acquireWaiters = []
+        waiters.forEach { $0.resume() }
+        if holdAcquire {
+            await withCheckedContinuation { acquireContinuation = $0 }
+        }
         if let error { throw error }
         return result
     }
@@ -384,6 +983,10 @@ private actor FakeMaterialTranscriber: MaterialTranscribing {
     private var prepareHasStarted = false
     private var prepareStartedWaiters: [CheckedContinuation<Void, Never>] = []
     private var prepareHold: CheckedContinuation<Void, Error>?
+    private var holdTranscribe = false
+    private var transcribeHasStarted = false
+    private var transcribeStartedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var transcribeHold: CheckedContinuation<Void, Never>?
 
     init(requirement: MaterialModelRequirement, transcript: TimestampedTranscript) {
         self.requirement = requirement
@@ -411,6 +1014,20 @@ private actor FakeMaterialTranscriber: MaterialTranscribing {
     func waitUntilPrepareStarted() async {
         if prepareHasStarted { return }
         await withCheckedContinuation { prepareStartedWaiters.append($0) }
+    }
+
+    func setHoldTranscribe(_ value: Bool) {
+        holdTranscribe = value
+    }
+
+    func waitUntilTranscribeStarted() async {
+        if transcribeHasStarted { return }
+        await withCheckedContinuation { transcribeStartedWaiters.append($0) }
+    }
+
+    func resumeTranscribe() {
+        transcribeHold?.resume()
+        transcribeHold = nil
     }
 
     func prepareModel(progress: @escaping @Sendable (Double) -> Void) async throws {
@@ -447,6 +1064,13 @@ private actor FakeMaterialTranscriber: MaterialTranscribing {
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> TimestampedTranscript {
         transcribeCount += 1
+        transcribeHasStarted = true
+        let waiters = transcribeStartedWaiters
+        transcribeStartedWaiters = []
+        waiters.forEach { $0.resume() }
+        if holdTranscribe {
+            await withCheckedContinuation { transcribeHold = $0 }
+        }
         progress(1)
         return transcript
     }
@@ -459,10 +1083,12 @@ private final class ControllableMaterialSummarizer: MaterialSummarizing, @unchec
     }
 
     var started = false
+    var receivedSourceTitle: String?
     var isConfigured = true
     var error: MaterialDigestPipelineError?
     private let mode: Mode
     private let output: MaterialSummarizerOutput
+    private var receivedSnapshot: MaterialSnapshot?
     private var continuation: CheckedContinuation<MaterialSummarizerOutput, Error>?
 
     init(mode: Mode, output: MaterialSummarizerOutput) {
@@ -471,14 +1097,16 @@ private final class ControllableMaterialSummarizer: MaterialSummarizing, @unchec
     }
 
     func summarize(
-        _ transcript: TimestampedTranscript,
+        _ snapshot: MaterialSnapshot,
         source: MaterialSource
     ) async throws -> MaterialSummarizerOutput {
         started = true
+        receivedSourceTitle = source.sourceTitle
+        receivedSnapshot = snapshot
         if let error { throw error }
         switch mode {
         case .immediate:
-            return output
+            return groundedOutput(output, for: snapshot)
         case .suspended:
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
@@ -492,9 +1120,81 @@ private final class ControllableMaterialSummarizer: MaterialSummarizing, @unchec
     }
 
     func resume(with output: MaterialSummarizerOutput) {
-        continuation?.resume(returning: output)
+        guard let snapshot = receivedSnapshot else { return }
+        continuation?.resume(returning: groundedOutput(output, for: snapshot))
         continuation = nil
     }
+
+    private func groundedOutput(
+        _ output: MaterialSummarizerOutput,
+        for snapshot: MaterialSnapshot
+    ) -> MaterialSummarizerOutput {
+        let evidenceBlocks = snapshot.blocks.filter { $0.role != .metadata }
+        guard let first = evidenceBlocks.first else { return output }
+        let second = evidenceBlocks.dropFirst().first ?? first
+        let summary = InspirationSummary(
+            thesis: DigestClaim(
+                text: output.summary.thesis,
+                evidenceBlockIDs: [first.id]
+            ),
+            takeaways: output.summary.takeaways.map {
+                DigestClaim(text: $0, evidenceBlockIDs: [first.id])
+            },
+            chapters: output.summary.chapters.enumerated().map { index, chapter in
+                let anchor = index == 0 ? first : second
+                return DigestChapter(
+                    title: chapter.title,
+                    anchorBlockID: anchor.id,
+                    points: chapter.points.map {
+                        DigestClaim(text: $0, evidenceBlockIDs: [anchor.id])
+                    }
+                )
+            },
+            quotes: output.summary.quotes.map {
+                DigestQuote(speaker: $0.speaker, text: $0.text, evidenceBlockID: second.id)
+            },
+            dropped: output.summary.dropped.map {
+                DigestClaim(text: $0, evidenceBlockIDs: [first.id])
+            }
+        )
+        return MaterialSummarizerOutput(
+            summary: summary,
+            endpointHost: output.endpointHost,
+            model: output.model,
+            summaryContractVersion: MaterialDigestSummaryContract.v3
+        )
+    }
+}
+
+private struct FixtureMaterialFileAccess: MaterialFileAccessing {
+    let url: URL
+
+    func withAccess<T: Sendable>(
+        to reference: FileReference,
+        _ body: @Sendable (URL) async throws -> T
+    ) async throws -> T {
+        #expect(!reference.bookmarkData.isEmpty)
+        return try await body(url)
+    }
+}
+
+private struct CoordinatorFixtureOCR: MaterialOCRRecognizing {
+    let results: [Int: Result<[MaterialOCRLine], MaterialOCRRecognitionError>]
+
+    func recognize(_ image: MaterialImageAsset) async throws -> [MaterialOCRLine] {
+        try results[image.index, default: .success([])].get()
+    }
+}
+
+private struct CoordinatorPassthroughAudioTrackExtractor: MaterialAudioTrackExtracting {
+    func extractAudio(from url: URL, runID: MaterialDigestRunID) async throws -> URL { url }
+    func cleanup(runID: MaterialDigestRunID) {}
+}
+
+private final class CoordinatorFixtureFrameSampler: MaterialVideoFrameSampling, @unchecked Sendable {
+    let images: [MaterialImageAsset]
+    init(images: [MaterialImageAsset]) { self.images = images }
+    func sampleFrames(from url: URL) async throws -> [MaterialImageAsset] { images }
 }
 
 @MainActor

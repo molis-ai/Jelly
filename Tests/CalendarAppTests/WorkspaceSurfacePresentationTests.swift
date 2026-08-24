@@ -66,7 +66,7 @@ struct WorkspaceSurfacePresentationTests {
         ) == nil)
     }
 
-    @Test func articleInspirationDoesNotShowADigestAction() {
+    @Test func articleInspirationShowsTheSharedManualDigestAction() {
         let inspiration = Inspiration(
             id: InspirationID(),
             inputKind: .url,
@@ -85,8 +85,8 @@ struct WorkspaceSurfacePresentationTests {
             digest: nil,
             operatorAvailable: true
         )
-        #expect(presentation.isVisible == false)
-        #expect(presentation.primaryActionTitle == nil)
+        #expect(presentation.isVisible)
+        #expect(presentation.primaryActionTitle == "提炼这份材料")
     }
 
     @Test func notesUsesOnePaneAtCompactWidthsAndNeverClipsTheEditorBehindTheBrowser() {

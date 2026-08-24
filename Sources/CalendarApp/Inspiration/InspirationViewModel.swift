@@ -88,7 +88,7 @@ enum InspirationTextSaveState: Equatable {
     }
 
     func startSelectedDigest() async {
-        guard let selectedID, isDigestConfigured() else { return }
+        guard let selectedID else { return }
         await digestOperator?.start(inspirationID: selectedID)
         refresh()
     }
@@ -107,6 +107,12 @@ enum InspirationTextSaveState: Equatable {
 
     func retrySelectedDigest() async {
         await startSelectedDigest()
+    }
+
+    func refreshSelectedDigest() async {
+        guard let selectedID else { return }
+        await digestOperator?.start(inspirationID: selectedID, mode: .refreshSource)
+        refresh()
     }
 
     var selectedConvertedNoteID: NoteID? {
@@ -203,6 +209,9 @@ enum InspirationTextSaveState: Equatable {
     }
 
     func select(_ id: InspirationID?) {
+        if selectedID != id {
+            statusMessage = nil
+        }
         selectedID = id
         if let id, textDrafts[id] == nil {
             textDrafts[id] = store.state.inspirations[id]?.rawText ?? ""
@@ -211,7 +220,7 @@ enum InspirationTextSaveState: Equatable {
 
     func alignSelection(with visibleIDs: [InspirationID]) {
         if let selectedID, visibleIDs.contains(selectedID) { return }
-        selectedID = visibleIDs.first
+        select(visibleIDs.first)
     }
 
     @discardableResult
@@ -278,6 +287,61 @@ enum InspirationTextSaveState: Equatable {
     }
 
     @discardableResult
+    func captureFile(
+        _ reference: FileReference,
+        kind: ResolvedSourceKind
+    ) async throws -> InspirationID {
+        guard !reference.bookmarkData.isEmpty,
+              !reference.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw InspirationCaptureError.empty
+        }
+        let now = clock()
+        let id = InspirationID()
+        let inspiration = Inspiration(
+            id: id,
+            inputKind: .file,
+            rawText: nil,
+            rawURL: nil,
+            rawFile: reference,
+            resolvedSourceKind: kind,
+            resolvedMetadata: nil,
+            categoryID: store.calendarState.uncategorizedID,
+            lifecycle: .active,
+            createdAt: now,
+            updatedAt: now
+        )
+        let categoryName = store.calendarState.categories[inspiration.categoryID]?.name ?? "未分类"
+        let outcome = try await store.sendWorkspace(
+            .createInspiration(.init(inspiration: inspiration)),
+            undoLabel: WorkspaceCreationFeedback.inspiration(
+                text: reference.displayName,
+                categoryName: categoryName
+            )
+        )
+        guard case .committed = outcome else { throw InspirationCaptureError.notCommitted }
+        select(id)
+        refresh()
+        return id
+    }
+
+    func captureFile(
+        at url: URL,
+        kind: ResolvedSourceKind,
+        bookmarker: any MaterialFileBookmarking = LocalMaterialFileAccess()
+    ) async -> InspirationID? {
+        do {
+            let reference = try bookmarker.makeReference(for: url)
+            let id = try await captureFile(reference, kind: kind)
+            statusMessage = nil
+            return id
+        } catch {
+            statusMessage = "无法保存这个文件的访问权限，原文件没有被改动。"
+            return nil
+        }
+    }
+
+    @discardableResult
     func convertSelectedToNote() async throws -> NoteID? {
         if let pendingNoteWrite {
             return try await retryPendingNoteWrite(pendingNoteWrite)
@@ -294,7 +358,11 @@ enum InspirationTextSaveState: Equatable {
                   let result = selectedDigest?.result,
                   let fingerprint = try? WorkspaceChecksum.materialDigestResultFingerprint(result)
             else { return existing.noteID }
-            let blocks = InspirationNoteDocumentBuilder.summaryBlocks(for: result)
+            let blocks = InspirationNoteDocumentBuilder.summaryBlocks(
+                for: result,
+                snapshot: selectedDigest?.preparedSnapshot,
+                sourceKind: inspiration.resolvedSourceKind
+            )
             let outcome = try await store.sendWorkspace(
                 .writeMaterialDigestToNote(.init(
                     inspirationID: inspiration.id,
@@ -475,11 +543,15 @@ enum InspirationTextSaveState: Equatable {
             return
         }
         textSaveStates[id] = .saving
+        let hadDigest = store.state.materialDigests[id] != nil
         do {
             let outcome = try await store.sendWorkspace(
                 .updateInspirationText(id, rawText: draft, at: clock()),
                 undoLabel: "编辑灵感"
             )
+            if case .committed = outcome, hadDigest {
+                await digestOperator?.stopExternalWork(inspirationID: id)
+            }
             refresh()
             guard textDraftGenerations[id, default: 0] == generation else { return }
             switch outcome {
@@ -577,10 +649,10 @@ enum InspirationTextSaveState: Equatable {
                     resolvedKind: result.resolvedKind
                 )
             )
-            statusMessage = nil
+            updateStatusMessage(nil, for: id)
             refresh()
         } catch {
-            statusMessage = "链接元数据获取失败，原文已保存。"
+            updateStatusMessage("链接元数据获取失败，原文已保存。", for: id)
             if let latest = store.state.inspirations[id],
                WorkspaceChecksum.inspirationSourceChecksum(latest) == sourceChecksum {
                 var failedMetadata = latest.resolvedMetadata ?? SourceMetadata(
@@ -601,13 +673,21 @@ enum InspirationTextSaveState: Equatable {
                         )
                     )
                 } catch {
-                    statusMessage = "链接元数据获取失败，原文已保存；失败状态未能写入。"
+                    updateStatusMessage(
+                        "链接元数据获取失败，原文已保存；失败状态未能写入。",
+                        for: id
+                    )
                 }
             } else {
-                statusMessage = nil
+                updateStatusMessage(nil, for: id)
             }
             refresh()
         }
+    }
+
+    private func updateStatusMessage(_ message: String?, for id: InspirationID) {
+        guard selectedID == id else { return }
+        statusMessage = message
     }
 
     private func suggestedTitle(for inspiration: Inspiration) -> String {
@@ -623,36 +703,100 @@ enum InspirationNoteDocumentBuilder {
         for inspiration: Inspiration,
         digest: MaterialDigest?
     ) -> BlockDocument {
-        if let url = inspiration.rawURL {
-            var blocks = [linkBlock(title: inspiration.resolvedMetadata?.title ?? url.absoluteString, url: url)]
-            let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
-            if let result = digest?.result, digest?.sourceChecksum == checksum {
-                blocks.append(contentsOf: summaryBlocks(for: result))
+        var blocks: [DocumentBlock]
+        switch inspiration.inputKind {
+        case .url:
+            if let url = inspiration.rawURL {
+                blocks = [linkBlock(
+                    title: inspiration.resolvedMetadata?.title ?? url.absoluteString,
+                    url: url
+                )]
+            } else {
+                blocks = [paragraph("原始链接不可用")]
             }
-            return .init(blocks: blocks)
+        case .text:
+            blocks = [paragraph(inspiration.rawText ?? "")]
+        case .file:
+            blocks = [paragraph("材料文件：\(inspiration.rawFile?.displayName ?? "未命名材料")")]
         }
-        return .init(blocks: [paragraph(inspiration.rawText ?? "")])
+        let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
+        if let result = digest?.result, digest?.sourceChecksum == checksum {
+            blocks.append(contentsOf: summaryBlocks(
+                for: result,
+                snapshot: digest?.preparedSnapshot,
+                sourceKind: inspiration.resolvedSourceKind
+            ))
+        }
+        return .init(blocks: blocks)
     }
 
-    static func summaryBlocks(for result: MaterialDigestResult) -> [DocumentBlock] {
-        var blocks = [heading2("核心观点"), paragraph(result.summary.thesis), heading2("主要观点")]
-        blocks.append(contentsOf: result.summary.takeaways.map(bullet))
+    static func summaryBlocks(
+        for result: MaterialDigestResult,
+        snapshot: MaterialSnapshot?,
+        sourceKind: ResolvedSourceKind
+    ) -> [DocumentBlock] {
+        let blocksByID = Dictionary(uniqueKeysWithValues: (snapshot?.blocks ?? []).map { ($0.id, $0) })
+        var blocks = [
+            heading2("核心观点"),
+            paragraph(labeled(
+                result.summary.thesisClaim.text,
+                ids: result.summary.thesisClaim.evidenceBlockIDs,
+                blocksByID: blocksByID
+            )),
+            heading2("主要观点")
+        ]
+        blocks.append(contentsOf: result.summary.takeawayClaims.map { claim in
+            bullet(labeled(claim.text, ids: claim.evidenceBlockIDs, blocksByID: blocksByID))
+        })
         if !result.summary.chapters.isEmpty {
             blocks.append(heading2("章节"))
-            blocks.append(contentsOf: result.summary.chapters.map { chapter in
-                bullet("\(timestamp(chapter.startSeconds)) \(chapter.title)")
-            })
+            for chapter in result.summary.chapters {
+                let location = chapter.anchorBlockID.flatMap { blocksByID[$0]?.locator.displayLabel }
+                    ?? timestamp(chapter.startSeconds)
+                blocks.append(bullet("\(location) \(chapter.title)"))
+                blocks.append(contentsOf: chapter.pointClaims.map { claim in
+                    bullet(labeled(claim.text, ids: claim.evidenceBlockIDs, blocksByID: blocksByID))
+                })
+            }
         }
         if !result.summary.quotes.isEmpty {
             blocks.append(heading2("引用"))
             blocks.append(contentsOf: result.summary.quotes.map { quote in
+                let location = quote.evidenceBlockID.flatMap { blocksByID[$0]?.locator.displayLabel }
+                    ?? timestamp(quote.startSeconds)
+                let body: String
                 if let speaker = quote.speaker, !speaker.isEmpty {
-                    return bullet("\(speaker)：\(quote.text)")
+                    body = "\(speaker)：\(quote.text)"
+                } else {
+                    body = quote.text
                 }
-                return bullet(quote.text)
+                return bullet("\(location) \(body)")
             })
         }
+        if !result.summary.droppedClaims.isEmpty {
+            blocks.append(heading2(MaterialDigestCopy.excludedContentTitle(for: sourceKind)))
+            blocks.append(contentsOf: result.summary.droppedClaims.map { claim in
+                bullet(labeled(claim.text, ids: claim.evidenceBlockIDs, blocksByID: blocksByID))
+            })
+        }
+        if case let .partial(processed, expected, _)? = snapshot?.coverage {
+            if let expected {
+                blocks.append(paragraph("基于部分内容：\(processed)/\(expected) 项已读取"))
+            } else {
+                blocks.append(paragraph("基于部分内容：\(processed) 项已读取"))
+            }
+        }
         return blocks
+    }
+
+    private static func labeled(
+        _ text: String,
+        ids: [MaterialBlockID],
+        blocksByID: [MaterialBlockID: MaterialBlock]
+    ) -> String {
+        let labels = ids.compactMap { blocksByID[$0]?.locator.displayLabel }
+        guard !labels.isEmpty else { return text }
+        return "\(text)（\(labels.joined(separator: "、"))）"
     }
 
     private static func linkBlock(title: String, url: URL) -> DocumentBlock {

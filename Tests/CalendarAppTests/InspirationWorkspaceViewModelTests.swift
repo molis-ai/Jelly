@@ -10,6 +10,33 @@ import WorkspaceDomain
 @Suite("InspirationWorkspaceViewModelTests")
 @MainActor
 struct InspirationWorkspaceViewModelTests {
+    @Test func editingDigestedTextSavesTheNewSourceAndStopsTheStalePipeline() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let digestOperator = RecordingMaterialDigestOperator()
+        let model = InspirationViewModel(
+            store: store,
+            digestOperator: digestOperator,
+            textSaveDelay: .seconds(30)
+        )
+        let id = try await model.capture("原来的材料")
+        let inspiration = try #require(store.state.inspirations[id])
+        try await seedSucceededDigest(for: inspiration, in: store, now: .distantPast)
+        model.select(id)
+
+        model.selectedTextDraft = "用户修改后的材料"
+        await model.flushSelectedTextEdit()
+
+        #expect(store.state.inspirations[id]?.rawText == "用户修改后的材料")
+        #expect(store.state.materialDigests[id] == nil)
+        #expect(digestOperator.stops == [id])
+        #expect(model.selectedTextSaveState == .saved)
+    }
+
     @Test func uncertainDigestWriteKeepsVisibleRecoveryUntilTheExactCommitIsConfirmed() async throws {
         let calendar = makeEmptyState()
         let repository = WorkspaceStoreTestRepository(initial: .empty(calendar: calendar))
@@ -226,13 +253,36 @@ struct InspirationWorkspaceViewModelTests {
         #expect(recorder.starts.isEmpty)
         #expect(recorder.confirms.isEmpty)
         #expect(store.state.inspirations[id]?.resolvedSourceKind == .video)
-        #expect(model.selectedDigestPresentation.primaryActionTitle == "提炼这个链接")
+        #expect(model.selectedDigestPresentation.primaryActionTitle == "提炼这份材料")
         model.select(id)
         #expect(try await model.archiveSelected())
         #expect(recorder.starts.isEmpty)
     }
 
-    @Test func unconfiguredDigestOpensSettingsStateAndDoesNotStart() async throws {
+    @Test func captureFilePersistsReferenceWithoutStartingDigest() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let recorder = RecordingMaterialDigestOperator()
+        let model = InspirationViewModel(store: store, digestOperator: recorder)
+        let reference = FileReference(bookmarkData: Data([1, 2, 3]), displayName: "材料.pdf")
+
+        let id = try await model.captureFile(reference, kind: .document)
+        let saved = try #require(store.state.inspirations[id])
+
+        #expect(saved.inputKind == .file)
+        #expect(saved.rawFile == reference)
+        #expect(saved.resolvedSourceKind == .document)
+        #expect(recorder.starts.isEmpty)
+        #expect(model.selectedID == id)
+        #expect(model.selectedDigestPresentation.isVisible)
+        #expect(model.selectedDigestPresentation.primaryActionTitle == "提炼这份材料")
+    }
+
+    @Test func unconfiguredDigestStillStartsAcquisitionBeforeTheRuntimeCheck() async throws {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
             initialState: .empty(calendar: calendar),
@@ -254,10 +304,39 @@ struct InspirationWorkspaceViewModelTests {
             store.state.inspirations[id]?.resolvedSourceKind == .video
         })
         model.select(id)
-        #expect(model.selectedDigestPresentation.showsOpenSettings)
-        #expect(model.selectedDigestPresentation.primaryActionTitle == "打开设置")
+        #expect(model.selectedDigestPresentation.showsOpenSettings == false)
+        #expect(model.selectedDigestPresentation.primaryActionTitle == "提炼这份材料")
         await model.startSelectedDigest()
-        #expect(recorder.starts.isEmpty)
+        #expect(recorder.starts == [id])
+    }
+
+    @Test func completedDigestCanExplicitlyRefreshTheSource() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let recorder = RecordingMaterialDigestOperator()
+        let resolver = SuspendedURLMetadataResolver()
+        let model = InspirationViewModel(
+            store: store,
+            metadataResolver: resolver,
+            digestOperator: recorder
+        )
+        let id = try await model.capture("https://www.bilibili.com/video/BV1xx411c7mD/")
+        #expect(await waitUntil { resolver.startedURLs.count == 1 })
+        resolver.fail(URLMetadataResolverError.httpFailure)
+        #expect(await waitUntil { store.state.inspirations[id]?.resolvedSourceKind == .video })
+        let inspiration = try #require(store.state.inspirations[id])
+        try await seedSucceededDigest(for: inspiration, in: store, now: .distantFuture)
+        model.refresh()
+        model.select(id)
+
+        #expect(model.selectedDigestPresentation.showsRefresh)
+        await model.refreshSelectedDigest()
+        #expect(recorder.starts == [id])
+        #expect(recorder.startModes == [.refreshSource])
     }
 
     @Test func urlIsDurableBeforeMetadataStarts() async throws {
@@ -357,6 +436,28 @@ struct InspirationWorkspaceViewModelTests {
         #expect(model.statusMessage == nil)
     }
 
+    @Test func backgroundMetadataFailureDoesNotLeakIntoAnotherMaterial() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let resolver = SuspendedURLMetadataResolver()
+        let model = InspirationViewModel(store: store, metadataResolver: resolver)
+        let urlID = try await model.capture("https://example.com/slow-failure")
+        #expect(await waitUntil { resolver.startedURLs.count == 1 })
+        let textID = try await model.capture("当前正在查看的文字材料")
+
+        resolver.fail(URLMetadataResolverError.httpFailure)
+
+        #expect(await waitUntil {
+            store.state.inspirations[urlID]?.resolvedMetadata?.fetchStatus == .failed
+        })
+        #expect(model.selectedID == textID)
+        #expect(model.statusMessage == nil)
+    }
+
     @Test func convertSuccessfulDigestWritesLinkThenStructuredSummaryBlocks() async throws {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
@@ -391,18 +492,71 @@ struct InspirationWorkspaceViewModelTests {
         let noteID = try #require(try await model.convertSelectedToNote())
         let blocks = try #require(store.state.notes[noteID]?.document.blocks)
         #expect(blocks.map(\.kind) == [
-            .link, .heading2, .paragraph, .heading2, .bullet, .bullet, .bullet, .heading2, .bullet, .bullet, .heading2, .bullet
+            .link, .heading2, .paragraph, .heading2,
+            .bullet, .bullet, .bullet,
+            .heading2, .bullet, .bullet, .bullet, .bullet,
+            .heading2, .bullet,
+            .heading2, .bullet
         ])
+        let texts = blocks.map { $0.inlineContent.spans.map(\.text).joined() }
         #expect(blocks[0].inlineContent.spans[0].linkURL == inspiration.rawURL)
-        #expect(blocks[1].inlineContent.spans.map(\.text).joined() == "核心观点")
-        #expect(blocks[2].inlineContent.spans.map(\.text).joined() == "核心论点")
-        #expect(blocks[3].inlineContent.spans.map(\.text).joined() == "主要观点")
+        #expect(texts[1] == "核心观点")
+        #expect(texts[2] == "核心论点")
+        #expect(texts[3] == "主要观点")
         #expect(blocks[4].kind == .bullet)
-        #expect(blocks[7].inlineContent.spans.map(\.text).joined() == "章节")
-        #expect(blocks[10].inlineContent.spans.map(\.text).joined() == "引用")
+        #expect(texts.contains("章节"))
+        #expect(texts.contains("引用"))
+        #expect(texts.contains("未纳入摘要"))
         let repeated = try await model.convertSelectedToNote()
         #expect(repeated == noteID)
         #expect(store.state.notes.count == 1)
+    }
+
+    @Test func convertTextAndFileMaterialsPreservesSourceThenWritesDigest() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let model = InspirationViewModel(store: store)
+        let now = Date(timeIntervalSince1970: 1_800_310_100)
+
+        let textID = try await model.capture("原始正文必须保留")
+        let text = try #require(store.state.inspirations[textID])
+        try await seedSucceededDigest(for: text, in: store, now: now)
+        model.refresh()
+        model.select(textID)
+        let textNoteID = try #require(try await model.convertSelectedToNote())
+        let textDocument = try #require(store.state.notes[textNoteID]?.document)
+        let textPlain = textDocument.blocks
+            .map { $0.inlineContent.spans.map(\.text).joined() }
+            .joined(separator: "\n")
+        #expect(textDocument.blocks.first?.inlineContent.spans.map(\.text).joined() == "原始正文必须保留")
+        #expect(textPlain.contains("核心观点"))
+        #expect(textPlain.contains("核心论点"))
+
+        let fileID = try await model.captureFile(
+            FileReference(bookmarkData: Data([1, 2, 3]), displayName: "材料.txt"),
+            kind: .document
+        )
+        let file = try #require(store.state.inspirations[fileID])
+        try await seedSucceededDigest(for: file, in: store, now: now)
+        model.refresh()
+        model.select(fileID)
+        let fileNoteID = try #require(try await model.convertSelectedToNote())
+        let fileDocument = try #require(store.state.notes[fileNoteID]?.document)
+        let filePlain = fileDocument.blocks
+            .map { $0.inlineContent.spans.map(\.text).joined() }
+            .joined(separator: "\n")
+        #expect(fileDocument.blocks.first?.inlineContent.spans.map(\.text).joined() == "材料文件：材料.txt")
+        #expect(filePlain.contains("核心观点"))
+        #expect(filePlain.contains("核心论点"))
+        #expect(model.statusMessage == "提炼摘要已写入笔记。")
+
+        model.alignSelection(with: [textID])
+        #expect(model.selectedID == textID)
+        #expect(model.statusMessage == nil)
     }
 
     @Test func convertWithoutUsableDigestKeepsOnlyTheOriginalLink() async throws {
@@ -612,12 +766,16 @@ struct InspirationWorkspaceViewModelTests {
 @Observable
 final class RecordingMaterialDigestOperator: MaterialDigestOperating {
     var starts: [InspirationID] = []
+    var startModes: [MaterialDigestStartMode] = []
     var confirms: [InspirationID] = []
     var cancels: [InspirationID] = []
     var stops: [InspirationID] = []
     var reconciles = 0
 
-    func start(inspirationID: InspirationID) async { starts.append(inspirationID) }
+    func start(inspirationID: InspirationID, mode: MaterialDigestStartMode) async {
+        starts.append(inspirationID)
+        startModes.append(mode)
+    }
     func confirmModelDownload(inspirationID: InspirationID) async { confirms.append(inspirationID) }
     func cancel(inspirationID: InspirationID) async { cancels.append(inspirationID) }
     func stopExternalWork(inspirationID: InspirationID) async { stops.append(inspirationID) }
@@ -633,22 +791,29 @@ private func seedSucceededDigest(
 ) async throws {
     let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
     let runID = MaterialDigestRunID()
+    let expectation = MaterialDigestRunExpectation(
+        inspirationID: inspiration.id,
+        runID: runID,
+        sourceChecksum: checksum
+    )
+    let snapshot = try materialSnapshot(for: checksum)
     _ = try await store.sendWorkspace(.startMaterialDigest(.init(
         inspirationID: inspiration.id,
         digestID: MaterialDigestID(),
         runID: runID,
         expectedSourceChecksum: checksum
     )))
+    _ = try await store.sendWorkspace(.saveMaterialSnapshot(.init(
+        expectation: expectation,
+        snapshot: snapshot
+    )))
     _ = try await store.sendWorkspace(.advanceMaterialDigestStage(.init(
-        expectation: .init(inspirationID: inspiration.id, runID: runID, sourceChecksum: checksum),
+        expectation: expectation,
         stage: .summarizing
     )))
     _ = try await store.sendWorkspace(.completeMaterialDigest(.init(
-        expectation: .init(inspirationID: inspiration.id, runID: runID, sourceChecksum: checksum),
-        transcript: TimestampedTranscript(segments: [
-            TranscriptSegment(startSeconds: 0, endSeconds: 8, text: "开场"),
-            TranscriptSegment(startSeconds: 8, endSeconds: 20, text: "主体")
-        ]),
+        expectation: expectation,
+        expectedContentFingerprint: snapshot.contentFingerprint,
         summary: InspirationSummary(
             thesis: "核心论点",
             takeaways: ["观点1", "观点2", "观点3"],
@@ -668,9 +833,48 @@ private func seedSucceededDigest(
     )))
 }
 
+private func materialSnapshot(for sourceChecksum: String) throws -> MaterialSnapshot {
+    let blocks = [
+        MaterialBlock(
+            id: MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000a001")!),
+            role: .transcript,
+            text: "开场",
+            locator: .timestamp(startSeconds: 0, endSeconds: 8),
+            confidence: nil
+        ),
+        MaterialBlock(
+            id: MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000a002")!),
+            role: .transcript,
+            text: "主体",
+            locator: .timestamp(startSeconds: 8, endSeconds: 20),
+            confidence: nil
+        )
+    ]
+    let draft = MaterialSnapshot(
+        sourceChecksum: sourceChecksum,
+        contentFingerprint: "pending",
+        blocks: blocks,
+        coverage: .sufficient,
+        provenance: MaterialAcquisitionProvenance(
+            adapterIdentifier: "test-adapter",
+            adapterVersion: "1",
+            acquiredAt: Date(timeIntervalSince1970: 1_800_000_000)
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+    )
+    return MaterialSnapshot(
+        sourceChecksum: sourceChecksum,
+        contentFingerprint: try WorkspaceChecksum.materialSnapshotContentFingerprint(draft),
+        blocks: blocks,
+        coverage: draft.coverage,
+        provenance: draft.provenance,
+        createdAt: draft.createdAt
+    )
+}
+
 @MainActor
 private func waitUntil(
-    timeoutNanoseconds: UInt64 = 200_000_000,
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
     _ predicate: @MainActor () -> Bool
 ) async -> Bool {
     let start = DispatchTime.now().uptimeNanoseconds

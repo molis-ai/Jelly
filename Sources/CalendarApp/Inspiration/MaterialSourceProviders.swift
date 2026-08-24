@@ -543,28 +543,113 @@ enum MaterialURLSafety {
 struct RoutedMaterialAcquirer: MaterialAcquiring {
     let bilibili: BilibiliMaterialAcquirer
     let xiaoyuzhou: XiaoyuzhouMaterialAcquirer
+    let xiaohongshu: XiaohongshuMaterialAcquirer
+    let article: PublicWebArticleAcquirer
+    private let recorder: InvocationRecorder?
 
     init(client: MaterialHTTPClient = MaterialHTTPClient()) {
         self.init(
             bilibili: BilibiliMaterialAcquirer(client: client),
-            xiaoyuzhou: XiaoyuzhouMaterialAcquirer(client: client)
+            xiaoyuzhou: XiaoyuzhouMaterialAcquirer(client: client),
+            xiaohongshu: XiaohongshuMaterialAcquirer(client: client),
+            article: PublicWebArticleAcquirer(client: client)
         )
     }
 
-    init(bilibili: BilibiliMaterialAcquirer, xiaoyuzhou: XiaoyuzhouMaterialAcquirer) {
+    init(
+        bilibili: BilibiliMaterialAcquirer,
+        xiaoyuzhou: XiaoyuzhouMaterialAcquirer,
+        xiaohongshu: XiaohongshuMaterialAcquirer? = nil,
+        article: PublicWebArticleAcquirer? = nil,
+        recorder: InvocationRecorder? = nil
+    ) {
         self.bilibili = bilibili
         self.xiaoyuzhou = xiaoyuzhou
+        self.xiaohongshu = xiaohongshu ?? XiaohongshuMaterialAcquirer(client: bilibili.client)
+        self.article = article ?? PublicWebArticleAcquirer(client: bilibili.client)
+        self.recorder = recorder
+    }
+
+    init(recordingAdapters: Bool, client: MaterialHTTPClient = MaterialHTTPClient()) {
+        self.init(
+            bilibili: BilibiliMaterialAcquirer(client: client),
+            xiaoyuzhou: XiaoyuzhouMaterialAcquirer(client: client),
+            xiaohongshu: XiaohongshuMaterialAcquirer(client: client),
+            article: PublicWebArticleAcquirer(client: client),
+            recorder: recordingAdapters ? InvocationRecorder() : nil
+        )
+    }
+
+    var bilibiliInvocationCount: Int {
+        recorder?.bilibiliCount ?? 0
     }
 
     func acquire(_ source: MaterialSource) async throws -> MaterialAcquisition {
-        switch SourceKindClassifier.classify(source.url) {
-        case .video:
-            try await bilibili.acquire(source)
-        case .audio:
-            try await xiaoyuzhou.acquire(source)
-        default:
+        switch source.descriptor.kind {
+        case .bilibiliVideo:
+            recorder?.bilibiliCount += 1
+            return try await bilibili.acquire(source)
+        case .xiaoyuzhouEpisode:
+            recorder?.xiaoyuzhouCount += 1
+            return try await xiaoyuzhou.acquire(source)
+        case .publicWebArticle:
+            return try await article.acquire(source)
+        case .xiaohongshuNote:
+            return .composite(try await xiaohongshu.acquire(source))
+        case .localText, .localFile:
             throw MaterialDigestPipelineError.unsupportedSource
         }
+    }
+
+    final class InvocationRecorder: @unchecked Sendable {
+        var bilibiliCount = 0
+        var xiaoyuzhouCount = 0
+    }
+}
+
+struct PublicWebArticleAcquirer: MaterialAcquiring {
+    let client: MaterialHTTPClient
+    let extractor: HTMLMaterialExtractor
+    private let limits: MaterialHTTPLimits
+
+    init(
+        client: MaterialHTTPClient,
+        extractor: HTMLMaterialExtractor = HTMLMaterialExtractor(),
+        limits: MaterialHTTPLimits = .init()
+    ) {
+        self.client = client
+        self.extractor = extractor
+        self.limits = limits
+    }
+
+    func acquire(_ source: MaterialSource) async throws -> MaterialAcquisition {
+        guard source.descriptor.kind == .publicWebArticle,
+              source.kind == .article || source.kind == .socialPost || source.kind == .unknown,
+              let sourceURL = source.url
+        else {
+            throw MaterialDigestPipelineError.unsupportedSource
+        }
+        let response: (data: Data, response: HTTPURLResponse, finalURL: URL)
+        do {
+            response = try await client.get(
+                sourceURL,
+                headers: MaterialRequestHeaders.pageHeaders,
+                maxBytes: limits.maxHTMLBytes
+            )
+        } catch MaterialHTTPClientError.restricted {
+            throw MaterialDigestPipelineError.restrictedSource
+        } catch MaterialHTTPClientError.tooLarge {
+            throw MaterialDigestPipelineError.contextTooLong
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw MaterialDigestPipelineError.sourceUnavailable
+        }
+        let mime = response.response.mimeType?.lowercased()
+        guard mime == "text/html" || mime == "application/xhtml+xml" else {
+            throw MaterialDigestPipelineError.unsupportedSource
+        }
+        return .blocks(try extractor.extract(data: response.data, baseURL: response.finalURL))
     }
 }
 
@@ -573,7 +658,10 @@ struct BilibiliMaterialAcquirer: MaterialAcquiring {
     private let limits = MaterialHTTPLimits()
 
     func acquire(_ source: MaterialSource) async throws -> MaterialAcquisition {
-        let page = try await fetchPage(source.url)
+        guard let sourceURL = source.url else {
+            throw MaterialDigestPipelineError.unsupportedSource
+        }
+        let page = try await fetchPage(sourceURL)
         guard isBilibiliVideoPage(page.finalURL) else {
             throw MaterialDigestPipelineError.unsupportedSource
         }
@@ -582,7 +670,9 @@ struct BilibiliMaterialAcquirer: MaterialAcquiring {
         }
         let player = try await fetchPlayer(bvid: state.bvid, cid: state.cid, referer: page.finalURL)
         if let transcript = try await preferredTranscript(from: player, referer: page.finalURL) {
-            return .transcript(transcript)
+            return .blocks(
+                .transcript(transcript, adapterIdentifier: "bilibili")
+            )
         }
         var audioURL = player.audioURL
         var audioBytes = player.audioBytes
@@ -594,8 +684,9 @@ struct BilibiliMaterialAcquirer: MaterialAcquiring {
         guard let audioURL else {
             throw MaterialDigestPipelineError.sourceUnavailable
         }
-        return .remoteAudio(
-            RemoteAudioAsset(
+        return .remoteMedia(
+            RemoteMediaAsset(
+                kind: .audio,
                 url: audioURL,
                 requestHeaders: [
                     "User-Agent": MaterialRequestHeaders.desktopUserAgent,
@@ -706,13 +797,15 @@ struct XiaoyuzhouMaterialAcquirer: MaterialAcquiring {
     private let limits = MaterialHTTPLimits()
 
     func acquire(_ source: MaterialSource) async throws -> MaterialAcquisition {
-        guard SourceKindClassifier.classify(source.url) == .audio else {
+        guard let sourceURL = source.url,
+              SourceKindClassifier.classify(sourceURL) == .audio
+        else {
             throw MaterialDigestPipelineError.unsupportedSource
         }
         let page: (html: String, finalURL: URL)
         do {
             let result = try await client.get(
-                source.url,
+                sourceURL,
                 headers: MaterialRequestHeaders.pageHeaders,
                 maxBytes: limits.maxHTMLBytes
             )
@@ -730,8 +823,9 @@ struct XiaoyuzhouMaterialAcquirer: MaterialAcquiring {
         else {
             throw MaterialDigestPipelineError.sourceUnavailable
         }
-        return .remoteAudio(
-            RemoteAudioAsset(
+        return .remoteMedia(
+            RemoteMediaAsset(
+                kind: .audio,
                 url: audioURL,
                 requestHeaders: MaterialRequestHeaders.pageHeaders,
                 estimatedBytes: nil
@@ -828,6 +922,8 @@ final class TemporaryMaterialAudioDownloader: MaterialAudioDownloading, @uncheck
         case "audio/mpeg", "audio/mp3": return ".mp3"
         case "audio/wav", "audio/x-wav": return ".wav"
         case "audio/mp4", "audio/mp4a-latm", "audio/aac": return ".m4a"
+        case "video/mp4": return ".mp4"
+        case "video/quicktime": return ".mov"
         default: return ".m4a"
         }
     }

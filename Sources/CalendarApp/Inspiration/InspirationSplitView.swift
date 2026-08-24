@@ -1,6 +1,7 @@
 import AppKit
 import CalendarDomain
 import SwiftUI
+import UniformTypeIdentifiers
 import WorkspaceDomain
 
 struct InspirationSplitView: View {
@@ -182,8 +183,27 @@ struct InspirationSplitView: View {
                     message: message,
                     stateGeneration: store.statePublicationGeneration
                 )
-            }
+            },
+            onPasteRecovery: preparePasteRecovery,
+            onChooseFileRecovery: chooseRecoveryFile
         )
+    }
+
+    private func preparePasteRecovery() {
+        if let text = NSPasteboard.general.string(forType: .string),
+           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            model.captureText = text
+        }
+        inboxCollapsed = false
+        captureFocused = true
+    }
+
+    private func chooseRecoveryFile() {
+        guard let selection = InspirationMaterialFilePicker.choose() else { return }
+        Task {
+            _ = await model.captureFile(at: selection.url, kind: selection.kind)
+            if NotesAdaptiveLayout.isCompact(width: availableWidth) { inboxCollapsed = true }
+        }
     }
 
     private var visibleInspirationCount: Int {
@@ -458,6 +478,7 @@ struct InspirationInboxView: View {
     private func rowTitle(_ item: Inspiration) -> String {
         if let title = item.resolvedMetadata?.title, !title.isEmpty { return title }
         if let text = item.rawText, !text.isEmpty { return text }
+        if let file = item.rawFile { return file.displayName }
         return item.rawURL?.absoluteString ?? "灵感"
     }
 
@@ -491,6 +512,17 @@ struct InspirationCaptureView: View {
                 .focused(isFocused)
                 .onSubmit { capture() }
             Button {
+                chooseFile()
+            } label: {
+                Image(systemName: "paperclip")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .help("选择一份材料文件")
+            .accessibilityLabel("选择材料文件")
+            .accessibilityIdentifier("inspiration-capture-file")
+            Button {
                 capture()
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
@@ -522,6 +554,59 @@ struct InspirationCaptureView: View {
         Task {
             if let id = try? await model.capture(model.captureText) { onCaptured(id) }
         }
+    }
+
+    private func chooseFile() {
+        guard let selection = InspirationMaterialFilePicker.choose() else { return }
+        Task {
+            if let id = await model.captureFile(at: selection.url, kind: selection.kind) {
+                onCaptured(id)
+            }
+        }
+    }
+}
+
+private struct InspirationMaterialFileSelection {
+    let url: URL
+    let kind: ResolvedSourceKind
+}
+
+@MainActor
+private enum InspirationMaterialFilePicker {
+    static func choose() -> InspirationMaterialFileSelection? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [
+            .plainText,
+            .html,
+            .pdf,
+            .image,
+            .audio,
+            .movie,
+            UTType(filenameExtension: "md")
+        ].compactMap { $0 }
+        panel.message = "选择 TXT、Markdown、HTML、图片、PDF、音频或视频。"
+        panel.prompt = "收下材料"
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType
+        let kind: ResolvedSourceKind
+        if contentType?.conforms(to: .image) == true {
+            kind = .image
+        } else if contentType?.conforms(to: .audio) == true {
+            kind = .audio
+        } else if contentType?.conforms(to: .movie) == true {
+            kind = .video
+        } else if contentType?.conforms(to: .html) == true {
+            kind = .article
+        } else if contentType?.conforms(to: .plainText) == true
+                    || url.pathExtension.lowercased() == "md" {
+            kind = .plainText
+        } else {
+            kind = .document
+        }
+        return InspirationMaterialFileSelection(url: url, kind: kind)
     }
 }
 
@@ -586,6 +671,8 @@ struct InspirationDetailView: View {
     var onOpenNote: (NoteID) -> Void = { _ in }
     var onConverted: (NoteID, String) -> Void = { _, _ in }
     var onLifecycleChanged: (String) -> Void = { _ in }
+    var onPasteRecovery: () -> Void = {}
+    var onChooseFileRecovery: () -> Void = {}
     @State private var pendingPermanentDelete: InspirationPermanentDeleteRequest?
     @State private var deleteStatus: String?
     @FocusState private var contentEditorFocused: Bool
@@ -610,7 +697,10 @@ struct InspirationDetailView: View {
                             onStart: { Task { await model.startSelectedDigest() } },
                             onCancel: { Task { await model.cancelSelectedDigest() } },
                             onRetry: { Task { await model.retrySelectedDigest() } },
-                            onConfirmDownload: { Task { await model.confirmSelectedModelDownload() } }
+                            onRefresh: { Task { await model.refreshSelectedDigest() } },
+                            onConfirmDownload: { Task { await model.confirmSelectedModelDownload() } },
+                            onPasteRecovery: onPasteRecovery,
+                            onChooseFileRecovery: onChooseFileRecovery
                         )
                         statusSection
                     }
@@ -989,6 +1079,7 @@ struct InspirationDetailView: View {
     private func primaryContent(_ inspiration: Inspiration) -> String {
         if let text = inspiration.rawText, !text.isEmpty { return text }
         if let url = inspiration.rawURL { return url.absoluteString }
+        if let file = inspiration.rawFile { return file.displayName }
         return "（没有可显示的内容）"
     }
 }
