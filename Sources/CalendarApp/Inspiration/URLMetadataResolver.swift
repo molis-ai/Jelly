@@ -1,4 +1,5 @@
 import Foundation
+import libxml2
 import WorkspaceDomain
 
 /// Best-effort URL enrichment with timeout, size cap and no script execution.
@@ -24,7 +25,6 @@ final class URLMetadataResolver: URLMetadataResolving, @unchecked Sendable {
     }
 
     func resolve(_ url: URL) async throws -> URLMetadataResolveResult {
-        // 域名能判定的源不依赖 HTML 解析结果；解析失败时由调用方兜底保留同一判定。
         let classifiedKind = SourceKindClassifier.classify(url)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -38,27 +38,42 @@ final class URLMetadataResolver: URLMetadataResolving, @unchecked Sendable {
         else {
             throw URLMetadataResolverError.unsupportedContentType
         }
-        if http.expectedContentLength > Int64(maxBytes) {
-            throw URLMetadataResolverError.responseTooLarge
-        }
         var data = Data()
         data.reserveCapacity(min(maxBytes, max(0, Int(http.expectedContentLength))))
+        let checkStep = max(1, min(4_096, maxBytes))
         for try await byte in bytes {
             guard data.count < maxBytes else {
+                if let title = Self.extractTitle(from: String(decoding: data, as: UTF8.self)) {
+                    return Self.resolvedResult(url: url, title: title, classifiedKind: classifiedKind)
+                }
                 throw URLMetadataResolverError.responseTooLarge
             }
             data.append(byte)
+            if data.count.isMultiple(of: checkStep),
+               let title = Self.extractTitle(from: String(decoding: data, as: UTF8.self)) {
+                return Self.resolvedResult(url: url, title: title, classifiedKind: classifiedKind)
+            }
         }
         let html = String(decoding: data, as: UTF8.self)
         let title = Self.extractTitle(from: html) ?? url.host
-        let metadata = SourceMetadata(
-            title: title,
-            siteName: url.host,
-            domain: url.host,
-            thumbnailURL: nil,
-            fetchStatus: .succeeded
+        return Self.resolvedResult(url: url, title: title, classifiedKind: classifiedKind)
+    }
+
+    private static func resolvedResult(
+        url: URL,
+        title: String?,
+        classifiedKind: ResolvedSourceKind?
+    ) -> URLMetadataResolveResult {
+        .init(
+            metadata: SourceMetadata(
+                title: MaterialSource.normalizedSourceTitle(title),
+                siteName: url.host,
+                domain: url.host,
+                thumbnailURL: nil,
+                fetchStatus: .succeeded
+            ),
+            resolvedKind: classifiedKind ?? .article
         )
-        return .init(metadata: metadata, resolvedKind: classifiedKind ?? .article)
     }
 
     private static func extractTitle(from html: String) -> String? {
@@ -67,7 +82,71 @@ final class URLMetadataResolver: URLMetadataResolving, @unchecked Sendable {
         else { return nil }
         let raw = html[start.upperBound..<end.lowerBound]
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? nil : String(raw.prefix(200))
+        guard !raw.isEmpty else { return nil }
+        return decodeHTMLEntities(String(raw))
+    }
+
+    private static func decodeHTMLEntities(_ text: String) -> String {
+        var result = String()
+        result.reserveCapacity(text.count)
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            guard text[index] == "&",
+                  let semicolon = entityTerminator(in: text, after: index)
+            else {
+                result.append(text[index])
+                index = text.index(after: index)
+                continue
+            }
+
+            let bodyStart = text.index(after: index)
+            let body = text[bodyStart..<semicolon]
+            if let scalar = decodedEntity(body) {
+                result.unicodeScalars.append(scalar)
+                index = text.index(after: semicolon)
+            } else {
+                result.append("&")
+                index = text.index(after: index)
+            }
+        }
+        return result
+    }
+
+    private static func entityTerminator(
+        in text: String,
+        after ampersand: String.Index
+    ) -> String.Index? {
+        var cursor = text.index(after: ampersand)
+        for _ in 0..<32 {
+            guard cursor < text.endIndex else { return nil }
+            if text[cursor] == ";" { return cursor }
+            cursor = text.index(after: cursor)
+        }
+        return nil
+    }
+
+    private static func decodedEntity(_ body: Substring) -> Unicode.Scalar? {
+        guard !body.isEmpty else { return nil }
+        if body.first == "#" {
+            let numberStart = body.index(after: body.startIndex)
+            let number = body[numberStart...]
+            let isHex = number.first == "x" || number.first == "X"
+            let digits = isHex ? number.dropFirst() : number[...]
+            guard !digits.isEmpty,
+                  let value = UInt32(digits, radix: isHex ? 16 : 10)
+            else { return nil }
+            return Unicode.Scalar(value)
+        }
+
+        var bytes = Array(body.utf8)
+        bytes.append(0)
+        return bytes.withUnsafeBufferPointer { buffer in
+            guard let entity = htmlEntityLookup(buffer.baseAddress),
+                  entity.pointee.value >= 0
+            else { return nil }
+            return Unicode.Scalar(UInt32(entity.pointee.value))
+        }
     }
 }
 

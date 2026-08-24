@@ -68,9 +68,20 @@ struct PersonalCalendarApp: App {
                         searchIndex: environment.searchIndex,
                         focusRegistry: editorFocusRegistry,
                         transitionCoordinator: transitionCoordinator,
-                        terminationCoordinator: terminationCoordinator
+                        terminationCoordinator: terminationCoordinator,
+                        materialDigestOperator: environment.materialDigestOperator,
+                        isDigestConfigured: {
+                            DigestRuntimeConfiguration.isConfigured(
+                                endpoint: environment.digestSettingsStore.endpoint,
+                                model: environment.digestSettingsStore.model,
+                                secret: try? environment.digestCredentialStore.load()
+                            )
+                        }
                     )
-                    .task { await environment.store.load() }
+                    .task {
+                        await environment.store.load()
+                        await environment.materialDigestOperator?.reconcileInterruptedRuns()
+                    }
                 } else {
                     AppStartupFailureView(
                         message: startupError ?? "无法打开数据目录。",
@@ -117,6 +128,18 @@ struct PersonalCalendarApp: App {
                 .preferredColorScheme(appearancePreference.preferredColorScheme)
         }
         .defaultSize(width: 560, height: 440)
+
+        Settings {
+            if let environment {
+                DigestSettingsView(
+                    settings: environment.digestSettingsStore,
+                    credentials: environment.digestCredentialStore
+                )
+            } else {
+                Text("无法打开材料提炼设置。")
+                    .frame(minWidth: 360, minHeight: 180)
+            }
+        }
 
         // Category manager is presented as a sheet on the main calendar window so it
         // always appears on the same display (separate Window scenes often restore to

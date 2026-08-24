@@ -11,6 +11,13 @@ struct AppEnvironment {
     /// The production application stays calendar-only until a module has its
     /// complete real loop. Feature state is deliberately not user preference data.
     let features: WorkspaceFeatures
+    let materialDigestOperator: (any MaterialDigestOperating)?
+    let digestSettingsStore: DigestSettingsStore
+    let digestCredentialStore: any DigestCredentialStoring
+
+    var whisperModelDirectory: URL {
+        dataURLs.root.appendingPathComponent("Models/WhisperKit", isDirectory: true)
+    }
 
     static func live(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -30,11 +37,40 @@ struct AppEnvironment {
             recoveryManifestURL: dataURLs.recoveryManifest
         )
         let journal = DraftJournalRepository(fileURL: dataURLs.draftJournal)
+        let whisperDirectory = dataURLs.root.appendingPathComponent("Models/WhisperKit", isDirectory: true)
+        try fileManager.createDirectory(at: whisperDirectory, withIntermediateDirectories: true)
+        let store = WorkspaceStore(initialState: seed, repository: repository, journal: journal)
+        let digestSettingsStore = DigestSettingsStore(defaults: try DigestSettingsDefaults.resolve(
+            environment: environment,
+            dataRoot: dataURLs.root
+        ))
+        let digestCredentialStore = KeychainDigestCredentialStore(
+            service: DigestCredentialService.resolve(
+                environment: environment,
+                dataRoot: dataURLs.root
+            )
+        )
+        let httpClient = MaterialHTTPClient()
+        let coordinator = MaterialDigestCoordinator(
+            store: store,
+            acquirer: RoutedMaterialAcquirer(client: httpClient),
+            audioDownloader: TemporaryMaterialAudioDownloader(client: httpClient),
+            transcriber: WhisperKitMaterialTranscriber(modelDirectory: whisperDirectory),
+            summarizer: HierarchicalMaterialSummarizer(
+                base: OpenAICompatibleMaterialSummarizer(
+                    settings: digestSettingsStore,
+                    credentials: digestCredentialStore
+                )
+            )
+        )
         return AppEnvironment(
-            store: WorkspaceStore(initialState: seed, repository: repository, journal: journal),
+            store: store,
             dataURLs: dataURLs,
             searchIndex: WorkspaceSearchIndex(fileURL: dataURLs.searchIndex),
-            features: .production
+            features: .production,
+            materialDigestOperator: coordinator,
+            digestSettingsStore: digestSettingsStore,
+            digestCredentialStore: digestCredentialStore
         )
     }
 

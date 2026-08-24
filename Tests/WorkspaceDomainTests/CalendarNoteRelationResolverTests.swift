@@ -259,7 +259,8 @@ private struct RelationFixture {
             inspirations: [:],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
     }
 }

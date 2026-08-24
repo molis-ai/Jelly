@@ -1,26 +1,46 @@
 import Foundation
 import WorkspaceDomain
 
-/// 域名级来源分类：发网络请求之前即可判定，元数据解析失败时也能留下 kind。
-/// 只做纯函数判断，不发网络；返回 nil 表示域名层面无法判定，交回原有解析流程。
 enum SourceKindClassifier {
     static func classify(_ url: URL) -> ResolvedSourceKind? {
-        guard let host = url.host?.lowercased() else { return nil }
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased()
+        else { return nil }
         let path = url.path.lowercased()
-        // B 站短链一律指向视频分享页，按视频处理。
         if host == "b23.tv" { return .video }
-        // B 站主站只有 /video/ 播放页按视频处理；专栏 /read/、空间页等不猜。
-        if isHost(host, domain: "bilibili.com"), path.hasPrefix("/video/") {
-            return .video
-        }
-        // 小宇宙单集页；节目首页 /podcast/ 不是单集，不要猜。
-        if isHost(host, domain: "xiaoyuzhoufm.com"), path.hasPrefix("/episode/") {
-            return .audio
-        }
+        if (host == "bilibili.com" || host.hasSuffix(".bilibili.com")),
+           path.hasPrefix("/video/") { return .video }
+        if (host == "xiaoyuzhoufm.com" || host.hasSuffix(".xiaoyuzhoufm.com")),
+           path.hasPrefix("/episode/") { return .audio }
+        if xiaohongshuNoteID(for: url) != nil { return .socialPost }
         return nil
     }
 
-    private static func isHost(_ host: String, domain: String) -> Bool {
-        host == domain || host.hasSuffix(".\(domain)")
+    static func xiaohongshuNoteID(for url: URL) -> String? {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "xiaohongshu.com" || host.hasSuffix(".xiaohongshu.com"),
+              let encodedPath = URLComponents(
+                url: url,
+                resolvingAgainstBaseURL: false
+              )?.percentEncodedPath
+        else { return nil }
+        let components = encodedPath.split(separator: "/", omittingEmptySubsequences: true)
+        let rawID: Substring
+        if components.count == 2, components[0].lowercased() == "explore" {
+            rawID = components[1]
+        } else if components.count == 3,
+                  components[0].lowercased() == "discovery",
+                  components[1].lowercased() == "item" {
+            rawID = components[2]
+        } else {
+            return nil
+        }
+        guard (1...128).contains(rawID.utf8.count),
+              rawID.unicodeScalars.allSatisfy({
+                CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
+              })
+        else { return nil }
+        return String(rawID)
     }
 }

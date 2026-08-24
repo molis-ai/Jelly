@@ -159,16 +159,20 @@ public enum WorkspaceConsistencyInspector {
             issues.map { "\($0.id.rawValue)|\(canonical($0.locator))|\(canonical($0.defect))" }
                 .joined(separator: "\n")
         )
+        let materialDigestsAreFatal = (try? WorkspaceValidator.validateMaterialDigests(state)) == nil
         var structuralProbe = state
         structuralProbe.calendarNoteRelations = .empty
         structuralProbe.taskBlockLinks = []
         structuralProbe.inspirationNoteLinks = []
+        for inspirationID in structuralProbe.materialDigests.keys {
+            structuralProbe.materialDigests[inspirationID]?.noteWrite = nil
+        }
         let coreIsFatal = (try? WorkspaceValidator.validate(structuralProbe)) == nil
         return .init(
             issues: issues,
             issuesChecksum: checksum,
             fatalNoteIDs: fatalNoteIDs,
-            hasFatalIssues: coreIsFatal || hasFatalRelationshipShape(state)
+            hasFatalIssues: materialDigestsAreFatal || coreIsFatal || hasFatalRelationshipShape(state)
         )
     }
 

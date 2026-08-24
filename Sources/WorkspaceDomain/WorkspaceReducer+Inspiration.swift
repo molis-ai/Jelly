@@ -42,6 +42,7 @@ extension WorkspaceReducer {
         inspiration.rawText = rawText
         inspiration.updatedAt = now
         candidate.inspirations[id] = inspiration
+        candidate.materialDigests.removeValue(forKey: id)
         return .proceed
     }
 
@@ -93,6 +94,79 @@ extension WorkspaceReducer {
             noteID: payload.proposedNote.id,
             createdAt: now
         ))
+        if let plan = payload.digestWrite {
+            guard var digest = candidate.materialDigests[payload.inspirationID],
+                  let result = digest.result,
+                  try WorkspaceChecksum.materialDigestResultFingerprint(result) == plan.resultFingerprint,
+                  !plan.blockIDs.isEmpty,
+                  Set(plan.blockIDs).count == plan.blockIDs.count,
+                  Set(plan.blockIDs).isSubset(of: Set(payload.proposedNote.document.blocks.map(\.id)))
+            else {
+                throw WorkspaceReducerError.invalidInspiration
+            }
+            digest.noteWrite = MaterialDigestNoteWrite(
+                noteID: payload.proposedNote.id,
+                resultFingerprint: plan.resultFingerprint,
+                blockIDs: plan.blockIDs,
+                writtenAt: now
+            )
+            digest.updatedAt = now
+            candidate.materialDigests[payload.inspirationID] = digest
+        }
+        return .proceed
+    }
+
+    static func writeMaterialDigestToNote(
+        _ payload: WriteMaterialDigestToNotePayload,
+        in candidate: inout WorkspaceState,
+        now: Date
+    ) throws -> WorkspaceCommandControl {
+        guard var digest = candidate.materialDigests[payload.inspirationID],
+              let result = digest.result,
+              let noteLink = candidate.inspirationNoteLinks.first(where: { link in
+                  if case let .live(id) = link.source {
+                      return id == payload.inspirationID && link.noteID == payload.noteID
+                  }
+                  return false
+              }),
+              noteLink.noteID == payload.noteID,
+              var note = candidate.notes[payload.noteID]
+        else {
+            throw WorkspaceReducerError.invalidInspiration
+        }
+        guard note.revision == payload.expectedNoteRevision,
+              try WorkspaceChecksum.materialDigestResultFingerprint(result) == payload.resultFingerprint
+        else {
+            return .result(.noChange(.staleMaterialDigestNote))
+        }
+        if digest.noteWrite?.noteID == payload.noteID,
+           digest.noteWrite?.resultFingerprint == payload.resultFingerprint {
+            return .result(.noChange(.materialDigestAlreadyWritten(payload.noteID)))
+        }
+        guard !payload.proposedBlocks.isEmpty,
+              Set(payload.proposedBlocks.map(\.id)).count == payload.proposedBlocks.count
+        else {
+            throw WorkspaceReducerError.invalidInspiration
+        }
+        let existingBlockIDs = Set(note.document.blocks.map(\.id))
+        guard existingBlockIDs.isDisjoint(with: payload.proposedBlocks.map(\.id)) else {
+            throw WorkspaceReducerError.invalidInspiration
+        }
+        if let previous = digest.noteWrite, previous.noteID == payload.noteID {
+            let replacedIDs = Set(previous.blockIDs)
+            note.document.blocks.removeAll { replacedIDs.contains($0.id) }
+        }
+        note.document.blocks.append(contentsOf: payload.proposedBlocks)
+        note.updatedAt = now
+        candidate.notes[payload.noteID] = note
+        digest.noteWrite = MaterialDigestNoteWrite(
+            noteID: payload.noteID,
+            resultFingerprint: payload.resultFingerprint,
+            blockIDs: payload.proposedBlocks.map(\.id),
+            writtenAt: now
+        )
+        digest.updatedAt = now
+        candidate.materialDigests[payload.inspirationID] = digest
         return .proceed
     }
 
@@ -158,6 +232,7 @@ extension WorkspaceReducer {
                 createdAt: link.createdAt
             )
         })
+        candidate.materialDigests.removeValue(forKey: id)
         candidate.inspirations.removeValue(forKey: id)
         return .proceed
     }

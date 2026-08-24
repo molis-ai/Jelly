@@ -1063,6 +1063,42 @@ struct WorkspaceReducerTests {
         #expect(state.notes[Task4Fixture.newNoteID]?.revision == 41)
     }
 
+    @Test func restorePreservesMaterialDigestsAndRejectsMismatchedKeys() throws {
+        let fixture = MaterialDigestReducerFixture()
+        let source = try fixture.succeededState()
+        var current = fixture.workspace
+        current.revision = 10
+        let snapshot = WorkspaceContentSnapshot(state: source)
+        let restored = try WorkspaceReducer.reduce(
+            current,
+            command: .restoreContent(.init(
+                content: snapshot,
+                sourceRevisionHighWatermark: source.revision,
+                sourceNoteRevisions: [:]
+            )),
+            now: fixture.later
+        )
+        let state = try #require(restored.change).state
+        #expect(state.materialDigests[fixture.inspiration.id]?.result == fixture.result)
+        #expect(state.inspirations[fixture.inspiration.id]?.rawURL == fixture.inspiration.rawURL)
+
+        var mismatched = snapshot
+        if let digest = mismatched.materialDigests.removeValue(forKey: fixture.inspiration.id) {
+            mismatched.materialDigests[InspirationID()] = digest
+        }
+        #expect(throws: WorkspaceReducerError.invalidRestoreMetadata) {
+            try WorkspaceReducer.reduce(
+                current,
+                command: .restoreContent(.init(
+                    content: mismatched,
+                    sourceRevisionHighWatermark: source.revision,
+                    sourceNoteRevisions: [:]
+                )),
+                now: fixture.later
+            )
+        }
+    }
+
     @Test func restoreRejectsInvalidMetadataAndOverflowBeforeMutation() throws {
         let workspace = try Task4Fixture.workspace()
         let snapshot = WorkspaceContentSnapshot(state: workspace)
@@ -1245,7 +1281,8 @@ enum Task4Fixture {
             inspirations: [inspirationID: inspiration()],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
     }
 

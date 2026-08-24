@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WorkspaceDomain
 @testable import CalendarApp
 
 @Suite("AppEnvironmentWorkspaceCutoverTests")
@@ -16,6 +17,21 @@ struct AppEnvironmentWorkspaceCutoverTests {
         #expect(environment.features == .production)
         #expect(environment.features.notes == true)
         #expect(environment.features.inspiration == true)
+        #expect(environment.materialDigestOperator is MaterialDigestCoordinator)
+        #expect(environment.whisperModelDirectory.path.hasSuffix("Models/WhisperKit"))
+        #expect(FileManager.default.fileExists(atPath: environment.whisperModelDirectory.path))
+    }
+
+    @Test func liveEnvironmentBuildsDescriptorRouterAndV3Summarizer() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-v3-environment-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let environment = try AppEnvironment.live(environment: [
+            "JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path
+        ])
+        #expect(environment.materialDigestOperator != nil)
+        #expect(MaterialDigestSummaryContract.current == "summary-contract-v3")
+        #expect(environment.materialDigestOperator is MaterialDigestCoordinator)
     }
 
     @Test func liveEnvironmentComposesOneWorkspaceStoreFromTheResolvedDataDirectory() async throws {

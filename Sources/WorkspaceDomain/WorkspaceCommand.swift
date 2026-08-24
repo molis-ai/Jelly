@@ -169,10 +169,48 @@ public struct CreateInspirationPayload: Equatable, Sendable {
 public struct ConvertInspirationToNotePayload: Equatable, Sendable {
     public let inspirationID: InspirationID
     public let proposedNote: Note
+    public let digestWrite: MaterialDigestNoteWritePlan?
 
-    public init(inspirationID: InspirationID, proposedNote: Note) {
+    public init(
+        inspirationID: InspirationID,
+        proposedNote: Note,
+        digestWrite: MaterialDigestNoteWritePlan? = nil
+    ) {
         self.inspirationID = inspirationID
         self.proposedNote = proposedNote
+        self.digestWrite = digestWrite
+    }
+}
+
+public struct MaterialDigestNoteWritePlan: Equatable, Sendable {
+    public let resultFingerprint: String
+    public let blockIDs: [BlockID]
+
+    public init(resultFingerprint: String, blockIDs: [BlockID]) {
+        self.resultFingerprint = resultFingerprint
+        self.blockIDs = blockIDs
+    }
+}
+
+public struct WriteMaterialDigestToNotePayload: Equatable, Sendable {
+    public let inspirationID: InspirationID
+    public let noteID: NoteID
+    public let expectedNoteRevision: Int64
+    public let resultFingerprint: String
+    public let proposedBlocks: [DocumentBlock]
+
+    public init(
+        inspirationID: InspirationID,
+        noteID: NoteID,
+        expectedNoteRevision: Int64,
+        resultFingerprint: String,
+        proposedBlocks: [DocumentBlock]
+    ) {
+        self.inspirationID = inspirationID
+        self.noteID = noteID
+        self.expectedNoteRevision = expectedNoteRevision
+        self.resultFingerprint = resultFingerprint
+        self.proposedBlocks = proposedBlocks
     }
 }
 
@@ -189,6 +227,106 @@ public enum TaskCompletionValue: Equatable, Sendable {
 public struct InspirationMetadataExpectation: Equatable, Sendable {
     public let sourceChecksum: String
     public init(sourceChecksum: String) { self.sourceChecksum = sourceChecksum }
+}
+
+public struct MaterialDigestRunExpectation: Equatable, Sendable {
+    public let inspirationID: InspirationID
+    public let runID: MaterialDigestRunID
+    public let sourceChecksum: String
+
+    public init(inspirationID: InspirationID, runID: MaterialDigestRunID, sourceChecksum: String) {
+        self.inspirationID = inspirationID
+        self.runID = runID
+        self.sourceChecksum = sourceChecksum
+    }
+}
+
+public enum MaterialDigestStartMode: Equatable, Sendable {
+    case reusePreparedSnapshot
+    case refreshSource
+}
+
+public struct StartMaterialDigestPayload: Equatable, Sendable {
+    public let inspirationID: InspirationID
+    public let digestID: MaterialDigestID
+    public let runID: MaterialDigestRunID
+    public let expectedSourceChecksum: String
+    public let mode: MaterialDigestStartMode
+
+    public init(
+        inspirationID: InspirationID,
+        digestID: MaterialDigestID,
+        runID: MaterialDigestRunID,
+        expectedSourceChecksum: String,
+        mode: MaterialDigestStartMode = .refreshSource
+    ) {
+        self.inspirationID = inspirationID
+        self.digestID = digestID
+        self.runID = runID
+        self.expectedSourceChecksum = expectedSourceChecksum
+        self.mode = mode
+    }
+}
+
+public struct AdvanceMaterialDigestStagePayload: Equatable, Sendable {
+    public let expectation: MaterialDigestRunExpectation
+    public let stage: MaterialDigestStage
+    public let modelDownloadApproximateBytes: Int64?
+
+    public init(
+        expectation: MaterialDigestRunExpectation,
+        stage: MaterialDigestStage,
+        modelDownloadApproximateBytes: Int64? = nil
+    ) {
+        self.expectation = expectation
+        self.stage = stage
+        self.modelDownloadApproximateBytes = modelDownloadApproximateBytes
+    }
+}
+
+public struct SaveMaterialSnapshotPayload: Equatable, Sendable {
+    public let expectation: MaterialDigestRunExpectation
+    public let snapshot: MaterialSnapshot
+
+    public init(expectation: MaterialDigestRunExpectation, snapshot: MaterialSnapshot) {
+        self.expectation = expectation
+        self.snapshot = snapshot
+    }
+}
+
+public struct CompleteMaterialDigestPayload: Equatable, Sendable {
+    public let expectation: MaterialDigestRunExpectation
+    public let expectedContentFingerprint: String
+    public let summary: InspirationSummary
+    public let provenance: DigestProvenance
+
+    public init(
+        expectation: MaterialDigestRunExpectation,
+        expectedContentFingerprint: String,
+        summary: InspirationSummary,
+        provenance: DigestProvenance
+    ) {
+        self.expectation = expectation
+        self.expectedContentFingerprint = expectedContentFingerprint
+        self.summary = summary
+        self.provenance = provenance
+    }
+}
+
+public struct FailMaterialDigestPayload: Equatable, Sendable {
+    public let expectation: MaterialDigestRunExpectation
+    public let code: MaterialDigestFailure.Code
+    public let userMessage: String
+
+    public init(
+        expectation: MaterialDigestRunExpectation,
+        code: MaterialDigestFailure.Code,
+        userMessage: String
+    ) {
+        self.expectation = expectation
+        self.code = code
+        self.userMessage = userMessage
+    }
 }
 
 public struct WorkspaceConsistencyRepairPayload: Equatable, Sendable {
@@ -245,6 +383,7 @@ public enum WorkspaceCommand: Sendable {
         resolvedKind: ResolvedSourceKind
     )
     case convertInspirationToNote(ConvertInspirationToNotePayload)
+    case writeMaterialDigestToNote(WriteMaterialDigestToNotePayload)
     case changeInspirationCategory(InspirationID, categoryID: UUID, at: Date)
     case archiveInspiration(InspirationID, at: Date)
     case restoreInspiration(InspirationID, at: Date)
@@ -253,6 +392,13 @@ public enum WorkspaceCommand: Sendable {
         at: Date,
         authorization: PermanentDeleteAuthorization
     )
+    case startMaterialDigest(StartMaterialDigestPayload)
+    case saveMaterialSnapshot(SaveMaterialSnapshotPayload)
+    case advanceMaterialDigestStage(AdvanceMaterialDigestStagePayload)
+    case completeMaterialDigest(CompleteMaterialDigestPayload)
+    case failMaterialDigest(FailMaterialDigestPayload)
+    case cancelMaterialDigest(MaterialDigestRunExpectation)
+    case markInterruptedMaterialDigest(MaterialDigestRunExpectation)
     case createCategory(CalendarCategory)
     case updateCategory(CalendarCategory)
     case reorderCategories([UUID])
@@ -269,6 +415,12 @@ public enum WorkspaceNoChangeReason: Equatable, Sendable {
     case staleDeleteAuthorization
     case staleConsistencyPreview
     case inspirationAlreadyConverted(NoteID)
+    case staleMaterialDigestRun
+    case staleMaterialDigestSource
+    case materialDigestNotRunning
+    case materialDigestAlreadyRunning
+    case materialDigestAlreadyWritten(NoteID)
+    case staleMaterialDigestNote
 }
 
 public enum WorkspaceConflict: Equatable, Sendable {
@@ -362,6 +514,7 @@ public enum WorkspaceReducerError: Error, Equatable, Sendable {
     case invalidRestoreMetadata
     case revisionOverflow
     case finalValidationFailed
+    case invalidMaterialDigestStage
 }
 
 public struct LegacyMarkdownMigrationPreview: Equatable, Sendable {

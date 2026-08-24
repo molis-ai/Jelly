@@ -1,3 +1,4 @@
+import CalendarDomain
 import Foundation
 import WorkspaceDomain
 
@@ -46,28 +47,43 @@ public enum WorkspaceDocumentCodec {
                 throw WorkspacePersistenceError.invalidDocument
             }
         case 3:
-            let document: WorkspaceDocument
-            do {
-                document = try JSONDecoder.workspaceDeterministic.decode(WorkspaceDocument.self, from: data)
-            } catch {
-                throw WorkspacePersistenceError.invalidDocument
-            }
-            let migrated = migrateV3TaskTitles(document.state)
-            let report = WorkspaceConsistencyInspector.inspect(migrated)
-            guard !report.hasFatalIssues else { throw WorkspacePersistenceError.invalidDocument }
-            return .init(state: migrated, provenance: provenance, consistencyIssues: report.issues)
+            return try loadAndInspect(migrateV3TaskTitles(try decodeWorkspace(data)), provenance)
+        case 4:
+            return try loadAndInspect(try migrateWorkspaceV4(data), provenance)
         case WorkspaceDocument.currentSchemaVersion:
-            let document: WorkspaceDocument
-            do {
-                document = try JSONDecoder.workspaceDeterministic.decode(WorkspaceDocument.self, from: data)
-            } catch {
-                throw WorkspacePersistenceError.invalidDocument
-            }
-            let report = WorkspaceConsistencyInspector.inspect(document.state)
-            guard !report.hasFatalIssues else { throw WorkspacePersistenceError.invalidDocument }
-            return .init(state: document.state, provenance: provenance, consistencyIssues: report.issues)
+            return try loadAndInspect(try decodeWorkspace(data), provenance)
         default:
             throw WorkspacePersistenceError.unsupportedSchema(schema)
+        }
+    }
+
+    private static func loadAndInspect(
+        _ state: WorkspaceState,
+        _ provenance: WorkspaceLoadProvenance
+    ) throws -> WorkspaceLoadResult {
+        let report = WorkspaceConsistencyInspector.inspect(state)
+        guard !report.hasFatalIssues else { throw WorkspacePersistenceError.invalidDocument }
+        return .init(state: state, provenance: provenance, consistencyIssues: report.issues)
+    }
+
+    private static func migrateWorkspaceV4(_ data: Data) throws -> WorkspaceState {
+        do {
+            return try JSONDecoder.workspaceDeterministic
+                .decode(WorkspaceDocumentV4.self, from: data)
+                .state
+                .migrated()
+        } catch let error as WorkspacePersistenceError {
+            throw error
+        } catch {
+            throw WorkspacePersistenceError.invalidDocument
+        }
+    }
+
+    private static func decodeWorkspace(_ data: Data) throws -> WorkspaceState {
+        do {
+            return try JSONDecoder.workspaceDeterministic.decode(WorkspaceDocument.self, from: data).state
+        } catch {
+            throw WorkspacePersistenceError.invalidDocument
         }
     }
 
@@ -85,6 +101,70 @@ public enum WorkspaceDocumentCodec {
 
     private struct SchemaEnvelope: Decodable {
         let schemaVersion: Int
+    }
+
+    private struct WorkspaceDocumentV4: Decodable {
+        var state: WorkspaceStateV4
+    }
+
+    private struct WorkspaceStateV4: Decodable {
+        var revision: Int64
+        var calendar: CalendarState
+        var notes: [NoteID: Note]
+        var inspirations: [InspirationID: Inspiration]
+        var calendarNoteRelations: CalendarNoteRelationGraph
+        var taskBlockLinks: Set<TaskBlockCalendarLink>
+        var inspirationNoteLinks: Set<InspirationNoteLink>
+        var materialDigests: [InspirationID: LegacyMaterialDigestV4]
+
+        enum CodingKeys: String, CodingKey {
+            case revision
+            case calendar
+            case notes
+            case inspirations
+            case calendarNoteRelations
+            case taskBlockLinks
+            case inspirationNoteLinks
+            case materialDigests
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            revision = try container.decode(Int64.self, forKey: .revision)
+            calendar = try container.decode(CalendarState.self, forKey: .calendar)
+            notes = try container.decode([NoteID: Note].self, forKey: .notes)
+            inspirations = try container.decode([InspirationID: Inspiration].self, forKey: .inspirations)
+            calendarNoteRelations = try container.decode(
+                CalendarNoteRelationGraph.self,
+                forKey: .calendarNoteRelations
+            )
+            taskBlockLinks = try container.decode(Set<TaskBlockCalendarLink>.self, forKey: .taskBlockLinks)
+            inspirationNoteLinks = try container.decode(
+                Set<InspirationNoteLink>.self,
+                forKey: .inspirationNoteLinks
+            )
+            materialDigests = try container.decodeIfPresent(
+                [InspirationID: LegacyMaterialDigestV4].self,
+                forKey: .materialDigests
+            ) ?? [:]
+        }
+
+        func migrated() throws -> WorkspaceState {
+            var digests: [InspirationID: MaterialDigest] = [:]
+            for (key, legacy) in materialDigests {
+                digests[key] = try legacy.migrated()
+            }
+            return WorkspaceState(
+                revision: revision,
+                calendar: calendar,
+                notes: notes,
+                inspirations: inspirations,
+                calendarNoteRelations: calendarNoteRelations,
+                taskBlockLinks: taskBlockLinks,
+                inspirationNoteLinks: inspirationNoteLinks,
+                materialDigests: digests
+            )
+        }
     }
 
     private static func canonicalized(_ value: Any, key: String? = nil) -> Any {
@@ -105,7 +185,7 @@ public enum WorkspaceDocumentCodec {
         }
         guard [
             "categories", "items", "series", "exceptions", "completions", "notes",
-            "inspirations", "baselines", "occurrenceOverrides"
+            "inspirations", "baselines", "occurrenceOverrides", "materialDigests"
         ].contains(key), values.count.isMultiple(of: 2)
         else { return values }
         return stride(from: 0, to: values.count, by: 2)

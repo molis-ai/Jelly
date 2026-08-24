@@ -27,6 +27,27 @@ struct InspirationLifecycleTests {
         #expect(updated.createdAt == workspace.inspirations[Task4Fixture.inspirationID]?.createdAt)
     }
 
+    @Test func editingTextInvalidatesTheDigestBoundToThePreviousSource() throws {
+        var workspace = try Task4Fixture.workspace()
+        let inspiration = try #require(workspace.inspirations[Task4Fixture.inspirationID])
+        workspace.materialDigests[inspiration.id] = MaterialDigestFixture.succeeded(for: inspiration)
+        try WorkspaceValidator.validate(workspace)
+
+        let result = try WorkspaceReducer.reduce(
+            workspace,
+            command: .updateInspirationText(
+                inspiration.id,
+                rawText: "原来的想法，已经由用户改写。",
+                at: Task4Fixture.later
+            ),
+            now: Task4Fixture.later
+        )
+
+        let state = try #require(result.change).state
+        #expect(state.inspirations[inspiration.id]?.rawText == "原来的想法，已经由用户改写。")
+        #expect(state.materialDigests[inspiration.id] == nil)
+    }
+
     @Test func textUpdateRejectsBlankArchivedAndNonTextInspirations() throws {
         let workspace = try Task4Fixture.workspace()
         #expect(throws: WorkspaceReducerError.invalidInspiration) {
@@ -387,5 +408,52 @@ struct InspirationLifecycleTests {
                 now: Task4Fixture.archiveAt
             )
         }
+    }
+
+    @Test func archiveAndRestoreKeepMaterialDigest() throws {
+        let fixture = MaterialDigestReducerFixture()
+        let succeeded = try fixture.succeededState()
+        let archived = try WorkspaceReducer.reduce(
+            succeeded,
+            command: .archiveInspiration(fixture.inspiration.id, at: fixture.later),
+            now: fixture.later
+        )
+        let archivedState = try #require(archived.change).state
+        #expect(archivedState.inspirations[fixture.inspiration.id]?.lifecycle == .archived)
+        #expect(archivedState.materialDigests[fixture.inspiration.id]?.result == fixture.result)
+
+        let restored = try WorkspaceReducer.reduce(
+            archivedState,
+            command: .restoreInspiration(fixture.inspiration.id, at: fixture.later),
+            now: fixture.later
+        )
+        let restoredState = try #require(restored.change).state
+        #expect(restoredState.inspirations[fixture.inspiration.id]?.lifecycle == .active)
+        #expect(restoredState.materialDigests[fixture.inspiration.id]?.result == fixture.result)
+    }
+
+    @Test func permanentDeleteRemovesMaterialDigestWithTheInspiration() throws {
+        let fixture = MaterialDigestReducerFixture()
+        var succeeded = try fixture.succeededState()
+        succeeded.inspirations[fixture.inspiration.id]?.lifecycle = .archived
+        let subject = PermanentDeleteSubject.inspiration(fixture.inspiration.id, deletedAt: fixture.later)
+        let preview = try PermanentDeletePlanner.preview(subject, in: succeeded)
+        let result = try WorkspaceReducer.reduce(
+            succeeded,
+            command: .permanentlyDeleteInspiration(
+                fixture.inspiration.id,
+                at: fixture.later,
+                authorization: .init(
+                    subject: preview.subject,
+                    sourceWorkspaceRevision: preview.sourceWorkspaceRevision,
+                    impactChecksum: preview.checksum
+                )
+            ),
+            now: fixture.later
+        )
+        let state = try #require(result.change).state
+        #expect(state.inspirations[fixture.inspiration.id] == nil)
+        #expect(state.materialDigests[fixture.inspiration.id] == nil)
+        try WorkspaceValidator.validate(state)
     }
 }

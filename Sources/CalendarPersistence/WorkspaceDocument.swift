@@ -1,3 +1,4 @@
+import CalendarDomain
 import Foundation
 import WorkspaceDomain
 
@@ -129,7 +130,10 @@ public enum WorkspacePersistenceError: Error, Equatable, Sendable {
 }
 
 public struct WorkspaceDocument: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 4
+    // V5 persists source-agnostic snapshots and block-level evidence. V4 is
+    // migrated on read; older app builds cannot open a V5 workspace and must
+    // not be used as writers after this schema is adopted.
+    public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
     public var state: WorkspaceState

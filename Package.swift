@@ -24,6 +24,10 @@ let package = Package(
         .package(
             url: "https://github.com/swiftlang/swift-testing.git",
             revision: "70eff261d7f462cad1fff51e05bcc74aa0b0f420"
+        ),
+        .package(
+            url: "https://github.com/argmaxinc/argmax-oss-swift.git",
+            exact: "1.0.0"
         )
     ],
     targets: [
@@ -38,7 +42,18 @@ let package = Package(
         ),
         .executableTarget(
             name: "CalendarApp",
-            dependencies: ["CalendarDomain", "WorkspaceDomain", "CalendarPersistence"]
+            dependencies: [
+                "CalendarDomain",
+                "WorkspaceDomain",
+                "CalendarPersistence",
+                .product(name: "WhisperKit", package: "argmax-oss-swift")
+            ],
+            linkerSettings: [
+                .linkedFramework("Security"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Vision"),
+                .linkedFramework("PDFKit")
+            ]
         ),
         .testTarget(
             name: "CalendarDomainTests",

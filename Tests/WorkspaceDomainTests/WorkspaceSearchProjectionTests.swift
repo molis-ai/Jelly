@@ -36,7 +36,8 @@ struct WorkspaceSearchProjectionTests {
             inspirations: [:],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
         let projection = WorkspaceSearchProjection.build(from: state)
         #expect(projection.workspaceRevision == 3)

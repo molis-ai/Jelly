@@ -58,7 +58,8 @@ struct WorkspaceModelTests {
             inspirations: [inspirationID: inspiration],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
 
         let data = try JSONEncoder.workspaceDeterministic.encode(workspace)
@@ -252,7 +253,8 @@ struct WorkspaceModelTests {
                 ]
             ),
             taskBlockLinks: [.init(noteID: noteID, blockID: taskID, calendarItemID: itemID)],
-            inspirationNoteLinks: [.init(source: .live(textInspirationID), noteID: noteID, createdAt: now)]
+            inspirationNoteLinks: [.init(source: .live(textInspirationID), noteID: noteID, createdAt: now)],
+            materialDigests: [:]
         )
 
         try WorkspaceValidator.validate(workspace)
@@ -306,7 +308,8 @@ struct WorkspaceModelTests {
             inspirations: [inspirationID: inspiration],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: [live, deleted]
+            inspirationNoteLinks: [live, deleted],
+            materialDigests: [:]
         )
 
         try WorkspaceValidator.validate(workspace)
@@ -513,7 +516,8 @@ struct WorkspaceModelTests {
             inspirations: [:],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
     }
 }

@@ -123,6 +123,8 @@ public enum WorkspaceReducer {
             )
         case let .convertInspirationToNote(payload):
             return try convertInspiration(payload, in: &candidate, now: now)
+        case let .writeMaterialDigestToNote(payload):
+            return try writeMaterialDigestToNote(payload, in: &candidate, now: now)
         case let .changeInspirationCategory(id, categoryID, at):
             return try changeInspirationCategory(id, categoryID: categoryID, in: &candidate, now: at)
         case let .archiveInspiration(id, at):
@@ -136,6 +138,20 @@ public enum WorkspaceReducer {
                 authorization: authorization,
                 in: &candidate
             )
+        case let .startMaterialDigest(payload):
+            return try startMaterialDigest(payload, in: &candidate, now: now)
+        case let .saveMaterialSnapshot(payload):
+            return try saveMaterialSnapshot(payload, in: &candidate, now: now)
+        case let .advanceMaterialDigestStage(payload):
+            return try advanceMaterialDigestStage(payload, in: &candidate, now: now)
+        case let .completeMaterialDigest(payload):
+            return try completeMaterialDigest(payload, in: &candidate, now: now)
+        case let .failMaterialDigest(payload):
+            return try failMaterialDigest(payload, in: &candidate, now: now)
+        case let .cancelMaterialDigest(expectation):
+            return try cancelMaterialDigest(expectation, in: &candidate, now: now)
+        case let .markInterruptedMaterialDigest(expectation):
+            return try markInterruptedMaterialDigest(expectation, in: &candidate, now: now)
         case let .createCategory(category):
             try applyCategory(.createCategory(category), to: &candidate, now: now)
         case let .updateCategory(category):
@@ -305,6 +321,7 @@ public enum WorkspaceReducer {
               Set(payload.sourceNoteRevisions.keys) == sourceIDs,
               payload.content.notes.allSatisfy({ $0.key == $0.value.id }),
               payload.content.inspirations.allSatisfy({ $0.key == $0.value.id }),
+              payload.content.materialDigests.allSatisfy({ $0.key == $0.value.inspirationID }),
               payload.sourceNoteRevisions.values.allSatisfy({
                   $0 >= 0 && $0 <= payload.sourceRevisionHighWatermark
               })

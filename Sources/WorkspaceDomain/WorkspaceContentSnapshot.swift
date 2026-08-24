@@ -41,6 +41,7 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
     public var calendarNoteRelations: CalendarNoteRelationGraph
     public var taskBlockLinks: Set<TaskBlockCalendarLink>
     public var inspirationNoteLinks: Set<InspirationNoteLink>
+    public var materialDigests: [InspirationID: MaterialDigest]
 
     public init(state: WorkspaceState) {
         calendar = state.calendar
@@ -49,6 +50,7 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
         calendarNoteRelations = state.calendarNoteRelations
         taskBlockLinks = state.taskBlockLinks
         inspirationNoteLinks = state.inspirationNoteLinks
+        materialDigests = state.materialDigests
     }
 
     func materialized(revisions: [NoteID: Int64], workspaceRevision: Int64) -> WorkspaceState {
@@ -59,7 +61,8 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
             inspirations: inspirations,
             calendarNoteRelations: calendarNoteRelations,
             taskBlockLinks: taskBlockLinks,
-            inspirationNoteLinks: inspirationNoteLinks
+            inspirationNoteLinks: inspirationNoteLinks,
+            materialDigests: materialDigests
         )
     }
 }

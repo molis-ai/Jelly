@@ -24,6 +24,21 @@ struct WorkspaceBackupServiceTests {
         #expect(try Data(contentsOf: main) == v2)
     }
 
+    @Test func inspectRestoreSourcePreservesMaterialDigestsInContentSnapshot() async throws {
+        let directory = try WorkspacePersistenceTemporaryDirectory()
+        defer { directory.remove() }
+        let source = directory.file("digest-restore.json")
+        let workspace = try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
+        try WorkspaceDocumentCodec.encode(workspace).write(to: source)
+
+        let preview = try await BackupService().inspectRestoreSource(source)
+        let snapshot = WorkspaceContentSnapshot(state: preview.loadResult.state)
+
+        #expect(preview.loadResult.state.materialDigests == workspace.materialDigests)
+        #expect(snapshot.materialDigests == workspace.materialDigests)
+        #expect(snapshot.inspirations == workspace.inspirations)
+    }
+
     @Test func invalidRestorePreviewCannotCreateCapabilityOrRollback() async throws {
         let directory = try WorkspacePersistenceTemporaryDirectory()
         defer { directory.remove() }
