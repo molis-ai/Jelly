@@ -19,6 +19,13 @@ enum WeekTimeGridMetrics {
         CGFloat(hourCount) * hourHeight
     }
 
+    /// First-appearance scroll target: one hour above "now", clamped, so the
+    /// current time band sits just below the top edge instead of a fixed 08:00.
+    static func initialAutoScrollHour(forNowMinuteOfDay minuteOfDay: Int) -> Int {
+        let nowHour = min(max(minuteOfDay / 60, 0), hourCount - 1)
+        return max(0, nowHour - 1)
+    }
+
     static func yOffset(minute: Int) -> CGFloat {
         CGFloat(minute) / 60 * hourHeight
     }
@@ -188,9 +195,15 @@ struct WeekView: View {
             }
             .frame(minHeight: 0, maxHeight: .infinity)
             .onAppear {
+                // Scroll near "now" only on the first appearance. The consumed
+                // flag lives on the week model, so recreating this view on a
+                // month↔week switch never resets the user's scroll position.
+                guard let hour = model.takeInitialAutoScrollHour(
+                    nowMinuteOfDay: WeekViewModel.currentMinuteOfDay()
+                ) else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.2)) {
-                        proxy.scrollTo("hour-8", anchor: .top)
+                        proxy.scrollTo("hour-\(hour)", anchor: .top)
                     }
                 }
             }

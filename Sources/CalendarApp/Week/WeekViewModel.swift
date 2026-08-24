@@ -29,6 +29,7 @@ final class WeekViewModel: ObservableObject {
     @Published private(set) var hiddenCategoryIDs: Set<UUID>
 
     private var timeline = TimelineProjection(entries: [])
+    private var hasConsumedInitialAutoScroll = false
 
     init(
         weekStart: CalendarDate,
@@ -97,6 +98,23 @@ final class WeekViewModel: ObservableObject {
         guard next != weekStart else { return }
         weekStart = next
         rebuild()
+    }
+
+    nonisolated static func currentMinuteOfDay(
+        from date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> Int {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        return (components.hour ?? 0) * 60 + (components.minute ?? 0)
+    }
+
+    /// Hour target for the first week-grid appearance, or nil once consumed.
+    /// The flag lives on the view-model (which survives month↔week teardown),
+    /// so a later mode switch never yanks the grid away from user scrolling.
+    func takeInitialAutoScrollHour(nowMinuteOfDay: Int) -> Int? {
+        guard !hasConsumedInitialAutoScroll else { return nil }
+        hasConsumedInitialAutoScroll = true
+        return WeekTimeGridMetrics.initialAutoScrollHour(forNowMinuteOfDay: nowMinuteOfDay)
     }
 
     func allDayItems(on dayIndex: Int) -> [WeekAllDayItem] {
