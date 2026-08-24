@@ -89,6 +89,57 @@ struct URLMetadataResolverTests {
         #expect(result.metadata.title == "普通文章")
     }
 
+    @Test func decodesHTMLEntitiesInSourceTitle() async throws {
+        let resolver = makeHTMLResolver(
+            title: "Claude &amp; Anthropic &#x2014; Tom&#39;s Notes"
+        )
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+
+        #expect(result.metadata.title == "Claude & Anthropic — Tom's Notes")
+    }
+
+    @Test func decodesNamedAndUppercaseHexHTMLEntitiesInSourceTitle() async throws {
+        let resolver = makeHTMLResolver(
+            title: "Claude &eacute;lan &mdash; &#X2014; Anthropic"
+        )
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+
+        #expect(result.metadata.title == "Claude élan — — Anthropic")
+    }
+
+    @Test func decodesHTMLEntitiesOnlyOnce() async throws {
+        let resolver = makeHTMLResolver(title: "Tom&amp;#39;s Notes")
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+
+        #expect(result.metadata.title == "Tom&#39;s Notes")
+    }
+
+    @Test func aPlainAmpersandDoesNotHideALaterEntity() async throws {
+        let resolver = makeHTMLResolver(title: "R&D &amp; AI")
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+
+        #expect(result.metadata.title == "R&D & AI")
+    }
+
+    @Test func titleEntityDecoderNeverInterpretsEmbeddedHTMLResources() async throws {
+        let rawTitle = "<img src='http://127.0.0.1:9/private-title-probe.gif'>Claude &amp; Anthropic"
+        let resolver = makeHTMLResolver(title: rawTitle)
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+
+        #expect(result.metadata.title == "<img src='http://127.0.0.1:9/private-title-probe.gif'>Claude & Anthropic")
+    }
+
+    @Test func normalizesAndScalarCapsResolvedSourceTitle() async throws {
+        let rawTitle = "  A" + String(repeating: "\u{0301}", count: 400) + "\nClaude\tCode  "
+        let resolver = makeHTMLResolver(title: rawTitle)
+        let result = try await resolver.resolve(URL(string: "https://example.com/post")!)
+        let title = try #require(result.metadata.title)
+
+        #expect(title.unicodeScalars.count <= 200)
+        #expect(!title.contains("\n"))
+        #expect(!title.contains("\t"))
+    }
+
     @Test func keepsMissingTitleNilWhenHostlessHTMLHasNoTitle() async throws {
         let resolver = makeResolver(
             contentType: "text/html; charset=utf-8",

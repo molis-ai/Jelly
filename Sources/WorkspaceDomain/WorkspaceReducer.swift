@@ -140,6 +140,8 @@ public enum WorkspaceReducer {
             )
         case let .startMaterialDigest(payload):
             return try startMaterialDigest(payload, in: &candidate, now: now)
+        case let .saveMaterialSnapshot(payload):
+            return try saveMaterialSnapshot(payload, in: &candidate, now: now)
         case let .advanceMaterialDigestStage(payload):
             return try advanceMaterialDigestStage(payload, in: &candidate, now: now)
         case let .completeMaterialDigest(payload):

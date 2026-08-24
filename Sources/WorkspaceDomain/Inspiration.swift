@@ -121,3 +121,18 @@ public struct Inspiration: Identifiable, Codable, Equatable, Sendable {
         )
     }
 }
+
+extension Inspiration {
+    public var supportsMaterialDigest: Bool {
+        switch inputKind {
+        case .text:
+            return resolvedSourceKind == .plainText
+        case .url:
+            return [.article, .socialPost, .video, .audio, .unknown]
+                .contains(resolvedSourceKind)
+        case .file:
+            return [.plainText, .article, .image, .document, .video, .audio]
+                .contains(resolvedSourceKind)
+        }
+    }
+}

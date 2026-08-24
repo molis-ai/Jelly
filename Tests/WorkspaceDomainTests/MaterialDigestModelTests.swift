@@ -5,6 +5,19 @@ import WorkspaceDomain
 
 @Suite("MaterialDigestModelTests")
 struct MaterialDigestModelTests {
+    @Test func v3ResultPersistsOnlyFingerprintSummaryAndProvenance() throws {
+        let state = MaterialDigestV3Fixture.workspace()
+        let result = try #require(state.materialDigests[MaterialDigestV3Fixture.inspirationID]?.result)
+        let encoded = try JSONEncoder.workspaceDeterministic.encode(result)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        #expect(object["transcript"] == nil)
+        #expect(object["contentFingerprint"] as? String == result.contentFingerprint)
+        #expect(object["summary"] != nil)
+        #expect(object["provenance"] != nil)
+        #expect(object["completedAt"] != nil)
+    }
+
     @Test func validatorRejectsDanglingOrMismatchedDigest() throws {
         var state = MaterialDigestFixture.workspace()
         let inspiration = try #require(state.inspirations.values.first)
@@ -142,7 +155,12 @@ struct MaterialDigestModelTests {
     @Test func validatorRejectsNegativeTranscriptTime() throws {
         var state = MaterialDigestFixture.workspaceWithSucceededDigest(takeawayCount: 3)
         let inspirationID = try #require(state.inspirations.keys.first)
-        state.materialDigests[inspirationID]?.result?.transcript.segments[0].startSeconds = -1
+        var blocks = try #require(state.materialDigests[inspirationID]?.preparedSnapshot?.blocks)
+        blocks[0].locator = .timestamp(startSeconds: -1, endSeconds: 8)
+        state.materialDigests[inspirationID]?.preparedSnapshot = try MaterialDigestFixture.snapshot(
+            blocks: blocks,
+            for: try #require(state.inspirations[inspirationID])
+        )
         #expect(throws: WorkspaceValidationError.self) {
             try WorkspaceValidator.validate(state)
         }
@@ -151,8 +169,12 @@ struct MaterialDigestModelTests {
     @Test func validatorRejectsSegmentThatEndsBeforeItStarts() throws {
         var state = MaterialDigestFixture.workspaceWithSucceededDigest(takeawayCount: 3)
         let inspirationID = try #require(state.inspirations.keys.first)
-        state.materialDigests[inspirationID]?.result?.transcript.segments[0].startSeconds = 12
-        state.materialDigests[inspirationID]?.result?.transcript.segments[0].endSeconds = 4
+        var blocks = try #require(state.materialDigests[inspirationID]?.preparedSnapshot?.blocks)
+        blocks[0].locator = .timestamp(startSeconds: 12, endSeconds: 4)
+        state.materialDigests[inspirationID]?.preparedSnapshot = try MaterialDigestFixture.snapshot(
+            blocks: blocks,
+            for: try #require(state.inspirations[inspirationID])
+        )
         #expect(throws: WorkspaceValidationError.self) {
             try WorkspaceValidator.validate(state)
         }
@@ -213,6 +235,114 @@ struct MaterialDigestModelTests {
     }
 }
 
+enum MaterialDigestV3Fixture {
+    static let now = Date(timeIntervalSince1970: 1_800_000_000)
+    static let later = Date(timeIntervalSince1970: 1_800_000_100)
+    static let uncategorizedID = UUID(uuidString: "00000000-0000-0000-0000-00000000d101")!
+    static let inspirationID = InspirationID(UUID(uuidString: "00000000-0000-0000-0000-00000000d102")!)
+    static let digestID = MaterialDigestID(UUID(uuidString: "00000000-0000-0000-0000-00000000d103")!)
+    static let bodyBlockID = MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000d104")!)
+    static let transcriptBlockID = MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000d105")!)
+
+    static func workspace() -> WorkspaceState {
+        var state = WorkspaceState.empty(
+            calendar: CalendarState.empty(uncategorizedID: uncategorizedID, now: now)
+        )
+        state.revision = 1
+        let item = MaterialDigestFixture.inspiration(id: inspirationID)
+        state.inspirations[item.id] = item
+        let snapshot = snapshot()
+        state.materialDigests[item.id] = MaterialDigest(
+            id: digestID,
+            inspirationID: item.id,
+            sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(item),
+            currentRun: nil,
+            result: result(for: snapshot, inspiration: item),
+            lastFailure: nil,
+            preparedSnapshot: snapshot,
+            createdAt: now,
+            updatedAt: later
+        )
+        return state
+    }
+
+    static func snapshot() -> MaterialSnapshot {
+        let blocks = [
+            MaterialBlock(
+                id: bodyBlockID,
+                role: .body,
+                text: "正文第一段",
+                locator: .paragraph(index: 1),
+                confidence: nil
+            ),
+            MaterialBlock(
+                id: transcriptBlockID,
+                role: .transcript,
+                text: "主体",
+                locator: .timestamp(startSeconds: 8, endSeconds: 20),
+                confidence: nil
+            )
+        ]
+        let draft = MaterialSnapshot(
+            sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(
+                MaterialDigestFixture.inspiration(id: inspirationID)
+            ),
+            contentFingerprint: "pending",
+            blocks: blocks,
+            coverage: .sufficient,
+            provenance: MaterialAcquisitionProvenance(
+                adapterIdentifier: "test-adapter",
+                adapterVersion: "1",
+                acquiredAt: now
+            ),
+            createdAt: now
+        )
+        let fingerprint = (try? WorkspaceChecksum.materialSnapshotContentFingerprint(draft)) ?? "pending"
+        return MaterialSnapshot(
+            sourceChecksum: draft.sourceChecksum,
+            contentFingerprint: fingerprint,
+            blocks: draft.blocks,
+            coverage: draft.coverage,
+            provenance: draft.provenance,
+            createdAt: draft.createdAt
+        )
+    }
+
+    static func result(for snapshot: MaterialSnapshot, inspiration: Inspiration) -> MaterialDigestResult {
+        MaterialDigestResult(
+            summary: InspirationSummary(
+                thesis: DigestClaim(text: "核心论点", evidenceBlockIDs: [bodyBlockID]),
+                takeaways: [DigestClaim(text: "观点1", evidenceBlockIDs: [bodyBlockID])],
+                chapters: [
+                    DigestChapter(
+                        title: "主体",
+                        anchorBlockID: transcriptBlockID,
+                        points: [DigestClaim(text: "展开", evidenceBlockIDs: [transcriptBlockID])],
+                        startSeconds: 8
+                    )
+                ],
+                quotes: [
+                    DigestQuote(
+                        speaker: nil,
+                        startSeconds: 8,
+                        text: "主体",
+                        evidenceBlockID: transcriptBlockID
+                    )
+                ],
+                dropped: [DigestClaim(text: "片头", evidenceBlockIDs: [bodyBlockID])]
+            ),
+            provenance: DigestProvenance(
+                modelIdentifier: "test-model",
+                generatedAt: later,
+                inputFingerprint: snapshot.contentFingerprint,
+                summaryContractVersion: MaterialDigestSummaryContract.v3
+            ),
+            completedAt: later,
+            contentFingerprint: snapshot.contentFingerprint
+        )
+    }
+}
+
 enum MaterialDigestFixture {
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
     static let later = Date(timeIntervalSince1970: 1_800_000_100)
@@ -240,6 +370,54 @@ enum MaterialDigestFixture {
         )
     }
 
+    static func snapshot(
+        transcript: TimestampedTranscript,
+        for inspiration: Inspiration
+    ) -> MaterialSnapshot {
+        let blocks = transcript.segments.enumerated().map { index, segment in
+            MaterialBlock(
+                id: MaterialBlockID(
+                    UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", 7_100 + index))!
+                ),
+                role: .transcript,
+                text: segment.text,
+                locator: .timestamp(
+                    startSeconds: segment.startSeconds,
+                    endSeconds: segment.endSeconds
+                ),
+                confidence: nil
+            )
+        }
+        return try! snapshot(blocks: blocks, for: inspiration)
+    }
+
+    static func snapshot(
+        blocks: [MaterialBlock],
+        for inspiration: Inspiration
+    ) throws -> MaterialSnapshot {
+        let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
+        let draft = MaterialSnapshot(
+            sourceChecksum: checksum,
+            contentFingerprint: "pending",
+            blocks: blocks,
+            coverage: .sufficient,
+            provenance: .init(
+                adapterIdentifier: "model-fixture",
+                adapterVersion: "1",
+                acquiredAt: now
+            ),
+            createdAt: now
+        )
+        return MaterialSnapshot(
+            sourceChecksum: checksum,
+            contentFingerprint: try WorkspaceChecksum.materialSnapshotContentFingerprint(draft),
+            blocks: blocks,
+            coverage: draft.coverage,
+            provenance: draft.provenance,
+            createdAt: draft.createdAt
+        )
+    }
+
     static func workspace() -> WorkspaceState {
         var state = WorkspaceState.empty(
             calendar: CalendarState.empty(uncategorizedID: uncategorizedID, now: now)
@@ -263,13 +441,13 @@ enum MaterialDigestFixture {
         ]
     ) -> MaterialDigest {
         let takeaways = takeawayCount <= 0 ? [] : (1...takeawayCount).map { "观点\($0)" }
+        let snapshot = snapshot(transcript: transcript, for: inspiration)
         return MaterialDigest(
             id: digestID,
             inspirationID: inspiration.id,
             sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(inspiration),
             currentRun: nil,
             result: MaterialDigestResult(
-                transcript: transcript,
                 summary: InspirationSummary(
                     thesis: "核心论点",
                     takeaways: takeaways,
@@ -289,6 +467,7 @@ enum MaterialDigestFixture {
                 completedAt: later
             ),
             lastFailure: nil,
+            preparedSnapshot: snapshot,
             createdAt: now,
             updatedAt: later
         )

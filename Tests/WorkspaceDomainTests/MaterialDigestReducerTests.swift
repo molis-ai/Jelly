@@ -5,6 +5,56 @@ import WorkspaceDomain
 
 @Suite("MaterialDigestReducerTests")
 struct MaterialDigestReducerTests {
+    @Test func savedSnapshotSurvivesSummaryFailureAndReuseRetrySkipsRefresh() throws {
+        var fixture = MaterialDigestReducerV3Fixture()
+        try fixture.start(mode: .refreshSource)
+        try fixture.save(snapshot: fixture.snapshot)
+        try fixture.fail(code: .summarizationFailed)
+        #expect(fixture.digest.pendingSnapshot == fixture.snapshot)
+        try fixture.start(mode: .reusePreparedSnapshot)
+        #expect(fixture.digest.pendingSnapshot == fixture.snapshot)
+        #expect(fixture.digest.currentRun?.stage == .preparingSummary)
+    }
+
+    @Test func refreshKeepsAcceptedSnapshotAndOldV3ResultUntilReplacementSucceeds() throws {
+        var fixture = try MaterialDigestReducerV3Fixture.succeeded()
+        let oldResult = fixture.digest.result
+        let acceptedSnapshot = fixture.digest.preparedSnapshot
+        #expect(oldResult?.provenance.summaryContractVersion == MaterialDigestSummaryContract.v3)
+        try fixture.start(mode: .refreshSource)
+        #expect(fixture.digest.preparedSnapshot == acceptedSnapshot)
+        #expect(fixture.digest.pendingSnapshot == nil)
+        #expect(fixture.digest.result == oldResult)
+    }
+
+    @Test func failedRefreshKeepsOldResultAndRetriesThePersistedCandidate() throws {
+        var fixture = try MaterialDigestReducerV3Fixture.succeeded()
+        let oldResult = try #require(fixture.digest.result)
+        let acceptedSnapshot = try #require(fixture.digest.preparedSnapshot)
+        let refreshedSnapshot = try fixture.snapshot(replacingBodyWith: "刷新后的主体")
+
+        try fixture.start(mode: .refreshSource)
+        try fixture.save(snapshot: refreshedSnapshot)
+        #expect(fixture.digest.preparedSnapshot == acceptedSnapshot)
+        #expect(fixture.digest.pendingSnapshot == refreshedSnapshot)
+        #expect(fixture.digest.result == oldResult)
+
+        try fixture.fail(code: .summarizationFailed)
+        #expect(fixture.digest.preparedSnapshot == acceptedSnapshot)
+        #expect(fixture.digest.pendingSnapshot == refreshedSnapshot)
+        #expect(fixture.digest.result == oldResult)
+
+        try fixture.start(mode: .reusePreparedSnapshot)
+        #expect(fixture.digest.currentRun?.stage == .preparingSummary)
+        try fixture.advance(to: .summarizing)
+        try fixture.complete(summary: fixture.summary(for: refreshedSnapshot))
+
+        #expect(fixture.digest.preparedSnapshot == refreshedSnapshot)
+        #expect(fixture.digest.pendingSnapshot == nil)
+        #expect(fixture.digest.result?.contentFingerprint == refreshedSnapshot.contentFingerprint)
+        #expect(fixture.digest.result != oldResult)
+    }
+
     @Test func startCreatesFetchingRunForSupportedURLInspiration() throws {
         let fixture = MaterialDigestReducerFixture()
         let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
@@ -13,7 +63,7 @@ struct MaterialDigestReducerTests {
         #expect(digest.inspirationID == fixture.inspiration.id)
         #expect(digest.sourceChecksum == fixture.sourceChecksum)
         #expect(digest.currentRun?.id == fixture.runID)
-        #expect(digest.currentRun?.stage == .fetchingSource)
+        #expect(digest.currentRun?.stage == .resolvingSource)
         #expect(digest.currentRun?.startedAt == fixture.now)
         #expect(digest.currentRun?.updatedAt == fixture.now)
         #expect(digest.result == nil)
@@ -23,11 +73,7 @@ struct MaterialDigestReducerTests {
 
     @Test func completeRequiresExactRunAndSourceAndAtomicallyReplacesResult() throws {
         let fixture = MaterialDigestReducerFixture()
-        let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
-        let summarizing = try fixture.reduce(
-            .advanceMaterialDigestStage(fixture.advancePayload(to: .summarizing)),
-            from: started
-        )
+        let summarizing = try fixture.summarizingState()
         let completed = try fixture.reduce(
             .completeMaterialDigest(fixture.completePayload),
             from: summarizing
@@ -42,16 +88,30 @@ struct MaterialDigestReducerTests {
     @Test func allowedStageGraphFollowsCaptionAudioAndModelPaths() throws {
         let fixture = MaterialDigestReducerFixture()
         let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
+        let fetching = try fixture.reduce(fixture.advance(to: .fetchingSource), from: started)
 
+        let extracting = try fixture.reduce(
+            fixture.advance(to: .extractingText),
+            from: fetching
+        )
+        let prepared = try fixture.reduce(
+            fixture.advance(to: .preparingSummary),
+            from: extracting
+        )
         let captionPath = try fixture.reduce(
             fixture.advance(to: .summarizing),
-            from: started
+            from: prepared
         )
         #expect(captionPath.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .summarizing)
 
+        let transcribing = try fixture.reduce(
+            fixture.advance(to: .transcribing),
+            from: fetching
+        )
+        #expect(transcribing.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .transcribing)
         let awaiting = try fixture.reduce(
             fixture.advance(to: .awaitingModelDownloadConsent),
-            from: started
+            from: transcribing
         )
         #expect(awaiting.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .awaitingModelDownloadConsent)
         let downloading = try fixture.reduce(
@@ -65,14 +125,13 @@ struct MaterialDigestReducerTests {
         )
         #expect(refetch.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .fetchingSource)
 
-        let transcribing = try fixture.reduce(
-            fixture.advance(to: .transcribing),
-            from: started
+        let preparedFromTranscript = try fixture.reduce(
+            fixture.advance(to: .preparingSummary),
+            from: transcribing
         )
-        #expect(transcribing.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .transcribing)
         let summarizing = try fixture.reduce(
             fixture.advance(to: .summarizing),
-            from: transcribing
+            from: preparedFromTranscript
         )
         #expect(summarizing.materialDigests[fixture.inspiration.id]?.currentRun?.stage == .summarizing)
     }
@@ -84,11 +143,12 @@ struct MaterialDigestReducerTests {
             _ = try fixture.reduce(fixture.advance(to: .downloadingModel), from: started)
         }
         #expect(throws: WorkspaceReducerError.invalidMaterialDigestStage) {
-            _ = try fixture.reduce(fixture.advance(to: .fetchingSource), from: started)
+            _ = try fixture.reduce(fixture.advance(to: .summarizing), from: started)
         }
-        let transcribing = try fixture.reduce(fixture.advance(to: .transcribing), from: started)
+        let fetching = try fixture.reduce(fixture.advance(to: .fetchingSource), from: started)
+        let transcribing = try fixture.reduce(fixture.advance(to: .transcribing), from: fetching)
         #expect(throws: WorkspaceReducerError.invalidMaterialDigestStage) {
-            _ = try fixture.reduce(fixture.advance(to: .awaitingModelDownloadConsent), from: transcribing)
+            _ = try fixture.reduce(fixture.advance(to: .fetchingSource), from: transcribing)
         }
         #expect(started.revision == fixture.workspace.revision + 1)
     }
@@ -103,17 +163,15 @@ struct MaterialDigestReducerTests {
 
     @Test func staleRunAndSourceCompleteAreRejected() throws {
         let fixture = MaterialDigestReducerFixture()
-        let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
-        let summarizing = try fixture.reduce(fixture.advance(to: .summarizing), from: started)
+        let summarizing = try fixture.summarizingState()
 
-        var staleRun = fixture.completePayload
-        staleRun = CompleteMaterialDigestPayload(
+        let staleRun = CompleteMaterialDigestPayload(
             expectation: MaterialDigestRunExpectation(
                 inspirationID: fixture.inspiration.id,
                 runID: fixture.retryRunID,
                 sourceChecksum: fixture.sourceChecksum
             ),
-            transcript: fixture.transcript,
+            expectedContentFingerprint: fixture.snapshot.contentFingerprint,
             summary: fixture.summary,
             provenance: fixture.provenance
         )
@@ -125,7 +183,7 @@ struct MaterialDigestReducerTests {
                 runID: fixture.runID,
                 sourceChecksum: "stale-source"
             ),
-            transcript: fixture.transcript,
+            expectedContentFingerprint: fixture.snapshot.contentFingerprint,
             summary: fixture.summary,
             provenance: fixture.provenance
         )
@@ -135,8 +193,7 @@ struct MaterialDigestReducerTests {
 
     @Test func cancelThenLateCompleteDoesNotWriteResult() throws {
         let fixture = MaterialDigestReducerFixture()
-        let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
-        let summarizing = try fixture.reduce(fixture.advance(to: .summarizing), from: started)
+        let summarizing = try fixture.summarizingState()
         let cancelled = try fixture.reduce(.cancelMaterialDigest(fixture.expectation), from: summarizing)
         #expect(cancelled.materialDigests[fixture.inspiration.id]?.currentRun == nil)
         #expect(cancelled.materialDigests[fixture.inspiration.id]?.lastFailure?.code == .cancelled)
@@ -147,8 +204,7 @@ struct MaterialDigestReducerTests {
 
     @Test func retryKeepsPreviousResultAndRejectsTheOldFailure() throws {
         let fixture = MaterialDigestReducerFixture()
-        let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
-        let summarizing = try fixture.reduce(fixture.advance(to: .summarizing), from: started)
+        let summarizing = try fixture.summarizingState()
         let succeeded = try fixture.reduce(.completeMaterialDigest(fixture.completePayload), from: summarizing)
         let retryStart = StartMaterialDigestPayload(
             inspirationID: fixture.inspiration.id,
@@ -228,9 +284,10 @@ struct MaterialDigestReducerTests {
     @Test func markInterruptedKeepsAwaitingConsentAndInterruptsOtherStages() throws {
         let fixture = MaterialDigestReducerFixture()
         let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
+        let fetching = try fixture.reduce(fixture.advance(to: .fetchingSource), from: started)
         let awaiting = try fixture.reduce(
             fixture.advance(to: .awaitingModelDownloadConsent),
-            from: started
+            from: fetching
         )
         let kept = try fixture.outcome(
             .markInterruptedMaterialDigest(fixture.expectation),
@@ -406,6 +463,197 @@ struct MaterialDigestReducerTests {
     }
 }
 
+struct MaterialDigestReducerV3Fixture {
+    let now = Date(timeIntervalSince1970: 1_800_100_000)
+    let later = Date(timeIntervalSince1970: 1_800_100_060)
+    let digestID = MaterialDigestID(UUID(uuidString: "00000000-0000-0000-0000-00000000d301")!)
+    let runID = MaterialDigestRunID(UUID(uuidString: "00000000-0000-0000-0000-00000000d302")!)
+    let retryRunID = MaterialDigestRunID(UUID(uuidString: "00000000-0000-0000-0000-00000000d303")!)
+    let inspiration: Inspiration
+    var workspace: WorkspaceState
+    let snapshot: MaterialSnapshot
+
+    init() {
+        let inner = MaterialDigestReducerFixture()
+        inspiration = inner.inspiration
+        workspace = inner.workspace
+        snapshot = inner.snapshot
+    }
+
+    var digest: MaterialDigest {
+        workspace.materialDigests[inspiration.id]!
+    }
+
+    var sourceChecksum: String {
+        WorkspaceChecksum.inspirationSourceChecksum(inspiration)
+    }
+
+    mutating func start(mode: MaterialDigestStartMode) throws {
+        let runID = workspace.materialDigests[inspiration.id]?.currentRun == nil ? self.runID : retryRunID
+        workspace = try MaterialDigestReducerFixture().reduce(
+            .startMaterialDigest(
+                StartMaterialDigestPayload(
+                    inspirationID: inspiration.id,
+                    digestID: digestID,
+                    runID: runID,
+                    expectedSourceChecksum: sourceChecksum,
+                    mode: mode
+                )
+            ),
+            from: workspace,
+            now: workspace.materialDigests[inspiration.id] == nil ? now : later
+        )
+    }
+
+    mutating func save(snapshot: MaterialSnapshot) throws {
+        let run = try #require(digest.currentRun)
+        workspace = try MaterialDigestReducerFixture().reduce(
+            .saveMaterialSnapshot(
+                .init(
+                    expectation: MaterialDigestRunExpectation(
+                        inspirationID: inspiration.id,
+                        runID: run.id,
+                        sourceChecksum: sourceChecksum
+                    ),
+                    snapshot: snapshot
+                )
+            ),
+            from: workspace,
+            now: later
+        )
+    }
+
+    mutating func fail(code: MaterialDigestFailure.Code) throws {
+        let run = try #require(digest.currentRun)
+        workspace = try MaterialDigestReducerFixture().reduce(
+            .failMaterialDigest(
+                .init(
+                    expectation: MaterialDigestRunExpectation(
+                        inspirationID: inspiration.id,
+                        runID: run.id,
+                        sourceChecksum: sourceChecksum
+                    ),
+                    code: code,
+                    userMessage: "摘要失败，原始链接仍然保留。"
+                )
+            ),
+            from: workspace,
+            now: later
+        )
+    }
+
+    mutating func advance(to stage: MaterialDigestStage) throws {
+        let run = try #require(digest.currentRun)
+        workspace = try MaterialDigestReducerFixture().reduce(
+            .advanceMaterialDigestStage(
+                .init(
+                    expectation: .init(
+                        inspirationID: inspiration.id,
+                        runID: run.id,
+                        sourceChecksum: sourceChecksum
+                    ),
+                    stage: stage
+                )
+            ),
+            from: workspace,
+            now: later
+        )
+    }
+
+    mutating func complete(summary: InspirationSummary) throws {
+        let run = try #require(digest.currentRun)
+        let snapshot = try #require(digest.pendingSnapshot)
+        workspace = try MaterialDigestReducerFixture().reduce(
+            .completeMaterialDigest(
+                .init(
+                    expectation: .init(
+                        inspirationID: inspiration.id,
+                        runID: run.id,
+                        sourceChecksum: sourceChecksum
+                    ),
+                    expectedContentFingerprint: snapshot.contentFingerprint,
+                    summary: summary,
+                    provenance: .init(
+                        modelIdentifier: "test/v3",
+                        generatedAt: .distantPast,
+                        inputFingerprint: sourceChecksum,
+                        summaryContractVersion: MaterialDigestSummaryContract.v3
+                    )
+                )
+            ),
+            from: workspace,
+            now: later
+        )
+    }
+
+    func snapshot(replacingBodyWith text: String) throws -> MaterialSnapshot {
+        var blocks = snapshot.blocks
+        blocks[1].text = text
+        let draft = MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: "pending",
+            blocks: blocks,
+            coverage: snapshot.coverage,
+            provenance: snapshot.provenance,
+            createdAt: later
+        )
+        return MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: try WorkspaceChecksum.materialSnapshotContentFingerprint(draft),
+            blocks: blocks,
+            coverage: draft.coverage,
+            provenance: draft.provenance,
+            createdAt: draft.createdAt
+        )
+    }
+
+    func summary(for snapshot: MaterialSnapshot) -> InspirationSummary {
+        let blockIDs = snapshot.blocks.map(\.id)
+        return InspirationSummary(
+            thesis: DigestClaim(text: "核心论点", evidenceBlockIDs: [blockIDs[0]]),
+            takeaways: [DigestClaim(text: "主体观点", evidenceBlockIDs: [blockIDs[1]])],
+            chapters: [
+                DigestChapter(
+                    title: "主体",
+                    anchorBlockID: blockIDs[1],
+                    points: [DigestClaim(text: "展开", evidenceBlockIDs: [blockIDs[1]])]
+                )
+            ],
+            quotes: [DigestQuote(speaker: nil, text: snapshot.blocks[1].text, evidenceBlockID: blockIDs[1])],
+            dropped: []
+        )
+    }
+
+    static func succeeded() throws -> MaterialDigestReducerV3Fixture {
+        var fixture = MaterialDigestReducerV3Fixture()
+        let summary = fixture.summary(for: fixture.snapshot)
+        let result = MaterialDigestResult(
+            summary: summary,
+            provenance: DigestProvenance(
+                modelIdentifier: "test/v3",
+                generatedAt: fixture.now,
+                inputFingerprint: fixture.sourceChecksum,
+                summaryContractVersion: MaterialDigestSummaryContract.v3
+            ),
+            completedAt: fixture.now,
+            contentFingerprint: fixture.snapshot.contentFingerprint
+        )
+        fixture.workspace.materialDigests[fixture.inspiration.id] = MaterialDigest(
+            id: fixture.digestID,
+            inspirationID: fixture.inspiration.id,
+            sourceChecksum: fixture.sourceChecksum,
+            currentRun: nil,
+            result: result,
+            lastFailure: nil,
+            preparedSnapshot: fixture.snapshot,
+            createdAt: fixture.now,
+            updatedAt: fixture.now
+        )
+        try WorkspaceValidator.validate(fixture.workspace)
+        return fixture
+    }
+}
+
 struct MaterialDigestReducerFixture {
     let now = Date(timeIntervalSince1970: 1_800_100_000)
     let later = Date(timeIntervalSince1970: 1_800_100_060)
@@ -488,10 +736,50 @@ struct MaterialDigestReducerFixture {
         )
     }
 
+    var snapshot: MaterialSnapshot {
+        let blocks = [
+            MaterialBlock(
+                id: MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000d201")!),
+                role: .transcript,
+                text: "开场",
+                locator: .timestamp(startSeconds: 0, endSeconds: 8),
+                confidence: nil
+            ),
+            MaterialBlock(
+                id: MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000d202")!),
+                role: .transcript,
+                text: "主体",
+                locator: .timestamp(startSeconds: 8, endSeconds: 20),
+                confidence: nil
+            )
+        ]
+        let draft = MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: "pending",
+            blocks: blocks,
+            coverage: .sufficient,
+            provenance: MaterialAcquisitionProvenance(
+                adapterIdentifier: "test-adapter",
+                adapterVersion: "1",
+                acquiredAt: now
+            ),
+            createdAt: now
+        )
+        let fingerprint = (try? WorkspaceChecksum.materialSnapshotContentFingerprint(draft)) ?? "pending"
+        return MaterialSnapshot(
+            sourceChecksum: sourceChecksum,
+            contentFingerprint: fingerprint,
+            blocks: blocks,
+            coverage: draft.coverage,
+            provenance: draft.provenance,
+            createdAt: now
+        )
+    }
+
     var completePayload: CompleteMaterialDigestPayload {
         CompleteMaterialDigestPayload(
             expectation: expectation,
-            transcript: transcript,
+            expectedContentFingerprint: snapshot.contentFingerprint,
             summary: summary,
             provenance: provenance
         )
@@ -501,10 +789,10 @@ struct MaterialDigestReducerFixture {
         var stamped = provenance
         stamped.generatedAt = now
         return MaterialDigestResult(
-            transcript: transcript,
             summary: summary,
             provenance: stamped,
-            completedAt: now
+            completedAt: now,
+            contentFingerprint: snapshot.contentFingerprint
         )
     }
 
@@ -552,10 +840,17 @@ struct MaterialDigestReducerFixture {
         try WorkspaceReducer.reduce(state ?? workspace, command: command, now: clock ?? now)
     }
 
-    func succeededState() throws -> WorkspaceState {
+    func summarizingState() throws -> WorkspaceState {
         let started = try reduce(.startMaterialDigest(startPayload))
-        let summarizing = try reduce(advance(to: .summarizing), from: started)
-        return try reduce(.completeMaterialDigest(completePayload), from: summarizing)
+        let saved = try reduce(
+            .saveMaterialSnapshot(.init(expectation: expectation, snapshot: snapshot)),
+            from: started
+        )
+        return try reduce(advance(to: .summarizing), from: saved)
+    }
+
+    func succeededState() throws -> WorkspaceState {
+        try reduce(.completeMaterialDigest(completePayload), from: summarizingState())
     }
 
     struct WrittenDigestNote {

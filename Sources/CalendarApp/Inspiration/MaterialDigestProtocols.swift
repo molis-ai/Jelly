@@ -1,23 +1,219 @@
+import CryptoKit
 import Foundation
 import Observation
 import WorkspaceDomain
 
 struct MaterialSource: Equatable, Sendable {
+    enum Input: Equatable, Sendable {
+        case url(URL)
+        case text(String)
+        case file(FileReference)
+    }
+
     let inspirationID: InspirationID
-    let url: URL
+    let input: Input
     let kind: ResolvedSourceKind
     let sourceChecksum: String
+    let sourceTitle: String?
+    let descriptor: MaterialSourceDescriptor
+
+    init(
+        inspirationID: InspirationID,
+        url: URL,
+        kind: ResolvedSourceKind,
+        sourceChecksum: String,
+        sourceTitle: String? = nil,
+        descriptor: MaterialSourceDescriptor? = nil
+    ) {
+        self.inspirationID = inspirationID
+        self.input = .url(url)
+        self.kind = kind
+        self.sourceChecksum = sourceChecksum
+        self.sourceTitle = Self.normalizedSourceTitle(sourceTitle)
+        self.descriptor = descriptor ?? MaterialSourceDescriptor(
+            kind: MaterialSourceResolver.descriptorKind(for: url)
+        )
+    }
+
+    init(
+        inspirationID: InspirationID,
+        text: String,
+        sourceChecksum: String
+    ) {
+        self.inspirationID = inspirationID
+        self.input = .text(text)
+        self.kind = .plainText
+        self.sourceChecksum = sourceChecksum
+        self.sourceTitle = nil
+        self.descriptor = MaterialSourceDescriptor(kind: .localText)
+    }
+
+    init(
+        inspirationID: InspirationID,
+        file: FileReference,
+        kind: ResolvedSourceKind,
+        sourceChecksum: String
+    ) {
+        self.inspirationID = inspirationID
+        self.input = .file(file)
+        self.kind = kind
+        self.sourceChecksum = sourceChecksum
+        self.sourceTitle = Self.normalizedSourceTitle(file.displayName)
+        self.descriptor = MaterialSourceDescriptor(kind: .localFile)
+    }
+
+    var url: URL? {
+        guard case let .url(url) = input else { return nil }
+        return url
+    }
+
+    var text: String? {
+        guard case let .text(text) = input else { return nil }
+        return text
+    }
+
+    var fileReference: FileReference? {
+        guard case let .file(file) = input else { return nil }
+        return file
+    }
+
+    static func normalizedSourceTitle(_ sourceTitle: String?) -> String? {
+        let safeTitle = sourceTitle.map { title in
+            let canonical = title.precomposedStringWithCanonicalMapping
+            let scalars = canonical.unicodeScalars.compactMap { scalar -> Unicode.Scalar? in
+                if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                    return Unicode.Scalar(0x20)
+                }
+                switch scalar.properties.generalCategory {
+                case .control, .format, .surrogate, .privateUse, .unassigned:
+                    return nil
+                default:
+                    return scalar
+                }
+            }
+            return String(String.UnicodeScalarView(scalars))
+        }
+        let normalizedTitle = safeTitle?
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        return normalizedTitle.flatMap {
+            guard !$0.isEmpty else { return nil }
+            return String(String.UnicodeScalarView(Array($0.unicodeScalars.prefix(200))))
+        }
+    }
+
+    var inputFingerprint: String {
+        guard let sourceTitle else { return sourceChecksum }
+        let material = "material-digest-input-v1\u{0}\(sourceChecksum)\u{0}\(sourceTitle)"
+        return SHA256.hash(data: Data(material.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+}
+
+struct MaterialBlockBatch: Equatable, Sendable {
+    let blocks: [MaterialBlock]
+    let coverage: MaterialCoverage
+    let provenance: MaterialAcquisitionProvenance
+
+    static func transcript(
+        _ transcript: TimestampedTranscript,
+        adapterIdentifier: String,
+        acquiredAt: Date = Date()
+    ) -> MaterialBlockBatch {
+        let blocks = transcript.segments.map { segment in
+            MaterialBlock(
+                id: MaterialBlockID(),
+                role: .transcript,
+                text: segment.text,
+                locator: .timestamp(
+                    startSeconds: segment.startSeconds,
+                    endSeconds: segment.endSeconds
+                ),
+                confidence: nil
+            )
+        }
+        return MaterialBlockBatch(
+            blocks: blocks,
+            coverage: blocks.isEmpty ? .insufficient(code: .empty) : .sufficient,
+            provenance: MaterialAcquisitionProvenance(
+                adapterIdentifier: adapterIdentifier,
+                adapterVersion: "1",
+                acquiredAt: acquiredAt
+            )
+        )
+    }
+
+    var timestampedTranscript: TimestampedTranscript {
+        TimestampedTranscript(
+            segments: blocks.compactMap { block in
+                guard case let .timestamp(start, end) = block.locator else { return nil }
+                return TranscriptSegment(startSeconds: start, endSeconds: end, text: block.text)
+            }
+        )
+    }
+}
+
+struct RemoteMediaAsset: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case audio
+        case video
+    }
+
+    let kind: Kind
+    let url: URL
+    let requestHeaders: [String: String]
+    let estimatedBytes: Int64?
+}
+
+struct MaterialCompositeAcquisition: Equatable, Sendable {
+    let seedBlocks: [MaterialBlock]
+    let images: [MaterialImageAsset]
+    let remoteMedia: RemoteMediaAsset?
+    let expectedAssetCount: Int
+    let issues: [MaterialCoverageIssue]
+    let provenance: MaterialAcquisitionProvenance
 }
 
 enum MaterialAcquisition: Equatable, Sendable {
-    case transcript(TimestampedTranscript)
-    case remoteAudio(RemoteAudioAsset)
+    case blocks(MaterialBlockBatch)
+    case remoteMedia(RemoteMediaAsset)
+    case composite(MaterialCompositeAcquisition)
+
+    static func transcript(_ transcript: TimestampedTranscript) -> MaterialAcquisition {
+        .blocks(.transcript(transcript, adapterIdentifier: "legacy-transcript"))
+    }
+
+    static func remoteAudio(_ asset: RemoteAudioAsset) -> MaterialAcquisition {
+        .remoteMedia(
+            RemoteMediaAsset(
+                kind: .audio,
+                url: asset.url,
+                requestHeaders: asset.requestHeaders,
+                estimatedBytes: asset.estimatedBytes
+            )
+        )
+    }
 }
 
 struct RemoteAudioAsset: Equatable, Sendable {
     let url: URL
     let requestHeaders: [String: String]
     let estimatedBytes: Int64?
+
+    init(url: URL, requestHeaders: [String: String], estimatedBytes: Int64?) {
+        self.url = url
+        self.requestHeaders = requestHeaders
+        self.estimatedBytes = estimatedBytes
+    }
+
+    init(_ media: RemoteMediaAsset) {
+        self.init(
+            url: media.url,
+            requestHeaders: media.requestHeaders,
+            estimatedBytes: media.estimatedBytes
+        )
+    }
 }
 
 struct MaterialSummarizerOutput: Equatable, Sendable {
@@ -268,17 +464,23 @@ protocol MaterialTranscribing: Sendable {
 protocol MaterialSummarizing: Sendable {
     var isConfigured: Bool { get }
     func summarize(
-        _ transcript: TimestampedTranscript,
+        _ snapshot: MaterialSnapshot,
         source: MaterialSource
     ) async throws -> MaterialSummarizerOutput
 }
 
 @MainActor
 protocol MaterialDigestOperating: AnyObject, Observable {
-    func start(inspirationID: InspirationID) async
+    func start(inspirationID: InspirationID, mode: MaterialDigestStartMode) async
     func confirmModelDownload(inspirationID: InspirationID) async
     func cancel(inspirationID: InspirationID) async
     func stopExternalWork(inspirationID: InspirationID) async
     func reconcileInterruptedRuns() async
     func progress(for inspirationID: InspirationID) -> Double?
+}
+
+extension MaterialDigestOperating {
+    func start(inspirationID: InspirationID) async {
+        await start(inspirationID: inspirationID, mode: .reusePreparedSnapshot)
+    }
 }

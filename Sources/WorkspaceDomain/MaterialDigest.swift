@@ -1,20 +1,31 @@
 import Foundation
 
 public enum MaterialDigestStage: String, Codable, Equatable, Sendable {
+    case resolvingSource
     case fetchingSource
+    case extractingText
+    case transcribing
+    case recognizingImages
+    case preparingSummary
+    case summarizing
     case awaitingModelDownloadConsent
     case downloadingModel
-    case transcribing
-    case summarizing
 }
 
 public enum MaterialDigestSummaryContract {
     public static let v1 = "summary-contract-v1"
     public static let v2 = "summary-contract-v2"
-    public static let current = v2
+    public static let v3 = "summary-contract-v3"
+    public static let current = v3
 
     public static func enforcesEvidenceAndTranscriptEnd(_ version: String) -> Bool {
-        version.trimmingCharacters(in: .whitespacesAndNewlines) != v1
+        let normalized = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized != v1
+    }
+
+    public static func isLegacy(_ version: String) -> Bool {
+        let normalized = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized == v1 || normalized == v2
     }
 }
 
@@ -38,6 +49,8 @@ public enum MaterialDigestContentLimits {
     public static let maximumDroppedItems = 100
     public static let maximumDroppedItemCharacters = 1_000
     public static let maximumSummaryCharacters = 200_000
+    public static let maximumMaterialBlocks = 10_000
+    public static let maximumMaterialCharacters = 2_000_000
 }
 
 public struct MaterialDigestRun: Codable, Equatable, Sendable {
@@ -82,36 +95,95 @@ public struct TimestampedTranscript: Codable, Equatable, Sendable {
     }
 }
 
-public struct DigestChapter: Codable, Equatable, Sendable {
+public struct DigestChapter: Equatable, Sendable {
     public var startSeconds: Double
     public var title: String
-    public var points: [String]
+    public var pointClaims: [DigestClaim]
+    public var anchorBlockID: MaterialBlockID?
+
+    public var points: [String] {
+        get { pointClaims.map(\.text) }
+        set { pointClaims = newValue.map { DigestClaim(text: $0, evidenceBlockIDs: []) } }
+    }
 
     public init(startSeconds: Double, title: String, points: [String]) {
         self.startSeconds = startSeconds
         self.title = title
-        self.points = points
+        self.pointClaims = points.map { DigestClaim(text: $0, evidenceBlockIDs: []) }
+        self.anchorBlockID = nil
+    }
+
+    public init(
+        title: String,
+        anchorBlockID: MaterialBlockID?,
+        points: [DigestClaim],
+        startSeconds: Double = 0
+    ) {
+        self.startSeconds = startSeconds
+        self.title = title
+        self.pointClaims = points
+        self.anchorBlockID = anchorBlockID
     }
 }
 
-public struct DigestQuote: Codable, Equatable, Sendable {
+public struct DigestQuote: Equatable, Sendable {
     public var speaker: String?
     public var startSeconds: Double
     public var text: String
+    public var evidenceBlockID: MaterialBlockID?
 
-    public init(speaker: String?, startSeconds: Double, text: String) {
+    public init(
+        speaker: String?,
+        startSeconds: Double,
+        text: String,
+        evidenceBlockID: MaterialBlockID? = nil
+    ) {
         self.speaker = speaker
         self.startSeconds = startSeconds
         self.text = text
+        self.evidenceBlockID = evidenceBlockID
+    }
+
+    public init(speaker: String?, text: String, evidenceBlockID: MaterialBlockID?) {
+        self.init(speaker: speaker, startSeconds: 0, text: text, evidenceBlockID: evidenceBlockID)
     }
 }
 
-public struct InspirationSummary: Codable, Equatable, Sendable {
-    public var thesis: String
-    public var takeaways: [String]
+public struct InspirationSummary: Equatable, Sendable {
+    public var thesisClaim: DigestClaim
+    public var takeawayClaims: [DigestClaim]
     public var chapters: [DigestChapter]
     public var quotes: [DigestQuote]
-    public var dropped: [String]
+    public var droppedClaims: [DigestClaim]
+
+    public var thesis: String {
+        get { thesisClaim.text }
+        set { thesisClaim.text = newValue }
+    }
+
+    public var takeaways: [String] {
+        get { takeawayClaims.map(\.text) }
+        set { takeawayClaims = newValue.map { DigestClaim(text: $0, evidenceBlockIDs: []) } }
+    }
+
+    public var dropped: [String] {
+        get { droppedClaims.map(\.text) }
+        set { droppedClaims = newValue.map { DigestClaim(text: $0, evidenceBlockIDs: []) } }
+    }
+
+    public init(
+        thesis: DigestClaim,
+        takeaways: [DigestClaim],
+        chapters: [DigestChapter],
+        quotes: [DigestQuote],
+        dropped: [DigestClaim]
+    ) {
+        self.thesisClaim = thesis
+        self.takeawayClaims = takeaways
+        self.chapters = chapters
+        self.quotes = quotes
+        self.droppedClaims = dropped
+    }
 
     public init(
         thesis: String,
@@ -120,11 +192,13 @@ public struct InspirationSummary: Codable, Equatable, Sendable {
         quotes: [DigestQuote],
         dropped: [String]
     ) {
-        self.thesis = thesis
-        self.takeaways = takeaways
-        self.chapters = chapters
-        self.quotes = quotes
-        self.dropped = dropped
+        self.init(
+            thesis: DigestClaim(text: thesis, evidenceBlockIDs: []),
+            takeaways: takeaways.map { DigestClaim(text: $0, evidenceBlockIDs: []) },
+            chapters: chapters,
+            quotes: quotes,
+            dropped: dropped.map { DigestClaim(text: $0, evidenceBlockIDs: []) }
+        )
     }
 }
 
@@ -148,18 +222,18 @@ public struct DigestProvenance: Codable, Equatable, Sendable {
 }
 
 public struct MaterialDigestResult: Codable, Equatable, Sendable {
-    public var transcript: TimestampedTranscript
+    public var contentFingerprint: String
     public var summary: InspirationSummary
     public var provenance: DigestProvenance
     public var completedAt: Date
 
     public init(
-        transcript: TimestampedTranscript,
         summary: InspirationSummary,
         provenance: DigestProvenance,
-        completedAt: Date
+        completedAt: Date,
+        contentFingerprint: String = ""
     ) {
-        self.transcript = transcript
+        self.contentFingerprint = contentFingerprint
         self.summary = summary
         self.provenance = provenance
         self.completedAt = completedAt
@@ -213,6 +287,8 @@ public struct MaterialDigest: Identifiable, Codable, Equatable, Sendable {
     public let inspirationID: InspirationID
     public let sourceChecksum: String
     public var currentRun: MaterialDigestRun?
+    public var preparedSnapshot: MaterialSnapshot?
+    public var pendingSnapshot: MaterialSnapshot?
     public var result: MaterialDigestResult?
     public var lastFailure: MaterialDigestFailure?
     public var noteWrite: MaterialDigestNoteWrite?
@@ -227,6 +303,8 @@ public struct MaterialDigest: Identifiable, Codable, Equatable, Sendable {
         result: MaterialDigestResult?,
         lastFailure: MaterialDigestFailure?,
         noteWrite: MaterialDigestNoteWrite? = nil,
+        preparedSnapshot: MaterialSnapshot? = nil,
+        pendingSnapshot: MaterialSnapshot? = nil,
         createdAt: Date,
         updatedAt: Date
     ) {
@@ -234,10 +312,144 @@ public struct MaterialDigest: Identifiable, Codable, Equatable, Sendable {
         self.inspirationID = inspirationID
         self.sourceChecksum = sourceChecksum
         self.currentRun = currentRun
+        self.preparedSnapshot = preparedSnapshot
+        self.pendingSnapshot = pendingSnapshot
         self.result = result
         self.lastFailure = lastFailure
         self.noteWrite = noteWrite
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+extension DigestChapter: Codable {
+    enum CodingKeys: String, CodingKey {
+        case startSeconds
+        case title
+        case points
+        case anchorBlockID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decode(String.self, forKey: .title)
+        startSeconds = try container.decodeIfPresent(Double.self, forKey: .startSeconds) ?? 0
+        anchorBlockID = try container.decodeIfPresent(MaterialBlockID.self, forKey: .anchorBlockID)
+        if let claims = try? container.decode([DigestClaim].self, forKey: .points) {
+            pointClaims = claims
+        } else {
+            pointClaims = try container.decode([String].self, forKey: .points)
+                .map { DigestClaim(text: $0, evidenceBlockIDs: []) }
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        let encodesAsLegacy = anchorBlockID == nil
+            && pointClaims.allSatisfy(\.evidenceBlockIDs.isEmpty)
+        if encodesAsLegacy {
+            try container.encode(startSeconds, forKey: .startSeconds)
+            try container.encode(points, forKey: .points)
+        } else {
+            try container.encodeIfPresent(anchorBlockID, forKey: .anchorBlockID)
+            try container.encode(pointClaims, forKey: .points)
+            if startSeconds != 0 {
+                try container.encode(startSeconds, forKey: .startSeconds)
+            }
+        }
+    }
+}
+
+extension DigestQuote: Codable {
+    enum CodingKeys: String, CodingKey {
+        case speaker
+        case startSeconds
+        case text
+        case evidenceBlockID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        speaker = try container.decodeIfPresent(String.self, forKey: .speaker)
+        startSeconds = try container.decodeIfPresent(Double.self, forKey: .startSeconds) ?? 0
+        text = try container.decode(String.self, forKey: .text)
+        evidenceBlockID = try container.decodeIfPresent(MaterialBlockID.self, forKey: .evidenceBlockID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(speaker, forKey: .speaker)
+        try container.encode(text, forKey: .text)
+        if let evidenceBlockID {
+            try container.encode(evidenceBlockID, forKey: .evidenceBlockID)
+            if startSeconds != 0 {
+                try container.encode(startSeconds, forKey: .startSeconds)
+            }
+        } else {
+            try container.encode(startSeconds, forKey: .startSeconds)
+        }
+    }
+}
+
+extension InspirationSummary: Codable {
+    enum CodingKeys: String, CodingKey {
+        case thesis
+        case takeaways
+        case chapters
+        case quotes
+        case dropped
+    }
+
+    public var encodesAsLegacyContract: Bool {
+        thesisClaim.evidenceBlockIDs.isEmpty
+            && takeawayClaims.allSatisfy(\.evidenceBlockIDs.isEmpty)
+            && droppedClaims.allSatisfy(\.evidenceBlockIDs.isEmpty)
+            && chapters.allSatisfy { chapter in
+                chapter.anchorBlockID == nil
+                    && chapter.pointClaims.allSatisfy(\.evidenceBlockIDs.isEmpty)
+            }
+            && quotes.allSatisfy { $0.evidenceBlockID == nil }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let claim = try? container.decode(DigestClaim.self, forKey: .thesis) {
+            thesisClaim = claim
+        } else {
+            thesisClaim = DigestClaim(
+                text: try container.decode(String.self, forKey: .thesis),
+                evidenceBlockIDs: []
+            )
+        }
+        if let claims = try? container.decode([DigestClaim].self, forKey: .takeaways) {
+            takeawayClaims = claims
+        } else {
+            takeawayClaims = try container.decode([String].self, forKey: .takeaways)
+                .map { DigestClaim(text: $0, evidenceBlockIDs: []) }
+        }
+        if let claims = try? container.decode([DigestClaim].self, forKey: .dropped) {
+            droppedClaims = claims
+        } else {
+            droppedClaims = try container.decodeIfPresent([String].self, forKey: .dropped)?
+                .map { DigestClaim(text: $0, evidenceBlockIDs: []) } ?? []
+        }
+        chapters = try container.decode([DigestChapter].self, forKey: .chapters)
+        quotes = try container.decode([DigestQuote].self, forKey: .quotes)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if encodesAsLegacyContract {
+            try container.encode(thesis, forKey: .thesis)
+            try container.encode(takeaways, forKey: .takeaways)
+            try container.encode(dropped, forKey: .dropped)
+        } else {
+            try container.encode(thesisClaim, forKey: .thesis)
+            try container.encode(takeawayClaims, forKey: .takeaways)
+            try container.encode(droppedClaims, forKey: .dropped)
+        }
+        try container.encode(chapters, forKey: .chapters)
+        try container.encode(quotes, forKey: .quotes)
     }
 }

@@ -27,6 +27,27 @@ struct InspirationLifecycleTests {
         #expect(updated.createdAt == workspace.inspirations[Task4Fixture.inspirationID]?.createdAt)
     }
 
+    @Test func editingTextInvalidatesTheDigestBoundToThePreviousSource() throws {
+        var workspace = try Task4Fixture.workspace()
+        let inspiration = try #require(workspace.inspirations[Task4Fixture.inspirationID])
+        workspace.materialDigests[inspiration.id] = MaterialDigestFixture.succeeded(for: inspiration)
+        try WorkspaceValidator.validate(workspace)
+
+        let result = try WorkspaceReducer.reduce(
+            workspace,
+            command: .updateInspirationText(
+                inspiration.id,
+                rawText: "原来的想法，已经由用户改写。",
+                at: Task4Fixture.later
+            ),
+            now: Task4Fixture.later
+        )
+
+        let state = try #require(result.change).state
+        #expect(state.inspirations[inspiration.id]?.rawText == "原来的想法，已经由用户改写。")
+        #expect(state.materialDigests[inspiration.id] == nil)
+    }
+
     @Test func textUpdateRejectsBlankArchivedAndNonTextInspirations() throws {
         let workspace = try Task4Fixture.workspace()
         #expect(throws: WorkspaceReducerError.invalidInspiration) {

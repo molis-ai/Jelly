@@ -34,6 +34,7 @@ public enum WorkspaceValidationError: Error, Equatable, Sendable {
     case invalidMaterialDigestRun(InspirationID)
     case invalidMaterialDigestResult(InspirationID)
     case invalidMaterialDigestFailure(InspirationID)
+    case invalidMaterialSnapshot(InspirationID)
 }
 
 public enum WorkspaceValidator {
@@ -187,8 +188,7 @@ public enum WorkspaceValidator {
             guard let inspiration = state.inspirations[digest.inspirationID] else {
                 throw WorkspaceValidationError.danglingMaterialDigest(digest.inspirationID)
             }
-            guard inspiration.inputKind == .url,
-                  inspiration.resolvedSourceKind == .video || inspiration.resolvedSourceKind == .audio
+            guard inspiration.supportsMaterialDigest
             else {
                 throw WorkspaceValidationError.invalidMaterialDigestInspiration(digest.inspirationID)
             }
@@ -198,8 +198,14 @@ public enum WorkspaceValidator {
             if let run = digest.currentRun {
                 try validate(run, for: digest.inspirationID)
             }
+            if let snapshot = digest.preparedSnapshot {
+                try validate(snapshot, inspirationID: digest.inspirationID, sourceChecksum: digest.sourceChecksum)
+            }
+            if let snapshot = digest.pendingSnapshot {
+                try validate(snapshot, inspirationID: digest.inspirationID, sourceChecksum: digest.sourceChecksum)
+            }
             if let result = digest.result {
-                try validate(result, for: digest.inspirationID)
+                try validate(result, digest: digest, for: digest.inspirationID)
             }
             if let failure = digest.lastFailure {
                 try validate(failure, for: digest.inspirationID)
@@ -229,15 +235,134 @@ public enum WorkspaceValidator {
         }
     }
 
-    private static func validate(_ result: MaterialDigestResult, for inspirationID: InspirationID) throws {
-        try validate(result.transcript, for: inspirationID)
-        try validate(
-            result.summary,
-            transcript: result.transcript,
-            contractVersion: result.provenance.summaryContractVersion,
-            for: inspirationID
-        )
+    private static func validate(
+        _ result: MaterialDigestResult,
+        digest: MaterialDigest,
+        for inspirationID: InspirationID
+    ) throws {
         try validate(result.provenance, for: inspirationID)
+        if MaterialDigestSummaryContract.isLegacy(result.provenance.summaryContractVersion) {
+            guard let snapshot = digest.preparedSnapshot else {
+                throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+            }
+            let transcript = snapshot.timestampedTranscript
+            try validate(transcript, for: inspirationID)
+            try validate(
+                result.summary,
+                transcript: transcript,
+                contractVersion: result.provenance.summaryContractVersion,
+                for: inspirationID
+            )
+            return
+        }
+        guard let snapshot = digest.preparedSnapshot,
+              snapshot.contentFingerprint == result.contentFingerprint,
+              !result.contentFingerprint.isEmpty
+        else {
+            throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+        }
+        do {
+            try MaterialDigestEvidence.validateNewSummary(result.summary, against: snapshot)
+        } catch {
+            throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+        }
+        try validateV3SummaryLimits(result.summary, for: inspirationID)
+    }
+
+    private static func validate(
+        _ snapshot: MaterialSnapshot,
+        inspirationID: InspirationID,
+        sourceChecksum: String
+    ) throws {
+        let fingerprint: String
+        do {
+            fingerprint = try WorkspaceChecksum.materialSnapshotContentFingerprint(snapshot)
+        } catch {
+            throw WorkspaceValidationError.invalidMaterialSnapshot(inspirationID)
+        }
+        let totalCharacters = snapshot.blocks.reduce(0) { $0 + $1.text.count }
+        guard Set(snapshot.blocks.map(\.id)).count == snapshot.blocks.count,
+              snapshot.blocks.count <= MaterialDigestContentLimits.maximumMaterialBlocks,
+              totalCharacters <= MaterialDigestContentLimits.maximumMaterialCharacters,
+              fingerprint == snapshot.contentFingerprint,
+              snapshot.sourceChecksum == sourceChecksum,
+              snapshot.blocks.allSatisfy(isValidLocator)
+        else {
+            throw WorkspaceValidationError.invalidMaterialSnapshot(inspirationID)
+        }
+    }
+
+    private static func isValidLocator(_ block: MaterialBlock) -> Bool {
+        let text = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || block.role == .metadata else { return false }
+        switch block.locator {
+        case let .paragraph(index):
+            return index >= 0
+        case let .timestamp(startSeconds, endSeconds):
+            return startSeconds.isFinite
+                && endSeconds.isFinite
+                && startSeconds >= 0
+                && endSeconds >= startSeconds
+                && endSeconds <= MaterialDigestContentLimits.maximumTimestampSeconds
+        case let .page(number):
+            return number >= 1
+        case let .image(index):
+            return index >= 0
+        }
+    }
+
+    private static func validateV3SummaryLimits(
+        _ summary: InspirationSummary,
+        for inspirationID: InspirationID
+    ) throws {
+        let thesis = summary.thesis.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !thesis.isEmpty,
+              thesis.count <= MaterialDigestContentLimits.maximumThesisCharacters
+        else {
+            throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+        }
+        let takeaways = summary.takeaways.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard MaterialDigestContentLimits.takeawayCountRange.contains(takeaways.count),
+              takeaways.allSatisfy({
+                  !$0.isEmpty && $0.count <= MaterialDigestContentLimits.maximumTakeawayCharacters
+              })
+        else {
+            throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+        }
+        var totalCharacters = thesis.count + takeaways.reduce(0) { $0 + $1.count }
+        for chapter in summary.chapters {
+            let title = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let points = chapter.points.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            totalCharacters += title.count + points.reduce(0) { $0 + $1.count }
+            guard totalCharacters <= MaterialDigestContentLimits.maximumSummaryCharacters,
+                  points.allSatisfy({
+                      !$0.isEmpty && $0.count <= MaterialDigestContentLimits.maximumPointCharacters
+                  })
+            else {
+                throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+            }
+        }
+        for quote in summary.quotes {
+            let text = quote.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let speaker = quote.speaker?.trimmingCharacters(in: .whitespacesAndNewlines)
+            totalCharacters += text.count + (speaker?.count ?? 0)
+            guard text.count <= MaterialDigestContentLimits.maximumQuoteCharacters,
+                  (speaker?.count ?? 0) <= MaterialDigestContentLimits.maximumSpeakerCharacters,
+                  totalCharacters <= MaterialDigestContentLimits.maximumSummaryCharacters
+            else {
+                throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+            }
+        }
+        for item in summary.dropped {
+            let text = item.trimmingCharacters(in: .whitespacesAndNewlines)
+            totalCharacters += text.count
+            guard !text.isEmpty,
+                  text.count <= MaterialDigestContentLimits.maximumDroppedItemCharacters,
+                  totalCharacters <= MaterialDigestContentLimits.maximumSummaryCharacters
+            else {
+                throw WorkspaceValidationError.invalidMaterialDigestResult(inspirationID)
+            }
+        }
     }
 
     private static func validate(_ transcript: TimestampedTranscript, for inspirationID: InspirationID) throws {

@@ -133,11 +133,60 @@ struct WorkspaceDocumentCodecTests {
         try WorkspaceValidator.validate(result.state)
     }
 
+    @Test func v4TimedTranscriptMigratesToV5BlocksAndLegacyReadOnlySummary() throws {
+        let v4 = try WorkspacePersistenceFixtures.v4WorkspaceWithMaterialDigest()
+        let loaded = try WorkspaceDocumentCodec.decode(v4)
+        let digest = try #require(loaded.state.materialDigests.values.first)
+        #expect(loaded.provenance.sourceSchema == 4)
+        #expect(digest.preparedSnapshot?.blocks.map(\.role) == [.transcript, .transcript])
+        #expect(digest.preparedSnapshot?.blocks.map(\.locator) == [
+            .timestamp(startSeconds: 0, endSeconds: 8),
+            .timestamp(startSeconds: 8, endSeconds: 20)
+        ])
+        #expect(digest.result?.provenance.summaryContractVersion == "summary-contract-v2")
+        #expect(try WorkspaceDocumentCodec.decode(WorkspaceDocumentCodec.encode(loaded.state)).state == loaded.state)
+    }
+
+    @Test func v4MigrationPreservesUniqueBlockIDsBeyondOneByte() throws {
+        let loaded = try WorkspaceDocumentCodec.decode(
+            WorkspacePersistenceFixtures.v4WorkspaceWithMaterialDigest(segmentCount: 257)
+        )
+        let digest = try #require(loaded.state.materialDigests.values.first)
+        let blocks = try #require(digest.preparedSnapshot?.blocks)
+
+        #expect(blocks.count == 257)
+        #expect(Set(blocks.map(\.id)).count == 257)
+        #expect(try WorkspaceDocumentCodec.decode(WorkspaceDocumentCodec.encode(loaded.state)).state == loaded.state)
+    }
+
+    @Test func v4MigrationPreservesUniqueBlockIDsAtTheMaterialBoundary() throws {
+        let count = MaterialDigestContentLimits.maximumMaterialBlocks
+        let loaded = try WorkspaceDocumentCodec.decode(
+            WorkspacePersistenceFixtures.v4WorkspaceWithMaterialDigest(segmentCount: count)
+        )
+        let blocks = try #require(
+            loaded.state.materialDigests.values.first?.preparedSnapshot?.blocks
+        )
+
+        #expect(blocks.count == count)
+        #expect(Set(blocks.map(\.id)).count == count)
+    }
+
+    @Test func v5IsRejectedByLegacyV4WriterInsteadOfBeingSilentlyDowngraded() throws {
+        let encoded = try WorkspaceDocumentCodec.encode(
+            try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
+        )
+        #expect(try JSONDecoder.workspaceDeterministic.decode(SchemaEnvelopeFixture.self, from: encoded).schemaVersion == 5)
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder.workspaceDeterministic.decode(LegacyWorkspaceDocumentV3V4.self, from: encoded)
+        }
+    }
+
     @Test func v4CompatibleRoundTripPreservesSucceededAwaitingAndRetryDigests() throws {
         let expected = try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
         let encoded = try WorkspaceDocumentCodec.encode(expected)
         let decoded = try WorkspaceDocumentCodec.decode(encoded)
-        #expect(decoded.provenance.sourceSchema == 4)
+        #expect(decoded.provenance.sourceSchema == 5)
         #expect(decoded.state == expected)
         #expect(decoded.state.materialDigests.count == 3)
         #expect(try WorkspaceDocumentCodec.encode(decoded.state) == encoded)
@@ -151,6 +200,24 @@ struct WorkspaceDocumentCodecTests {
 
         #expect(decoded.state == fixture.state)
         #expect(decoded.state.materialDigests[fixture.inspirationID]?.noteWrite?.noteID == fixture.noteID)
+        #expect(decoded.state.notes[fixture.noteID]?.document.blocks == [fixture.digestBlock])
+    }
+
+    @Test func v4MigrationRebindsNoteWriteToTheMigratedResultFingerprint() throws {
+        let fixture = try WorkspacePersistenceFixtures.workspaceWithWrittenMaterialDigest()
+        let oldFingerprint = try #require(
+            fixture.state.materialDigests[fixture.inspirationID]?.noteWrite?.resultFingerprint
+        )
+        let v4 = try WorkspacePersistenceFixtures.v4Bytes(from: fixture.state)
+
+        let decoded = try WorkspaceDocumentCodec.decode(v4)
+        let digest = try #require(decoded.state.materialDigests[fixture.inspirationID])
+        let result = try #require(digest.result)
+        let migratedFingerprint = try WorkspaceChecksum.materialDigestResultFingerprint(result)
+
+        #expect(migratedFingerprint != oldFingerprint)
+        #expect(digest.noteWrite?.resultFingerprint == migratedFingerprint)
+        #expect(digest.noteWrite?.noteID == fixture.noteID)
         #expect(decoded.state.notes[fixture.noteID]?.document.blocks == [fixture.digestBlock])
     }
 
@@ -169,7 +236,7 @@ struct WorkspaceDocumentCodecTests {
 
     @Test func previousV4ReaderCanStillRecoverOriginalNotesAndInspirations() throws {
         let expected = try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
-        let encoded = try WorkspaceDocumentCodec.encode(expected)
+        let encoded = try WorkspacePersistenceFixtures.v4Bytes(from: expected)
 
         let legacy = try JSONDecoder.workspaceDeterministic.decode(
             LegacyWorkspaceDocumentV3V4.self,
@@ -189,21 +256,13 @@ struct WorkspaceDocumentCodecTests {
         let encoded = try WorkspaceDocumentCodec.encode(expected)
         let decoded = try WorkspaceDocumentCodec.decode(encoded)
 
-        #expect(decoded.provenance.sourceSchema == 4)
+        #expect(decoded.provenance.sourceSchema == 5)
         #expect(decoded.provenance.sourceSchema == WorkspaceDocument.currentSchemaVersion)
         #expect(decoded.state.notes == expected.notes)
         #expect(decoded.state.inspirations == expected.inspirations)
         #expect(decoded.state.materialDigests == expected.materialDigests)
         #expect(decoded.state.inspirationNoteLinks == expected.inspirationNoteLinks)
         #expect(decoded.state == expected)
-
-        let legacy = try JSONDecoder.workspaceDeterministic.decode(
-            LegacyWorkspaceDocumentV3V4.self,
-            from: encoded
-        )
-        #expect(legacy.schemaVersion == 4)
-        #expect(legacy.state.notes == expected.notes)
-        #expect(legacy.state.inspirations == expected.inspirations)
 
         var v2 = expected
         let inspirationID = try #require(v2.materialDigests.keys.first)
@@ -317,6 +376,102 @@ enum WorkspacePersistenceFixtures {
         """#.utf8)
     }
 
+    static func v4WorkspaceWithMaterialDigest(segmentCount: Int = 2) throws -> Data {
+        let now = Date(timeIntervalSince1970: 1_800_200_000)
+        let inspiration = try materialInspiration(index: 4, now: now)
+        var state = WorkspaceState.empty(calendar: calendarState)
+        state.revision = 8
+        state.inspirations[inspiration.id] = inspiration
+        let digest = succeededDigest(for: inspiration, now: now)
+        let result = try #require(digest.result)
+        let sourceTranscript = try #require(digest.preparedSnapshot).timestampedTranscript
+        let transcript = segmentCount == sourceTranscript.segments.count
+            ? sourceTranscript
+            : TimestampedTranscript(
+                segments: (0..<segmentCount).map { index in
+                    TranscriptSegment(
+                        startSeconds: Double(index),
+                        endSeconds: Double(index + 1),
+                        text: "片段\(index)"
+                    )
+                }
+            )
+        let legacyDigest = LegacyMaterialDigestV4(
+            id: digest.id,
+            inspirationID: digest.inspirationID,
+            sourceChecksum: digest.sourceChecksum,
+            currentRun: digest.currentRun,
+            result: LegacyMaterialDigestResultV4(
+                transcript: transcript,
+                summary: LegacyInspirationSummaryV4(
+                    thesis: result.summary.thesis,
+                    takeaways: result.summary.takeaways,
+                    chapters: [],
+                    quotes: [],
+                    dropped: []
+                ),
+                provenance: DigestProvenance(
+                    modelIdentifier: result.provenance.modelIdentifier,
+                    generatedAt: result.provenance.generatedAt,
+                    inputFingerprint: result.provenance.inputFingerprint,
+                    summaryContractVersion: "summary-contract-v2"
+                ),
+                completedAt: result.completedAt
+            ),
+            lastFailure: digest.lastFailure,
+            noteWrite: digest.noteWrite,
+            createdAt: digest.createdAt,
+            updatedAt: digest.updatedAt
+        )
+        var v4State = EncodableV4WorkspaceState(state: state)
+        v4State.materialDigests = [inspiration.id: legacyDigest]
+        return try JSONEncoder.workspaceDeterministic.encode(
+            EncodableV4WorkspaceDocument(schemaVersion: 4, state: v4State)
+        )
+    }
+
+    static func v4Bytes(from state: WorkspaceState) throws -> Data {
+        let document = EncodableV4WorkspaceDocument(
+            schemaVersion: 4,
+            state: EncodableV4WorkspaceState(state: state)
+        )
+        return try JSONEncoder.workspaceDeterministic.encode(document)
+    }
+
+    private static func v4Bytes(
+        from digest: MaterialDigest,
+        inspiration: Inspiration,
+        summaryContractVersion: String,
+        state: WorkspaceState
+    ) throws -> Data {
+        let result = try #require(digest.result)
+        var migrated = state
+        migrated.materialDigests = [
+            inspiration.id: MaterialDigest(
+                id: digest.id,
+                inspirationID: digest.inspirationID,
+                sourceChecksum: digest.sourceChecksum,
+                currentRun: digest.currentRun,
+                result: MaterialDigestResult(
+                    summary: result.summary,
+                    provenance: DigestProvenance(
+                        modelIdentifier: result.provenance.modelIdentifier,
+                        generatedAt: result.provenance.generatedAt,
+                        inputFingerprint: result.provenance.inputFingerprint,
+                        summaryContractVersion: summaryContractVersion
+                    ),
+                    completedAt: result.completedAt
+                ),
+                lastFailure: digest.lastFailure,
+                noteWrite: digest.noteWrite,
+                preparedSnapshot: digest.preparedSnapshot,
+                createdAt: digest.createdAt,
+                updatedAt: digest.updatedAt
+            )
+        ]
+        return try v4Bytes(from: migrated)
+    }
+
     static func workspaceWithMaterialDigests() throws -> WorkspaceState {
         let now = Date(timeIntervalSince1970: 1_800_200_000)
         var state = WorkspaceState.empty(calendar: calendarState)
@@ -366,20 +521,20 @@ enum WorkspacePersistenceFixtures {
         state.inspirationNoteLinks.insert(
             InspirationNoteLink(source: .live(inspiration.id), noteID: note.id, createdAt: now)
         )
+        let transcript = TimestampedTranscript(segments: [
+            TranscriptSegment(startSeconds: 0, endSeconds: 10, text: "片头预告"),
+            TranscriptSegment(
+                startSeconds: 10,
+                endSeconds: 25,
+                text: "这句话才是真正的引用原文"
+            ),
+            TranscriptSegment(startSeconds: 25, endSeconds: 40, text: "收尾")
+        ])
         state.materialDigests[inspiration.id] = digest(
             for: inspiration,
             now: now,
             currentRun: nil,
             result: MaterialDigestResult(
-                transcript: TimestampedTranscript(segments: [
-                    TranscriptSegment(startSeconds: 0, endSeconds: 10, text: "片头预告"),
-                    TranscriptSegment(
-                        startSeconds: 10,
-                        endSeconds: 25,
-                        text: "这句话才是真正的引用原文"
-                    ),
-                    TranscriptSegment(startSeconds: 25, endSeconds: 40, text: "收尾")
-                ]),
                 summary: InspirationSummary(
                     thesis: "核心论点",
                     takeaways: ["观点1", "观点2", "观点3"],
@@ -403,7 +558,8 @@ enum WorkspacePersistenceFixtures {
                     summaryContractVersion: "summary-contract-v1"
                 ),
                 completedAt: now
-            )
+            ),
+            transcript: transcript
         )
         return state
     }
@@ -512,15 +668,24 @@ enum WorkspacePersistenceFixtures {
         for inspiration: Inspiration,
         now: Date,
         currentRun: MaterialDigestRun?,
-        result: MaterialDigestResult?
+        result: MaterialDigestResult?,
+        transcript: TimestampedTranscript? = nil
     ) -> MaterialDigest {
-        MaterialDigest(
+        let preparedSnapshot = result.map { _ in
+            snapshot(
+                for: inspiration,
+                transcript: transcript ?? standardTranscript,
+                now: now
+            )
+        }
+        return MaterialDigest(
             id: MaterialDigestID(inspiration.id.rawValue),
             inspirationID: inspiration.id,
             sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(inspiration),
             currentRun: currentRun,
             result: result,
             lastFailure: nil,
+            preparedSnapshot: preparedSnapshot,
             createdAt: now,
             updatedAt: now
         )
@@ -528,10 +693,6 @@ enum WorkspacePersistenceFixtures {
 
     private static func succeededResult(for inspiration: Inspiration, now: Date) -> MaterialDigestResult {
         MaterialDigestResult(
-            transcript: TimestampedTranscript(segments: [
-                TranscriptSegment(startSeconds: 0, endSeconds: 8, text: "开场"),
-                TranscriptSegment(startSeconds: 8, endSeconds: 20, text: "主体")
-            ]),
             summary: InspirationSummary(
                 thesis: "核心论点",
                 takeaways: ["观点1", "观点2", "观点3"],
@@ -549,6 +710,52 @@ enum WorkspacePersistenceFixtures {
                 summaryContractVersion: "summary-contract-v1"
             ),
             completedAt: now
+        )
+    }
+
+    private static var standardTranscript: TimestampedTranscript {
+        TimestampedTranscript(segments: [
+            TranscriptSegment(startSeconds: 0, endSeconds: 8, text: "开场"),
+            TranscriptSegment(startSeconds: 8, endSeconds: 20, text: "主体")
+        ])
+    }
+
+    private static func snapshot(
+        for inspiration: Inspiration,
+        transcript: TimestampedTranscript,
+        now: Date
+    ) -> MaterialSnapshot {
+        let blocks = transcript.segments.enumerated().map { index, segment in
+            MaterialBlock(
+                id: MaterialBlockID(uuid(9_100 + index)),
+                role: .transcript,
+                text: segment.text,
+                locator: .timestamp(
+                    startSeconds: segment.startSeconds,
+                    endSeconds: segment.endSeconds
+                ),
+                confidence: nil
+            )
+        }
+        let draft = MaterialSnapshot(
+            sourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(inspiration),
+            contentFingerprint: "pending",
+            blocks: blocks,
+            coverage: .sufficient,
+            provenance: .init(
+                adapterIdentifier: "persistence-fixture",
+                adapterVersion: "1",
+                acquiredAt: now
+            ),
+            createdAt: now
+        )
+        return MaterialSnapshot(
+            sourceChecksum: draft.sourceChecksum,
+            contentFingerprint: try! WorkspaceChecksum.materialSnapshotContentFingerprint(draft),
+            blocks: blocks,
+            coverage: draft.coverage,
+            provenance: draft.provenance,
+            createdAt: now
         )
     }
 
@@ -694,6 +901,70 @@ enum WorkspacePersistenceFixtures {
     }
 }
 
+private struct EncodableV4WorkspaceDocument: Encodable {
+    var schemaVersion: Int
+    var state: EncodableV4WorkspaceState
+}
+
+private struct EncodableV4WorkspaceState: Encodable {
+    var revision: Int64
+    var calendar: CalendarState
+    var notes: [NoteID: Note]
+    var inspirations: [InspirationID: Inspiration]
+    var calendarNoteRelations: CalendarNoteRelationGraph
+    var taskBlockLinks: Set<TaskBlockCalendarLink>
+    var inspirationNoteLinks: Set<InspirationNoteLink>
+    var materialDigests: [InspirationID: LegacyMaterialDigestV4]
+
+    init(state: WorkspaceState) {
+        revision = state.revision
+        calendar = state.calendar
+        notes = state.notes
+        inspirations = state.inspirations
+        calendarNoteRelations = state.calendarNoteRelations
+        taskBlockLinks = state.taskBlockLinks
+        inspirationNoteLinks = state.inspirationNoteLinks
+        materialDigests = state.materialDigests.mapValues { digest in
+            LegacyMaterialDigestV4(
+                id: digest.id,
+                inspirationID: digest.inspirationID,
+                sourceChecksum: digest.sourceChecksum,
+                currentRun: digest.currentRun,
+                result: digest.result.map { result in
+                    LegacyMaterialDigestResultV4(
+                        transcript: digest.preparedSnapshot!.timestampedTranscript,
+                        summary: LegacyInspirationSummaryV4(
+                            thesis: result.summary.thesis,
+                            takeaways: result.summary.takeaways,
+                            chapters: result.summary.chapters.map {
+                                LegacyDigestChapterV4(
+                                    startSeconds: $0.startSeconds,
+                                    title: $0.title,
+                                    points: $0.points
+                                )
+                            },
+                            quotes: result.summary.quotes.map {
+                                LegacyDigestQuoteV4(
+                                    speaker: $0.speaker,
+                                    startSeconds: $0.startSeconds,
+                                    text: $0.text
+                                )
+                            },
+                            dropped: result.summary.dropped
+                        ),
+                        provenance: result.provenance,
+                        completedAt: result.completedAt
+                    )
+                },
+                lastFailure: digest.lastFailure,
+                noteWrite: digest.noteWrite,
+                createdAt: digest.createdAt,
+                updatedAt: digest.updatedAt
+            )
+        }
+    }
+}
+
 private struct LegacyWorkspaceStateV3V4: Codable, Equatable {
     var revision: Int64
     var calendar: CalendarState
@@ -717,4 +988,32 @@ private struct LegacyWorkspaceStateV3V4: Codable, Equatable {
 private struct LegacyWorkspaceDocumentV3V4: Codable, Equatable {
     var schemaVersion: Int
     var state: LegacyWorkspaceStateV3V4
+
+    init(schemaVersion: Int, state: LegacyWorkspaceStateV3V4) {
+        self.schemaVersion = schemaVersion
+        self.state = state
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == 3 || schemaVersion == 4 else {
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: container.codingPath,
+                    debugDescription: "legacy V3/V4 reader rejects schema \(schemaVersion)"
+                )
+            )
+        }
+        state = try container.decode(LegacyWorkspaceStateV3V4.self, forKey: .state)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case state
+    }
+}
+
+private struct SchemaEnvelopeFixture: Decodable {
+    let schemaVersion: Int
 }

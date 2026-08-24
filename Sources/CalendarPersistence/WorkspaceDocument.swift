@@ -130,11 +130,10 @@ public enum WorkspacePersistenceError: Error, Equatable, Sendable {
 }
 
 public struct WorkspaceDocument: Codable, Equatable, Sendable {
-    // Material digests are an optional, derived extension of the existing V4
-    // workspace. Keeping V4 lets the previous app reopen the user's original
-    // notes and inspirations; an older writer may drop digests, but never the
-    // raw source or note content.
-    public static let currentSchemaVersion = 4
+    // V5 persists source-agnostic snapshots and block-level evidence. V4 is
+    // migrated on read; older app builds cannot open a V5 workspace and must
+    // not be used as writers after this schema is adopted.
+    public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
     public var state: WorkspaceState

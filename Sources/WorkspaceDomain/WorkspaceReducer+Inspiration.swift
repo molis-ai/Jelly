@@ -42,6 +42,7 @@ extension WorkspaceReducer {
         inspiration.rawText = rawText
         inspiration.updatedAt = now
         candidate.inspirations[id] = inspiration
+        candidate.materialDigests.removeValue(forKey: id)
         return .proceed
     }
 

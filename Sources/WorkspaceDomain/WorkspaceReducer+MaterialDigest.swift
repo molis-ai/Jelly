@@ -10,8 +10,7 @@ extension WorkspaceReducer {
             throw WorkspaceReducerError.missingInspiration(payload.inspirationID)
         }
         guard inspiration.lifecycle == .active,
-              inspiration.inputKind == .url,
-              inspiration.resolvedSourceKind == .video || inspiration.resolvedSourceKind == .audio
+              inspiration.supportsMaterialDigest
         else {
             throw WorkspaceReducerError.invalidInspiration
         }
@@ -23,14 +22,31 @@ extension WorkspaceReducer {
             return .result(.noChange(.materialDigestAlreadyRunning))
         }
 
+        let initialStage: MaterialDigestStage
+        let preparedSnapshot = candidate.materialDigests[payload.inspirationID]?.preparedSnapshot
+        var pendingSnapshot = candidate.materialDigests[payload.inspirationID]?.pendingSnapshot
+        switch payload.mode {
+        case .refreshSource:
+            initialStage = .resolvingSource
+            pendingSnapshot = nil
+        case .reusePreparedSnapshot:
+            guard let snapshot = pendingSnapshot ?? preparedSnapshot,
+                  snapshot.sourceChecksum == payload.expectedSourceChecksum
+            else {
+                throw WorkspaceReducerError.invalidMaterialDigestStage
+            }
+            pendingSnapshot = snapshot
+            initialStage = .preparingSummary
+        }
         let run = MaterialDigestRun(
             id: payload.runID,
-            stage: .fetchingSource,
+            stage: initialStage,
             startedAt: now,
             updatedAt: now
         )
         if var existing = candidate.materialDigests[payload.inspirationID] {
             existing.currentRun = run
+            existing.pendingSnapshot = pendingSnapshot
             existing.lastFailure = nil
             existing.updatedAt = now
             candidate.materialDigests[payload.inspirationID] = existing
@@ -42,11 +58,39 @@ extension WorkspaceReducer {
                 currentRun: run,
                 result: nil,
                 lastFailure: nil,
+                preparedSnapshot: nil,
+                pendingSnapshot: pendingSnapshot,
                 createdAt: now,
                 updatedAt: now
             )
         }
         return .proceed
+    }
+
+    static func saveMaterialSnapshot(
+        _ payload: SaveMaterialSnapshotPayload,
+        in candidate: inout WorkspaceState,
+        now: Date
+    ) throws -> WorkspaceCommandControl {
+        switch try withCurrentRun(payload.expectation, in: candidate) {
+        case let .noChange(reason):
+            return .result(.noChange(reason))
+        case let .matched(digest, run):
+            guard payload.snapshot.sourceChecksum == payload.expectation.sourceChecksum,
+                  payload.snapshot.sourceChecksum == digest.sourceChecksum
+            else {
+                return .result(.noChange(.staleMaterialDigestSource))
+            }
+            var digest = digest
+            var run = run
+            digest.pendingSnapshot = payload.snapshot
+            run.stage = .preparingSummary
+            run.updatedAt = now
+            digest.currentRun = run
+            digest.updatedAt = now
+            candidate.materialDigests[digest.inspirationID] = digest
+            return .proceed
+        }
     }
 
     static func advanceMaterialDigestStage(
@@ -87,15 +131,22 @@ extension WorkspaceReducer {
             guard run.stage == .summarizing else {
                 throw WorkspaceReducerError.invalidMaterialDigestStage
             }
+            guard let snapshot = digest.pendingSnapshot,
+                  snapshot.contentFingerprint == payload.expectedContentFingerprint
+            else {
+                throw WorkspaceReducerError.invalidMaterialDigestStage
+            }
             var provenance = payload.provenance
             provenance.generatedAt = now
             var digest = digest
             digest.currentRun = nil
+            digest.preparedSnapshot = snapshot
+            digest.pendingSnapshot = nil
             digest.result = MaterialDigestResult(
-                transcript: payload.transcript,
                 summary: payload.summary,
                 provenance: provenance,
-                completedAt: now
+                completedAt: now,
+                contentFingerprint: payload.expectedContentFingerprint
             )
             digest.lastFailure = nil
             digest.updatedAt = now
@@ -139,7 +190,7 @@ extension WorkspaceReducer {
             digest.currentRun = nil
             digest.lastFailure = MaterialDigestFailure(
                 code: .cancelled,
-                userMessage: "已取消提炼，原始链接仍然保留。",
+                userMessage: "已取消提炼，原始材料仍然保留。",
                 occurredAt: now
             )
             digest.updatedAt = now
@@ -164,7 +215,9 @@ extension WorkspaceReducer {
             digest.currentRun = nil
             digest.lastFailure = MaterialDigestFailure(
                 code: .interrupted,
-                userMessage: "上次处理被中断，可以重新提炼。",
+                userMessage: digest.pendingSnapshot == nil
+                    ? "上次处理被中断，可以重新提炼。"
+                    : "材料已就绪，可继续生成摘要。",
                 occurredAt: now
             )
             digest.updatedAt = now
@@ -206,15 +259,23 @@ extension WorkspaceReducer {
         to: MaterialDigestStage
     ) -> Bool {
         switch (from, to) {
-        case (.fetchingSource, .summarizing),
-             (.fetchingSource, .awaitingModelDownloadConsent),
+        case (.resolvingSource, .fetchingSource),
+             (.fetchingSource, .extractingText),
              (.fetchingSource, .transcribing),
+             (.fetchingSource, .recognizingImages),
+             (.fetchingSource, .awaitingModelDownloadConsent),
+             (.extractingText, .preparingSummary),
+             (.extractingText, .recognizingImages),
+             (.transcribing, .preparingSummary),
+             (.transcribing, .awaitingModelDownloadConsent),
+             (.recognizingImages, .preparingSummary),
+             (.preparingSummary, .summarizing),
              (.awaitingModelDownloadConsent, .downloadingModel),
-             (.downloadingModel, .fetchingSource),
-             (.transcribing, .summarizing):
+             (.downloadingModel, .fetchingSource):
             true
         default:
             false
         }
     }
+
 }

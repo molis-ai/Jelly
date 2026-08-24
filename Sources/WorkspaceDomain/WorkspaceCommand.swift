@@ -241,22 +241,30 @@ public struct MaterialDigestRunExpectation: Equatable, Sendable {
     }
 }
 
+public enum MaterialDigestStartMode: Equatable, Sendable {
+    case reusePreparedSnapshot
+    case refreshSource
+}
+
 public struct StartMaterialDigestPayload: Equatable, Sendable {
     public let inspirationID: InspirationID
     public let digestID: MaterialDigestID
     public let runID: MaterialDigestRunID
     public let expectedSourceChecksum: String
+    public let mode: MaterialDigestStartMode
 
     public init(
         inspirationID: InspirationID,
         digestID: MaterialDigestID,
         runID: MaterialDigestRunID,
-        expectedSourceChecksum: String
+        expectedSourceChecksum: String,
+        mode: MaterialDigestStartMode = .refreshSource
     ) {
         self.inspirationID = inspirationID
         self.digestID = digestID
         self.runID = runID
         self.expectedSourceChecksum = expectedSourceChecksum
+        self.mode = mode
     }
 }
 
@@ -276,20 +284,30 @@ public struct AdvanceMaterialDigestStagePayload: Equatable, Sendable {
     }
 }
 
+public struct SaveMaterialSnapshotPayload: Equatable, Sendable {
+    public let expectation: MaterialDigestRunExpectation
+    public let snapshot: MaterialSnapshot
+
+    public init(expectation: MaterialDigestRunExpectation, snapshot: MaterialSnapshot) {
+        self.expectation = expectation
+        self.snapshot = snapshot
+    }
+}
+
 public struct CompleteMaterialDigestPayload: Equatable, Sendable {
     public let expectation: MaterialDigestRunExpectation
-    public let transcript: TimestampedTranscript
+    public let expectedContentFingerprint: String
     public let summary: InspirationSummary
     public let provenance: DigestProvenance
 
     public init(
         expectation: MaterialDigestRunExpectation,
-        transcript: TimestampedTranscript,
+        expectedContentFingerprint: String,
         summary: InspirationSummary,
         provenance: DigestProvenance
     ) {
         self.expectation = expectation
-        self.transcript = transcript
+        self.expectedContentFingerprint = expectedContentFingerprint
         self.summary = summary
         self.provenance = provenance
     }
@@ -375,6 +393,7 @@ public enum WorkspaceCommand: Sendable {
         authorization: PermanentDeleteAuthorization
     )
     case startMaterialDigest(StartMaterialDigestPayload)
+    case saveMaterialSnapshot(SaveMaterialSnapshotPayload)
     case advanceMaterialDigestStage(AdvanceMaterialDigestStagePayload)
     case completeMaterialDigest(CompleteMaterialDigestPayload)
     case failMaterialDigest(FailMaterialDigestPayload)
