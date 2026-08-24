@@ -590,10 +590,6 @@ struct MonthView: View {
                     },
                     onCancel: { editorSession = nil },
                     onSaved: { editorSession = nil },
-                    onCopyToToday: { item in
-                        editorSession = nil
-                        copyItemToToday(item)
-                    },
                     onManageCategories: presentCategoryManager
                 )
                 .id(session.id)

@@ -233,6 +233,52 @@ struct MarkdownRichTextCodecTests {
         #expect(listed.string.hasPrefix("•"), "got=\(listed.string)")
     }
 
+    @Test func toolbarListOnEmptyPutsCaretAfterMarker() {
+        let empty = NSAttributedString(string: "")
+        let cases: [(MarkdownNotesCommand, String)] = [
+            (.checklist, "☐ "),
+            (.unorderedList, "• "),
+            (.orderedList, "1. ")
+        ]
+        for (command, prefix) in cases {
+            let (listed, caret) = MarkdownRichTextCodec.apply(
+                command,
+                to: empty,
+                selectedRange: NSRange(location: 0, length: 0),
+                metrics: metrics
+            )
+            let prefixLen = (prefix as NSString).length
+            #expect(listed.string.hasPrefix(prefix), "command=\(command) got=\(listed.string)")
+            #expect(caret == NSRange(location: prefixLen, length: 0), "command=\(command) caret=\(caret)")
+        }
+    }
+
+    @Test func toolbarListOnPlainLinePutsCaretAfterMarkerNotAtLineStart() {
+        let plain = MarkdownRichTextCodec.attributedString(from: "创建账号", metrics: metrics)
+        let (listed, caret) = MarkdownRichTextCodec.apply(
+            .checklist,
+            to: plain,
+            selectedRange: NSRange(location: 0, length: 0),
+            metrics: metrics
+        )
+        let prefixLen = ("☐ " as NSString).length
+        #expect(listed.string.hasPrefix("☐ 创建账号"), "got=\(listed.string)")
+        #expect(caret == NSRange(location: prefixLen, length: 0), "caret=\(caret)")
+    }
+
+    @Test func toolbarListAtEndOfLineKeepsCaretAtEndOfBody() {
+        let plain = MarkdownRichTextCodec.attributedString(from: "创建账号", metrics: metrics)
+        let end = NSRange(location: plain.length, length: 0)
+        let (listed, caret) = MarkdownRichTextCodec.apply(
+            .unorderedList,
+            to: plain,
+            selectedRange: end,
+            metrics: metrics
+        )
+        #expect(listed.string == "• 创建账号", "got=\(listed.string)")
+        #expect(caret == NSRange(location: listed.length, length: 0), "caret=\(caret)")
+    }
+
     @Test func toolbarToggleOffRemovesBullet() {
         let base = MarkdownRichTextCodec.attributedString(from: "- 可能", metrics: metrics)
         #expect(base.string.hasPrefix("•"))

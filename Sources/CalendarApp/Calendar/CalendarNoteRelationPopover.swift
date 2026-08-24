@@ -2,17 +2,49 @@ import CalendarDomain
 import SwiftUI
 import WorkspaceDomain
 
+/// One action cluster at a time: convert, associate, or manage a linked note.
+enum CalendarNoteRelationLayout: Equatable, Sendable {
+    case convertLegacy
+    case empty
+    case linked
+
+    static func make(hasPrimary: Bool, hasLegacyMarkdown: Bool) -> Self {
+        if hasPrimary { return .linked }
+        if hasLegacyMarkdown { return .convertLegacy }
+        return .empty
+    }
+
+    var caption: String? {
+        switch self {
+        case .convertLegacy:
+            "随记还在事项里。转成笔记后才能关联。"
+        case .empty, .linked:
+            nil
+        }
+    }
+}
+
 /// Compact 笔记 section for item detail: primary first, references below.
 struct CalendarNoteRelationPopover: View {
     @Bindable var model: CalendarNoteIntegrationModel
     let store: WorkspaceStore
     var onOpenNote: (NoteID) -> Void
     @State private var pendingLinkedTaskDetach: NoteID?
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var theme: CalendarSemanticAppearance {
+        CalendarTheme.appearance(for: colorScheme)
+    }
+
+    private var layout: CalendarNoteRelationLayout {
+        .make(hasPrimary: model.primaryNote != nil, hasLegacyMarkdown: model.hasLegacyMarkdown)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("笔记")
-                .font(.headline)
+                .font(EditorFormStyle.label)
+                .foregroundStyle(theme.secondaryText)
 
             if let primary = model.primaryNote {
                 noteRow(primary, badge: "主笔记") {
@@ -22,47 +54,31 @@ struct CalendarNoteRelationPopover: View {
                         Task { _ = try? await model.detach(primary.id) }
                     }
                 }
-            } else {
-                Text("尚未关联主笔记")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             if !model.referenceNotes.isEmpty {
-                Text("参考笔记")
-                    .font(.subheadline)
                 ForEach(model.referenceNotes) { note in
-                    noteRow(note, badge: note.archivedAt == nil ? nil : "已归档") {
+                    noteRow(note, badge: note.archivedAt == nil ? "参考" : "已归档") {
                         Task { _ = try? await model.detach(note.id) }
                     }
                 }
             }
 
-            if model.hasLegacyMarkdown {
-                Text("存在旧版随记正文，关联主笔记前需转换。")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                Button("转成笔记…") {
-                    model.openNotePicker(isPrimary: true)
-                }
+            if let caption = layout.caption {
+                Text(caption)
+                    .font(EditorFormStyle.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack {
-                Button("新建主笔记") {
-                    Task { _ = try? await model.createPrimaryNote() }
-                }
-                .disabled(store.phase != .ready || model.hasLegacyMarkdown)
-                Button("添加已有笔记") {
-                    model.openNotePicker(isPrimary: model.primaryNote == nil)
-                }
-                .disabled(store.phase != .ready)
-            }
+            actions
 
             if let status = model.statusMessage {
-                Text(status).font(.caption).foregroundStyle(.secondary)
+                Text(status)
+                    .font(EditorFormStyle.caption)
+                    .foregroundStyle(theme.secondaryText)
             }
         }
-        .padding(12)
         .sheet(item: legacySheetBinding) { noteID in
             LegacyNotesMigrationSheet(
                 model: model,
@@ -111,20 +127,53 @@ struct CalendarNoteRelationPopover: View {
         }
     }
 
+    @ViewBuilder
+    private var actions: some View {
+        switch layout {
+        case .convertLegacy:
+            Button("转成笔记") {
+                model.openNotePicker(isPrimary: true)
+            }
+            .controlSize(.small)
+            .disabled(store.phase != .ready)
+        case .empty:
+            HStack(spacing: 8) {
+                Button("新建") {
+                    Task { _ = try? await model.createPrimaryNote() }
+                }
+                Button("添加已有") {
+                    model.openNotePicker(isPrimary: true)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.phase != .ready)
+        case .linked:
+            Button("添加参考") {
+                model.openNotePicker(isPrimary: false)
+            }
+            .controlSize(.small)
+            .disabled(store.phase != .ready)
+        }
+    }
+
     private func noteRow(
         _ note: Note,
         badge: String?,
         onDetach: @escaping () -> Void
     ) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(note.title.isEmpty ? "无标题" : note.title)
+                    .font(EditorFormStyle.body)
+                    .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 if let badge {
-                    Text(badge).font(.caption2).foregroundStyle(.secondary)
+                    Text(badge)
+                        .font(EditorFormStyle.caption)
+                        .foregroundStyle(theme.secondaryText)
                 }
             }
-            Spacer()
+            Spacer(minLength: 0)
             Button("打开") { onOpenNote(note.id) }
                 .controlSize(.small)
             Button("取消关联", role: .destructive, action: onDetach)
