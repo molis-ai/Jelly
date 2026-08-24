@@ -16,6 +16,7 @@ struct ItemEditorViewModelTests {
             date: day
         )
         #expect(ItemEditorConfiguration.oneOff(item: item).calendarTarget == .item(item.id))
+        #expect(ItemEditorConfiguration.oneOff(item: item).projectedItem == .item(item))
 
         let series = try WeeklySeries(
             id: UUID(),
@@ -52,6 +53,11 @@ struct ItemEditorViewModelTests {
             occurrence: occurrence,
             scope: .onlyThis
         ).calendarTarget == .occurrence(occurrence.key))
+        #expect(ItemEditorConfiguration.occurrence(
+            series: series,
+            occurrence: occurrence,
+            scope: .onlyThis
+        ).projectedItem == .occurrence(occurrence))
         #expect(ItemEditorConfiguration.occurrence(
             series: series,
             occurrence: occurrence,

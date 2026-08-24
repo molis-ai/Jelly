@@ -327,6 +327,7 @@ struct CalendarItemRow: View {
     var onCompletion: ((CalendarCommand) -> Void)?
     var onOpenDetail: ((ProjectedItem) -> Void)?
     var onDelete: (() -> Void)?
+    var onCopyToToday: (() -> Void)?
     var onSetPriority: ((ItemPriority) -> Void)?
     var allowsSwipeToDelete = true
     var accessibilityLabelOverride: String?
@@ -531,8 +532,11 @@ struct CalendarItemRow: View {
                     }
                 }
             }
-            if onSetPriority != nil, onDelete != nil {
+            if onSetPriority != nil, onCopyToToday != nil || onDelete != nil {
                 Divider()
+            }
+            if let onCopyToToday {
+                Button("复制到当天", action: onCopyToToday)
             }
             if let onDelete {
                 Button("删除事项", role: .destructive, action: onDelete)

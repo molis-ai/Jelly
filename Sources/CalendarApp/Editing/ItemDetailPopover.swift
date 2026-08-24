@@ -29,7 +29,8 @@ struct ItemDetailPopover: View {
                     categories: categories,
                     onOpenNote: onOpenNote,
                     onCancel: { self.editorConfiguration = nil },
-                    onSaved: onClose
+                    onSaved: onClose,
+                    onCopyToToday: { _ in copyToToday() }
                 )
             } else {
                 detailContent
@@ -105,6 +106,8 @@ struct ItemDetailPopover: View {
             HStack {
                 Button("编辑") { begin(.edit) }
                     .disabled(store.phase != .ready)
+                Button("复制到当天") { copyToToday() }
+                    .disabled(store.phase != .ready)
                 Button("删除", role: .destructive) { begin(.delete) }
                     .disabled(store.phase != .ready)
                 Spacer()
@@ -174,6 +177,26 @@ struct ItemDetailPopover: View {
                 sendDelete(command)
             } catch {
                 localError = vm.validationMessage ?? "无法删除事项"
+            }
+        }
+    }
+
+    private func copyToToday() {
+        guard store.phase == .ready else {
+            localError = "日历尚未准备好，请稍候再试"
+            return
+        }
+        let today = CalendarDate.localDay(containing: Date(), in: .current)
+        Task {
+            do {
+                apply(WorkspaceMutationOutcomePresenter.presentation(
+                    for: try await store.sendCalendar(
+                        try ItemActions.copyToDay(item, day: today, now: Date()),
+                        undoLabel: "已复制到当天"
+                    )
+                ))
+            } catch {
+                localError = WorkspaceMutationOutcomePresenter.message(for: error)
             }
         }
     }
@@ -289,6 +312,15 @@ enum ItemEditorConfiguration: Identifiable {
             scope == .thisAndFuture ? .series(series.id) : .occurrence(occurrence.key)
         }
     }
+
+    var projectedItem: ProjectedItem {
+        switch self {
+        case let .oneOff(item):
+            .item(item)
+        case let .occurrence(_, occurrence, _):
+            .occurrence(occurrence)
+        }
+    }
 }
 
 enum ItemEditorMoreDetailsPolicy {
@@ -314,6 +346,7 @@ struct ItemEditForm: View {
     let onOpenNote: (NoteID) -> Void
     let onCancel: () -> Void
     let onSaved: () -> Void
+    var onCopyToToday: ((ProjectedItem) -> Void)? = nil
     var onManageCategories: ((UUID?) -> Void)? = nil
     @FocusState private var titleFocused: Bool
     @StateObject private var model: ItemEditorViewModel
@@ -337,6 +370,7 @@ struct ItemEditForm: View {
         onOpenNote: @escaping (NoteID) -> Void = { _ in },
         onCancel: @escaping () -> Void,
         onSaved: @escaping () -> Void,
+        onCopyToToday: ((ProjectedItem) -> Void)? = nil,
         onManageCategories: ((UUID?) -> Void)? = nil
     ) {
         self.configuration = configuration
@@ -345,6 +379,7 @@ struct ItemEditForm: View {
         self.onOpenNote = onOpenNote
         self.onCancel = onCancel
         self.onSaved = onSaved
+        self.onCopyToToday = onCopyToToday
         self.onManageCategories = onManageCategories
         let draft = configuration.draft
         let noteRelationModel = CalendarNoteIntegrationModel(
@@ -464,6 +499,14 @@ struct ItemEditForm: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .disabled(store.phase != .ready)
+            if let onCopyToToday {
+                Button("复制到当天") {
+                    onCopyToToday(configuration.projectedItem)
+                }
+                .controlSize(.small)
+                .disabled(store.phase != .ready)
+                .help("复制一份到今天，然后可以拖到其他日期")
+            }
             Spacer(minLength: 0)
             Button("取消", action: onCancel)
                 .controlSize(.small)

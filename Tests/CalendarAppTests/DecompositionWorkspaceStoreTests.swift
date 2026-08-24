@@ -192,7 +192,8 @@ private struct StorePlanFixture {
             inspirations: [:],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
         return .init(workspace: workspace)
     }

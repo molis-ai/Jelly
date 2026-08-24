@@ -48,6 +48,17 @@ enum ItemActions {
         }
     }
 
+    /// Independent one-off copy whose start falls on `day`. The source stays
+    /// put; the copy can later be dragged with the existing move path.
+    static func copyToDay(
+        _ item: ProjectedItem,
+        day: CalendarDate,
+        id: UUID = UUID(),
+        now: Date = Date()
+    ) throws -> CalendarCommand {
+        .createItem(try CalendarItemCopy.oneOff(from: item, to: day, id: id, now: now))
+    }
+
     static func editorConfiguration(
         for item: ProjectedItem,
         seriesLookup: (UUID) -> WeeklySeries?,
