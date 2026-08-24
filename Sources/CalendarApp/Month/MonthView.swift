@@ -536,7 +536,8 @@ struct MonthView: View {
                             onCommitMutation: { pending in
                                 commitWeekMutation(pending)
                             },
-                            onDelete: { requestDelete($0) }
+                            onDelete: { requestDelete($0) },
+                            onCopyToToday: { copyItemToToday($0) }
                         )
                         .frame(
                             width: proxy.size.width,
@@ -567,6 +568,7 @@ struct MonthView: View {
                 onQuickCreate: { openQuickCreate(on: $0) },
                 onOpenDetail: { openEditor(for: $0) },
                 onDelete: { requestDelete($0) },
+                onCopyToToday: { copyItemToToday($0) },
                 dropCoordinator: dropCoordinator
             )
             .transition(.move(edge: .trailing))
@@ -588,6 +590,10 @@ struct MonthView: View {
                     },
                     onCancel: { editorSession = nil },
                     onSaved: { editorSession = nil },
+                    onCopyToToday: { item in
+                        editorSession = nil
+                        copyItemToToday(item)
+                    },
                     onManageCategories: presentCategoryManager
                 )
                 .id(session.id)
@@ -1133,6 +1139,43 @@ struct MonthView: View {
         deleteConfirmItem = item
     }
 
+    private func copyItemToToday(_ item: ProjectedItem) {
+        actionError = nil
+        actionRecoveryAction = nil
+        guard store.phase == .ready else {
+            actionError = "日历尚未准备好，当前操作未保存。"
+            return
+        }
+        let today = todayRefreshPolicy.today
+        Task {
+            do {
+                let presentation = WorkspaceMutationOutcomePresenter.presentation(
+                    for: try await store.sendCalendar(
+                        try ItemActions.copyToDay(item, day: today, now: Date()),
+                        undoLabel: "已复制到当天"
+                    )
+                )
+                receiveActionPresentation(presentation)
+                if presentation.allowsDismissal {
+                    revealCopiedItem(on: today)
+                }
+            } catch {
+                actionError = WorkspaceMutationOutcomePresenter.message(for: error)
+            }
+        }
+    }
+
+    private func revealCopiedItem(on today: CalendarDate) {
+        if primaryViewMode == .month {
+            navigateToToday()
+        } else {
+            weekModel.goToToday()
+        }
+        if selectedDayDrawerDate != nil {
+            selectedDayDrawerDate = today
+        }
+    }
+
     private func confirmDeleteItem() {
         guard let item = deleteConfirmItem else { return }
         deleteConfirmItem = nil
@@ -1315,6 +1358,7 @@ struct MonthView: View {
                                     )
                                 },
                                 onDeleteItem: { requestDelete($0) },
+                                onCopyToToday: { copyItemToToday($0) },
                                 onSetPriority: { item, priority in
                                     sendItemAction(
                                         ItemActions.setPriority(priority, on: item),

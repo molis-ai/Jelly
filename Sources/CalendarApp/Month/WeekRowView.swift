@@ -564,6 +564,7 @@ struct WeekRowView: View {
     let onRangeGesture: (WeekRowRangeGesture) -> Void
     let onItemGesture: (WeekRowItemGesture) -> Void
     var onDeleteItem: ((ProjectedItem) -> Void)? = nil
+    var onCopyToToday: ((ProjectedItem) -> Void)? = nil
     var onSetPriority: ((ProjectedItem, ItemPriority) -> Void)? = nil
     var height: CGFloat = WeekRowMetrics.defaultHeight
 
@@ -609,6 +610,7 @@ struct WeekRowView: View {
                             onAction(.openItem(item.id))
                         },
                         onDelete: onDeleteItem,
+                        onCopyToToday: onCopyToToday,
                         onSetPriority: onSetPriority
                     )
                     // Inset chip without expanding dead zones: apply padding inside the frame
@@ -825,6 +827,7 @@ private struct WeekRowSegmentBar: View {
     let onCompletion: (CalendarCommand) -> Void
     let onOpenDetail: (ProjectedItem) -> Void
     var onDelete: ((ProjectedItem) -> Void)? = nil
+    var onCopyToToday: ((ProjectedItem) -> Void)? = nil
     var onSetPriority: ((ProjectedItem, ItemPriority) -> Void)? = nil
 
     @State private var isItemDragging = false
@@ -837,6 +840,9 @@ private struct WeekRowSegmentBar: View {
             onCompletion: onCompletion,
             onOpenDetail: onOpenDetail,
             onDelete: onDelete.map { action in
+                { action(projectedItem) }
+            },
+            onCopyToToday: onCopyToToday.map { action in
                 { action(projectedItem) }
             },
             onSetPriority: onSetPriority.map { action in

@@ -10,6 +10,7 @@ struct DayDrawerView: View {
     let onQuickCreate: (CalendarDate) -> Void
     let onOpenDetail: (ProjectedItem) -> Void
     var onDelete: ((ProjectedItem) -> Void)?
+    var onCopyToToday: ((ProjectedItem) -> Void)?
     var dropCoordinator: CalendarDropCoordinator?
     @StateObject private var model: DayDrawerViewModel
     @State private var actionError: String?
@@ -28,6 +29,7 @@ struct DayDrawerView: View {
         onQuickCreate: @escaping (CalendarDate) -> Void,
         onOpenDetail: @escaping (ProjectedItem) -> Void,
         onDelete: ((ProjectedItem) -> Void)? = nil,
+        onCopyToToday: ((ProjectedItem) -> Void)? = nil,
         dropCoordinator: CalendarDropCoordinator? = nil
     ) {
         self.date = date
@@ -38,6 +40,7 @@ struct DayDrawerView: View {
         self.onQuickCreate = onQuickCreate
         self.onOpenDetail = onOpenDetail
         self.onDelete = onDelete
+        self.onCopyToToday = onCopyToToday
         self.dropCoordinator = dropCoordinator
         _model = StateObject(wrappedValue: DayDrawerViewModel(
             date: date,
@@ -77,6 +80,9 @@ struct DayDrawerView: View {
                                     onCompletion: sendCompletion,
                                     onOpenDetail: onOpenDetail,
                                     onDelete: { onDelete?(item) },
+                                    onCopyToToday: onCopyToToday.map { action in
+                                        { action(item) }
+                                    },
                                     onSetPriority: { setPriority($0, on: item) },
                                     allowsSwipeToDelete: CalendarItemRowPlacement.dayDrawer.allowsSwipeToDelete,
                                     isKeyboardSelected: keyboardSelectionIndex == index,

@@ -1910,7 +1910,8 @@ private struct WorkbenchFixture {
             inspirations: [:],
             calendarNoteRelations: .empty,
             taskBlockLinks: [],
-            inspirationNoteLinks: []
+            inspirationNoteLinks: [],
+            materialDigests: [:]
         )
         let repository = WorkspaceStoreTestRepository(initial: workspace)
         let store = WorkspaceStore(initialState: workspace, repository: repository)

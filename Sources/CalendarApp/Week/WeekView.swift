@@ -66,6 +66,7 @@ struct WeekView: View {
     /// Commit a move/resize from week-grid drag (same path as month-view mutations).
     let onCommitMutation: (PendingCalendarMutation) -> Void
     var onDelete: ((ProjectedItem) -> Void)?
+    var onCopyToToday: ((ProjectedItem) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -575,6 +576,7 @@ struct WeekView: View {
         .frame(height: WeekTimeGridMetrics.allDayChipHeight)
         .offset(x: isDragging ? allDayDrag?.xOffset ?? 0 : 0)
         .help(entry.title)
+        .contextMenu { itemContextMenu(for: item) }
         .highPriorityGesture(
             DragGesture(minimumDistance: 6, coordinateSpace: .global)
                 .onChanged { value in
@@ -693,11 +695,26 @@ struct WeekView: View {
             }
         }
         .contentShape(Rectangle())
+        .contextMenu { itemContextMenu(for: item) }
         .onTapGesture {
             guard timedDrag == nil else { return }
             onOpenDetail(item)
         }
         .help(entry.title + " · 拖动移动，上下边缘调整时间")
+    }
+
+    @ViewBuilder
+    private func itemContextMenu(for item: ProjectedItem) -> some View {
+        if let onCopyToToday {
+            Button("复制到当天") {
+                onCopyToToday(item)
+            }
+        }
+        if let onDelete {
+            Button("删除事项", role: .destructive) {
+                onDelete(item)
+            }
+        }
     }
 
     private struct ChipStyle {
