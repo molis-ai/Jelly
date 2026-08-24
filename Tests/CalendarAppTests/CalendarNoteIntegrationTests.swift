@@ -7,6 +7,17 @@ import WorkspaceDomain
 @Suite("CalendarNoteIntegrationTests")
 @MainActor
 struct CalendarNoteIntegrationTests {
+    @Test func noteRelationLayoutShowsOneClusterAtATime() {
+        #expect(CalendarNoteRelationLayout.make(hasPrimary: false, hasLegacyMarkdown: true) == .convertLegacy)
+        #expect(CalendarNoteRelationLayout.make(hasPrimary: false, hasLegacyMarkdown: false) == .empty)
+        #expect(CalendarNoteRelationLayout.make(hasPrimary: true, hasLegacyMarkdown: true) == .linked)
+        #expect(CalendarNoteRelationLayout.make(hasPrimary: false, hasLegacyMarkdown: true).caption != nil)
+        #expect(CalendarNoteRelationLayout.make(hasPrimary: false, hasLegacyMarkdown: false).caption == nil)
+        #expect(
+            CalendarNoteRelationLayout.convertLegacy.caption?.contains("旧版") != true
+        )
+    }
+
     @Test func createPrimaryNoteLinksItemAndKeepsNoteBodyIndependent() async throws {
         var calendar = makeEmptyState()
         let category = makeCategory(name: "采购")

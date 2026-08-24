@@ -29,8 +29,7 @@ struct ItemDetailPopover: View {
                     categories: categories,
                     onOpenNote: onOpenNote,
                     onCancel: { self.editorConfiguration = nil },
-                    onSaved: onClose,
-                    onCopyToToday: { _ in copyToToday() }
+                    onSaved: onClose
                 )
             } else {
                 detailContent
@@ -346,14 +345,12 @@ struct ItemEditForm: View {
     let onOpenNote: (NoteID) -> Void
     let onCancel: () -> Void
     let onSaved: () -> Void
-    var onCopyToToday: ((ProjectedItem) -> Void)? = nil
     var onManageCategories: ((UUID?) -> Void)? = nil
     @FocusState private var titleFocused: Bool
     @StateObject private var model: ItemEditorViewModel
     @State private var categoryOption: String
     @State private var localError: String?
     @State private var recoveryAction: WorkspaceRecoveryAction?
-    @State private var deleteConfirmationShown = false
     @State private var showMoreDetails: Bool
     @State private var noteRelationModel: CalendarNoteIntegrationModel
     @Environment(\.colorScheme) private var colorScheme
@@ -370,7 +367,6 @@ struct ItemEditForm: View {
         onOpenNote: @escaping (NoteID) -> Void = { _ in },
         onCancel: @escaping () -> Void,
         onSaved: @escaping () -> Void,
-        onCopyToToday: ((ProjectedItem) -> Void)? = nil,
         onManageCategories: ((UUID?) -> Void)? = nil
     ) {
         self.configuration = configuration
@@ -379,7 +375,6 @@ struct ItemEditForm: View {
         self.onOpenNote = onOpenNote
         self.onCancel = onCancel
         self.onSaved = onSaved
-        self.onCopyToToday = onCopyToToday
         self.onManageCategories = onManageCategories
         let draft = configuration.draft
         let noteRelationModel = CalendarNoteIntegrationModel(
@@ -459,10 +454,6 @@ struct ItemEditForm: View {
             return .handled
         }
         .onKeyPress(.escape) { onCancel(); return .handled }
-        .confirmationDialog("删除此事项？", isPresented: $deleteConfirmationShown, titleVisibility: .visible) {
-            Button("删除", role: .destructive, action: deleteItem)
-            Button("取消", role: .cancel) {}
-        }
     }
 
     // MARK: - Chrome
@@ -489,24 +480,6 @@ struct ItemEditForm: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Menu {
-                Button("删除事项", role: .destructive) {
-                    deleteConfirmationShown = true
-                }
-            } label: {
-                Label("更多", systemImage: "ellipsis")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(store.phase != .ready)
-            if let onCopyToToday {
-                Button("复制到当天") {
-                    onCopyToToday(configuration.projectedItem)
-                }
-                .controlSize(.small)
-                .disabled(store.phase != .ready)
-                .help("复制一份到今天，然后可以拖到其他日期")
-            }
             Spacer(minLength: 0)
             Button("取消", action: onCancel)
                 .controlSize(.small)
@@ -729,31 +702,6 @@ struct ItemEditForm: View {
             get: { (model.draft.recurrenceEndDate ?? model.draft.startDate).editorDate },
             set: { model.draft.recurrenceEndDate = .editorDate(containing: $0) }
         )
-    }
-
-    private func deleteItem() {
-        localError = nil
-        recoveryAction = nil
-        guard store.phase == .ready else {
-            localError = "日历尚未准备好，请稍候再试"
-            return
-        }
-        let command: CalendarCommand
-        do {
-            command = try model.makeDeleteCommand(newSeriesID: UUID())
-        } catch {
-            localError = model.validationMessage ?? "无法删除事项"
-            return
-        }
-        Task {
-            do {
-                apply(WorkspaceMutationOutcomePresenter.presentation(
-                    for: try await store.sendCalendar(command, undoLabel: "已删除事项")
-                ))
-            } catch {
-                localError = WorkspaceMutationOutcomePresenter.message(for: error)
-            }
-        }
     }
 
     private func save() {
