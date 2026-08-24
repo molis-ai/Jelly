@@ -14,6 +14,10 @@ struct DayDrawerView: View {
     @StateObject private var model: DayDrawerViewModel
     @State private var actionError: String?
     @State private var recoveryAction: WorkspaceRecoveryAction?
+    /// Arrow-key selection into `model.items`; nil until the first arrow press,
+    /// so mouse-only users never see a selection ring they did not ask for.
+    @State private var keyboardSelectionIndex: Int?
+    @FocusState private var drawerHasFocus: Bool
 
     init(
         date: CalendarDate,
@@ -43,84 +47,131 @@ struct DayDrawerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(model.date.month)月\(model.date.day)日")
-                        .font(.headline)
-                    Text("\(model.items.count) 件 · 已完成 \(completedCount) 件")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        ScrollViewReader { proxy in
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(model.date.month)月\(model.date.day)日")
+                            .font(.headline)
+                        Text("\(model.items.count) 件 · 已完成 \(completedCount) 件")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.plain)
-            }
 
-            if model.items.isEmpty {
-                ContentUnavailableView("当天没有事项", systemImage: "calendar")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(model.items) { item in
-                            CalendarItemRow(
-                                item: item,
-                                category: categories[item.categoryID],
-                                onCompletion: sendCompletion,
-                                onOpenDetail: onOpenDetail,
-                                onDelete: { onDelete?(item) },
-                                onSetPriority: { setPriority($0, on: item) },
-                                allowsSwipeToDelete: CalendarItemRowPlacement.dayDrawer.allowsSwipeToDelete,
-                                onDropTransfer: untimedDropHandler(for: item)
-                            )
+                if model.items.isEmpty {
+                    ContentUnavailableView("当天没有事项", systemImage: "calendar")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
+                                CalendarItemRow(
+                                    item: item,
+                                    category: categories[item.categoryID],
+                                    onCompletion: sendCompletion,
+                                    onOpenDetail: onOpenDetail,
+                                    onDelete: { onDelete?(item) },
+                                    onSetPriority: { setPriority($0, on: item) },
+                                    allowsSwipeToDelete: CalendarItemRowPlacement.dayDrawer.allowsSwipeToDelete,
+                                    isKeyboardSelected: keyboardSelectionIndex == index,
+                                    onDropTransfer: untimedDropHandler(for: item)
+                                )
+                                .id(item.id)
+                            }
+                        }
+                    }
+                }
+
+                Button("新建事项") {
+                    onQuickCreate(model.quickCreateDate)
+                }
+
+                if let actionError {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(actionError)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                        if recoveryAction != nil {
+                            Button("继续恢复", action: retryRecovery)
+                                .controlSize(.small)
                         }
                     }
                 }
             }
-
-            Button("新建事项") {
+            .padding(16)
+            .frame(width: 340)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(.regularMaterial)
+            .overlay(alignment: .leading) {
+                Rectangle().fill(.separator).frame(width: 1)
+            }
+            .focusable(true)
+            .focused($drawerHasFocus)
+            .onAppear {
+                // Claim keyboard focus so Esc / N / arrows reach the drawer
+                // without a preliminary click into it.
+                drawerHasFocus = true
+            }
+            .onChange(of: store.calendarState) { _, state in
+                model.refresh(state: state, hiddenCategoryIDs: hiddenCategoryIDs)
+            }
+            .onChange(of: date) { _, date in
+                keyboardSelectionIndex = nil
+                model.retarget(date: date, state: store.calendarState, hiddenCategoryIDs: hiddenCategoryIDs)
+            }
+            .onChange(of: hiddenCategoryIDs) { _, hidden in
+                model.refresh(state: store.calendarState, hiddenCategoryIDs: hidden)
+            }
+            .onKeyPress(.escape) {
+                onClose()
+                return .handled
+            }
+            .onKeyPress("n") {
                 onQuickCreate(model.quickCreateDate)
+                return .handled
             }
+            .onKeyPress(.upArrow) {
+                moveKeyboardSelection(-1, proxy: proxy)
+                return .handled
+            }
+            .onKeyPress(.downArrow) {
+                moveKeyboardSelection(1, proxy: proxy)
+                return .handled
+            }
+            .onKeyPress(.return) {
+                openKeyboardSelection()
+                return .handled
+            }
+        }
+    }
 
-            if let actionError {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(actionError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                    if recoveryAction != nil {
-                        Button("继续恢复", action: retryRecovery)
-                            .controlSize(.small)
-                    }
-                }
-            }
+    private func moveKeyboardSelection(_ delta: Int, proxy: ScrollViewProxy) {
+        let count = model.items.count
+        guard count > 0 else { return }
+        let next: Int
+        if let current = keyboardSelectionIndex {
+            next = min(max(current + delta, 0), count - 1)
+        } else {
+            next = delta > 0 ? 0 : count - 1
         }
-        .padding(16)
-        .frame(width: 340)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(.regularMaterial)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(.separator).frame(width: 1)
+        keyboardSelectionIndex = next
+        drawerHasFocus = true
+        withAnimation(.easeOut(duration: 0.12)) {
+            proxy.scrollTo(model.items[next].id, anchor: .center)
         }
-        .onChange(of: store.calendarState) { _, state in
-            model.refresh(state: state, hiddenCategoryIDs: hiddenCategoryIDs)
-        }
-        .onChange(of: date) { _, date in
-            model.retarget(date: date, state: store.calendarState, hiddenCategoryIDs: hiddenCategoryIDs)
-        }
-        .onChange(of: hiddenCategoryIDs) { _, hidden in
-            model.refresh(state: store.calendarState, hiddenCategoryIDs: hidden)
-        }
-        .onKeyPress(.escape) {
-            onClose()
-            return .handled
-        }
-        .onKeyPress("n") {
-            onQuickCreate(model.quickCreateDate)
-            return .handled
-        }
+    }
+
+    private func openKeyboardSelection() {
+        guard let index = keyboardSelectionIndex,
+              model.items.indices.contains(index)
+        else { return }
+        onOpenDetail(model.items[index])
     }
 
     private func untimedDropHandler(for item: ProjectedItem) -> ((CalendarTransferPayload) -> Bool)? {

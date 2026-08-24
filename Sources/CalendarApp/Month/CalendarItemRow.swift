@@ -339,6 +339,8 @@ struct CalendarItemRow: View {
     var trailingHandleAccessibility: CalendarResizeHandleAccessibility?
     /// Month cells use `.startOnly` so the title can occupy the leftover width.
     var timeTextStyle: CalendarItemTimeTextStyle = .range
+    /// Focus ring driven by the day drawer's arrow-key navigation.
+    var isKeyboardSelected = false
     /// When set, this row can accept a same-day untimed reorder (or a
     /// date-move fallback). Timed / week-resize chips leave this nil.
     var onDropTransfer: ((CalendarTransferPayload) -> Bool)?
@@ -507,6 +509,13 @@ struct CalendarItemRow: View {
             categoryBackground,
             in: RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius, style: .continuous)
         )
+        .overlay {
+            if isKeyboardSelected {
+                RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius, style: .continuous)
+                    .stroke(theme.controlAccent.opacity(0.65), lineWidth: 1.5)
+            }
+        }
+        .accessibilityAddTraits(isKeyboardSelected ? .isSelected : [])
         .contentShape(RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius, style: .continuous))
         .contextMenu {
             if let onSetPriority {
