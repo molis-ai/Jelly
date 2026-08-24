@@ -7,6 +7,78 @@ import WorkspaceDomain
 @Suite("NoteAutosaveCoordinatorTests")
 @MainActor
 struct NoteAutosaveCoordinatorTests {
+    @Test func beginSessionWithNoLocalEditsIsCleanAndReplaceableUntilTheFirstUpdate() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-autosave-identical-update-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let state = makeEmptyState()
+        let note = makeAutosaveTestNote(categoryID: state.uncategorizedID)
+        let journal = DraftJournalRepository(fileURL: directory.appendingPathComponent("draft.json"))
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: state),
+            repository: InMemoryWorkspaceRepository(initialState: state),
+            journal: journal
+        )
+        await store.load()
+        _ = try await store.sendWorkspace(.createNote(.init(note: note)))
+        let persisted = try #require(store.state.notes[note.id])
+        let coordinator = NoteAutosaveCoordinator(
+            store: store,
+            scheduler: AutosaveImmediateScheduler()
+        )
+
+        try coordinator.beginSession(
+            persisted,
+            linkedTaskBlockLinks: [],
+            editSessionID: UUID(),
+            activeHostToken: UUID()
+        )
+        #expect(coordinator.latestEvidence == .clean)
+        #expect(coordinator.canReplaceSessionWithPersistedStoreSnapshot)
+
+        _ = try coordinator.update(
+            title: persisted.title,
+            document: persisted.document,
+            linkedBlockDeletionDispositions: [:]
+        )
+        #expect(coordinator.latestEvidence == .clean)
+        #expect(coordinator.canReplaceSessionWithPersistedStoreSnapshot)
+        #expect((try await journal.current()?.records ?? []).isEmpty)
+
+        _ = try coordinator.update(title: "一次本地改动")
+        #expect(coordinator.latestEvidence == .unsafeLatestUnprotected)
+        #expect(!coordinator.canReplaceSessionWithPersistedStoreSnapshot)
+    }
+
+    @Test func revertingToTheSessionBaseAfterADirtyUpdateDoesNotTakeTheCleanFastPath() throws {
+        let calendar = makeEmptyState()
+        let note = makeAutosaveTestNote(categoryID: calendar.uncategorizedID)
+        let coordinator = NoteAutosaveCoordinator(
+            store: WorkspaceStore(
+                initialState: .empty(calendar: calendar),
+                repository: InMemoryWorkspaceRepository(initialState: calendar)
+            ),
+            scheduler: AutosaveImmediateScheduler()
+        )
+        try coordinator.beginSession(
+            note,
+            linkedTaskBlockLinks: [],
+            editSessionID: UUID(),
+            activeHostToken: UUID()
+        )
+
+        _ = try coordinator.update(title: "临时标题")
+        #expect(coordinator.currentTriple != nil)
+        #expect(coordinator.latestEvidence == .unsafeLatestUnprotected)
+        #expect(!coordinator.canReplaceSessionWithPersistedStoreSnapshot)
+
+        _ = try coordinator.update(title: note.title)
+        #expect(coordinator.latestEvidence == .unsafeLatestUnprotected)
+        #expect(coordinator.currentTriple != nil)
+        #expect(!coordinator.canReplaceSessionWithPersistedStoreSnapshot)
+    }
+
     @Test func undoingAfterThePreviousGenerationPersistedStillAllowsTermination() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("jelly-autosave-undo-after-save-\(UUID().uuidString)", isDirectory: true)
@@ -674,6 +746,104 @@ struct NoteAutosaveCoordinatorTests {
         #expect((try coordinator.update(title: "N+1")).draftGeneration == 2)
     }
 
+    @Test func cleanupPendingNoChangeFinalizerRestoresCleanupPendingThenRetryStillCallsJournal() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-10b-cleanup-noop-ime-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let calendar = makeEmptyState()
+        let note = makeAutosaveTestNote(categoryID: calendar.uncategorizedID)
+        let repository = InMemoryWorkspaceRepository(initialState: calendar)
+        let writer = CleanupFailingJournalWriter(failOnWrite: 3)
+        let journal = DraftJournalRepository(
+            fileURL: directory.appendingPathComponent("draft.json"),
+            writer: writer
+        )
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar), repository: repository, journal: journal
+        )
+        await store.load()
+        _ = try await store.sendWorkspace(.createNote(.init(note: note)))
+        let coordinator = NoteAutosaveCoordinator(store: store, scheduler: AutosaveImmediateScheduler())
+        try coordinator.beginSession(note, linkedTaskBlockLinks: [], editSessionID: UUID(), activeHostToken: UUID())
+        _ = try coordinator.update(title: "已保存、清理待重试")
+        let triple = try #require(coordinator.currentTriple)
+
+        #expect(await coordinator.flushLatest() == .persisted(triple))
+        guard case .cleanupPending = coordinator.autosaveState else {
+            Issue.record("the failed record write must remain a typed read-only cleanup")
+            return
+        }
+        let writesAfterPending = writer.writeCount
+
+        let evidence = await coordinator.flushLatest { permit, apply in
+            apply(permit, .init(title: "已保存、清理待重试"))
+        }
+        #expect(evidence == .persisted(triple))
+        guard case .cleanupPending = coordinator.autosaveState else {
+            Issue.record("identical IME finalization must restore cleanupPending, not editable")
+            return
+        }
+        #expect(throws: NoteAutosaveCoordinatorError.editingIsSealed) {
+            _ = try coordinator.update(title: "不得越过 cleanup")
+        }
+
+        writer.failAllSubsequent = true
+        #expect(await coordinator.retryLatest() == .persisted(triple))
+        guard case .cleanupPending = coordinator.autosaveState else {
+            Issue.record("a still-failing cleanup retry must remain pending")
+            return
+        }
+        #expect(writer.writeCount > writesAfterPending)
+    }
+
+    @Test func cleanupPendingChangedFinalizerCannotBypassTheSafetyGate() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-10b-cleanup-changed-ime-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let calendar = makeEmptyState()
+        let note = makeAutosaveTestNote(categoryID: calendar.uncategorizedID)
+        let repository = InMemoryWorkspaceRepository(initialState: calendar)
+        let writer = CleanupFailingJournalWriter(failOnWrite: 3)
+        let journal = DraftJournalRepository(
+            fileURL: directory.appendingPathComponent("draft.json"),
+            writer: writer
+        )
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar), repository: repository, journal: journal
+        )
+        await store.load()
+        _ = try await store.sendWorkspace(.createNote(.init(note: note)))
+        let coordinator = NoteAutosaveCoordinator(store: store, scheduler: AutosaveImmediateScheduler())
+        try coordinator.beginSession(note, linkedTaskBlockLinks: [], editSessionID: UUID(), activeHostToken: UUID())
+        _ = try coordinator.update(title: "已保存、清理待重试")
+        let triple = try #require(coordinator.currentTriple)
+
+        #expect(await coordinator.flushLatest() == .persisted(triple))
+        guard case .cleanupPending = coordinator.autosaveState else {
+            Issue.record("the failed record write must remain a typed read-only cleanup")
+            return
+        }
+
+        var acceptedChangedEdit = true
+        let evidence = await coordinator.flushLatest { permit, apply in
+            acceptedChangedEdit = apply(permit, .init(title: "不得越过 cleanup"))
+            return true
+        }
+        #expect(!acceptedChangedEdit)
+        #expect(evidence == .persisted(triple))
+        guard case .cleanupPending = coordinator.autosaveState else {
+            Issue.record("a changed IME callback must fail closed and keep cleanupPending")
+            return
+        }
+        #expect(coordinator.currentTriple == triple)
+        #expect(store.state.notes[note.id]?.title == "已保存、清理待重试")
+        #expect(throws: NoteAutosaveCoordinatorError.editingIsSealed) {
+            _ = try coordinator.update(title: "仍不得越过 cleanup")
+        }
+    }
+
     @Test func failedMainSaveAndJournalCleanupWritePreserveProtectedOnlyUntilThatCleanupRetries() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("jelly-10b-main-journal-dual-\(UUID().uuidString)", isDirectory: true)
@@ -956,9 +1126,26 @@ struct NoteAutosaveCoordinatorTests {
         let noChangeStore = WorkspaceStore(initialState: .empty(calendar: calendar), repository: noChangeRepository)
         await noChangeStore.load()
         _ = try await noChangeStore.sendWorkspace(.createNote(.init(note: note)))
+        let persisted = try #require(noChangeStore.state.notes[note.id])
         let noChangeCoordinator = NoteAutosaveCoordinator(store: noChangeStore, scheduler: BoundaryAutosaveScheduler())
-        try noChangeCoordinator.beginSession(note, linkedTaskBlockLinks: [], editSessionID: UUID(), activeHostToken: UUID())
-        _ = try noChangeCoordinator.update(title: "")
+        try noChangeCoordinator.beginSession(persisted, linkedTaskBlockLinks: [], editSessionID: UUID(), activeHostToken: UUID())
+        var alreadyPersisted = persisted
+        alreadyPersisted.title = "已在主文件"
+        let alreadyPersistedSubmission = NoteDraftSubmission(
+            noteID: persisted.id,
+            editSessionID: UUID(),
+            baseNoteRevision: persisted.revision,
+            baseNoteSnapshotChecksum: try WorkspaceChecksum.noteSnapshotChecksum(persisted),
+            baseSnapshot: persisted,
+            baseLinkedTaskBlockLinks: [],
+            draftGeneration: 1,
+            snapshot: alreadyPersisted,
+            noteSnapshotChecksum: try WorkspaceChecksum.noteSnapshotChecksum(alreadyPersisted),
+            modifiedFields: [.title],
+            linkedBlockDeletionDispositions: [:]
+        )
+        _ = try await noChangeStore.sendWorkspace(.updateNote(alreadyPersistedSubmission))
+        _ = try noChangeCoordinator.update(title: alreadyPersisted.title)
         let noChangeTriple = try #require(noChangeCoordinator.currentTriple)
         #expect(await noChangeCoordinator.flushLatest() == .unsafeLatestUnprotected)
         #expect(noChangeCoordinator.autosaveState == .noChange(noChangeTriple))
@@ -1114,7 +1301,8 @@ private final class BoundaryAutosaveScheduler: NoteAutosaveScheduling {
 
 private final class CleanupFailingJournalWriter: AtomicFileWriting, @unchecked Sendable {
     var failOnWrite: Int?
-    private var writeCount = 0
+    var failAllSubsequent = false
+    private(set) var writeCount = 0
 
     init(failOnWrite: Int?) {
         self.failOnWrite = failOnWrite
@@ -1122,7 +1310,9 @@ private final class CleanupFailingJournalWriter: AtomicFileWriting, @unchecked S
 
     func replaceAtomically(data: Data, at destination: URL) throws {
         writeCount += 1
-        if writeCount == failOnWrite { throw WorkspacePersistenceError.atomicWriteFailed }
+        if failAllSubsequent || writeCount == failOnWrite {
+            throw WorkspacePersistenceError.atomicWriteFailed
+        }
         try FoundationAtomicFileWriter().replaceAtomically(data: data, at: destination)
     }
 }

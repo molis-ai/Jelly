@@ -177,19 +177,57 @@ private struct BlockDTO: Codable {
     let spans: [InlineSpan]
     let indentLevel: Int
     let codeInfoString: String?
+    let completionDescription: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, spans, indentLevel, codeInfoString, completionDescription
+    }
 
     init(_ block: BlockPasteBlock) {
         kind = block.kind
         spans = block.inlineContent.spans
         indentLevel = block.indentLevel
         codeInfoString = block.codeInfoString
+        completionDescription = block.kind == .task ? block.completionDescription : nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(BlockKind.self, forKey: .kind)
+        spans = try container.decode([InlineSpan].self, forKey: .spans)
+        indentLevel = try container.decode(Int.self, forKey: .indentLevel)
+        codeInfoString = try container.decodeIfPresent(String.self, forKey: .codeInfoString)
+        completionDescription = try container.decodeIfPresent(String.self, forKey: .completionDescription)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(spans, forKey: .spans)
+        try container.encode(indentLevel, forKey: .indentLevel)
+        try container.encodeIfPresent(codeInfoString, forKey: .codeInfoString)
+        try container.encodeIfPresent(completionDescription, forKey: .completionDescription)
     }
 
     var block: BlockPasteBlock {
-        .init(kind: kind, inlineContent: .init(spans: spans), indentLevel: indentLevel, codeInfoString: codeInfoString)
+        .init(
+            kind: kind,
+            inlineContent: .init(spans: spans),
+            indentLevel: indentLevel,
+            codeInfoString: codeInfoString,
+            completionDescription: completionDescription
+        )
     }
 
     var isStructurallyValid: Bool {
-        indentLevel >= 0 && indentLevel <= 3
+        guard indentLevel >= 0, indentLevel <= 3 else { return false }
+        let canonical = TaskBlockState(
+            completedAt: nil,
+            completionDescription: completionDescription
+        ).completionDescription
+        if kind == .task {
+            return completionDescription == canonical
+        }
+        return completionDescription == nil
     }
 }

@@ -242,6 +242,28 @@ struct BlockDocumentTextProjectionTests {
             #expect(rebuilt.isEqual(to: new.attributedString))
         }
     }
+
+    @Test func completionDescriptionDoesNotEnterEditableProjection() throws {
+        let block = try DocumentBlock.task(text: "给物业打电话", completionDescription: "拿到明确时间")
+        let projection = BlockDocumentTextProjection(
+            document: .init(blocks: [block]),
+            appearance: CalendarTheme.light,
+            completionDescriptionWidth: 320
+        )
+        #expect(projection.attributedString.string == "给物业打电话")
+        let selection = BlockEditorSelection.text(
+            anchor: .init(blockID: block.id, graphemeOffset: 0),
+            focus: .init(blockID: block.id, graphemeOffset: "给物业打电话".count),
+            preferredColumn: nil,
+            typingAttributes: .init(marks: [], linkURL: nil)
+        )
+        #expect(try projection.nsRange(for: selection).length
+            == ("给物业打电话" as NSString).length)
+        #expect(try projection.plainText(in: .init(
+            location: 0,
+            length: projection.attributedString.length
+        )) == "给物业打电话")
+    }
 }
 
 private func projectionBlockID(_ value: Int) -> BlockID {

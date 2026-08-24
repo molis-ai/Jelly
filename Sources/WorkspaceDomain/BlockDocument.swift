@@ -59,9 +59,36 @@ public struct InlineContent: Codable, Equatable, Sendable {
 
 public struct TaskBlockState: Codable, Equatable, Sendable {
     public var completedAt: Date?
+    public var completionDescription: String?
 
-    public init(completedAt: Date?) {
+    private enum CodingKeys: String, CodingKey {
+        case completedAt
+        case completionDescription
+    }
+
+    public init(completedAt: Date?, completionDescription: String? = nil) {
         self.completedAt = completedAt
+        self.completionDescription = Self.canonicalCompletionDescription(completionDescription)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        completionDescription = Self.canonicalCompletionDescription(
+            try container.decodeIfPresent(String.self, forKey: .completionDescription)
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encodeIfPresent(completionDescription, forKey: .completionDescription)
+    }
+
+    static func canonicalCompletionDescription(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -130,13 +157,14 @@ public struct DocumentBlock: Identifiable, Codable, Equatable, Sendable {
         id: BlockID = BlockID(),
         text: String,
         indentLevel: Int = 0,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        completionDescription: String? = nil
     ) throws -> DocumentBlock {
         let block = DocumentBlock(
             id: id,
             kind: .task,
             inlineContent: .plain(text),
-            taskState: .init(completedAt: completedAt),
+            taskState: .init(completedAt: completedAt, completionDescription: completionDescription),
             indentLevel: indentLevel
         )
         try BlockDocumentValidator.validateBlockLocal(block)

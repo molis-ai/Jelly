@@ -76,7 +76,8 @@ struct PersonalCalendarApp: App {
                                 model: environment.digestSettingsStore.model,
                                 secret: try? environment.digestCredentialStore.load()
                             )
-                        }
+                        },
+                        decompositionPlanner: environment.decompositionPlanner
                     )
                     .task {
                         await environment.store.load()

@@ -126,11 +126,11 @@ private final class NotesWindowCloseAnchorView: NSView {
 
 struct NotesWindowCloseMonitor: NSViewRepresentable {
     let bridge: NoteCloseProtectionBridge
-    let finalizer: NoteNativeInputFinalizer?
+    let finalizerSlot: NotesNativeFinalizerSlot
 
     func makeCoordinator() -> NotesWindowCloseCoordinator {
         NotesWindowCloseCoordinator {
-            await bridge.decision(for: .windowClose, finalizer: finalizer)
+            await bridge.decision(for: .windowClose, finalizer: finalizerSlot.value)
         }
     }
 
@@ -143,7 +143,7 @@ struct NotesWindowCloseMonitor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.updateDecision {
-            await bridge.decision(for: .windowClose, finalizer: finalizer)
+            await bridge.decision(for: .windowClose, finalizer: finalizerSlot.value)
         }
         context.coordinator.attach(to: nsView.window)
     }

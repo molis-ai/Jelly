@@ -68,6 +68,70 @@ enum NotesRecoverySelectionUndo {
     }
 }
 
+@MainActor
+struct NotesOwnedBlockEditorSession {
+    let ownerIdentity: NoteEditorIdentity
+    let session: BlockEditorSession
+}
+
+@MainActor
+enum NotesLiveEditorSessionRouting {
+    static func receive(
+        ownerIdentity: NoteEditorIdentity,
+        currentOwnerIdentity: NoteEditorIdentity?,
+        current: NotesOwnedBlockEditorSession?,
+        incoming: BlockEditorSession?
+    ) -> NotesOwnedBlockEditorSession? {
+        guard currentOwnerIdentity == ownerIdentity else {
+            return current
+        }
+        guard let incoming else {
+            return nil
+        }
+        guard incoming.noteID == ownerIdentity.noteID else {
+            return current
+        }
+        return NotesOwnedBlockEditorSession(ownerIdentity: ownerIdentity, session: incoming)
+    }
+
+    static func matchingSession(
+        currentOwnerIdentity: NoteEditorIdentity?,
+        current: NotesOwnedBlockEditorSession?,
+        noteID: NoteID
+    ) -> BlockEditorSession? {
+        guard let currentOwnerIdentity,
+              currentOwnerIdentity.noteID == noteID,
+              let current,
+              current.ownerIdentity == currentOwnerIdentity,
+              current.session.noteID == noteID
+        else { return nil }
+        return current.session
+    }
+}
+
+/// Holds the current native-input finalizer without publishing it as SwiftUI
+/// render state. Replacing `value` rewires lifecycle coordinators; it must not
+/// invalidate the Notes host view.
+@MainActor
+final class NotesNativeFinalizerSlot {
+    var value: NoteNativeInputFinalizer?
+}
+
+@MainActor
+enum NotesNativeFinalizerLifecycleWiring {
+    static func apply(
+        _ finalizer: NoteNativeInputFinalizer?,
+        closeBridge: NoteCloseProtectionBridge,
+        transitionCoordinator: WorkspaceRouteTransitionCoordinator?,
+        terminationCoordinator: NotesApplicationTerminationCoordinator?
+    ) {
+        transitionCoordinator?.attachNotesCloseBridge(closeBridge, finalizer: finalizer)
+        terminationCoordinator?.updateDecision {
+            await closeBridge.decision(for: .termination, finalizer: finalizer)
+        }
+    }
+}
+
 /// Production Notes module host. Keeps one autosave coordinator and one
 /// ViewModel for the module lifetime (AppShell host token).
 @MainActor
@@ -80,25 +144,27 @@ struct NotesSplitView: View {
     let searchIndex: WorkspaceSearchIndex
     let terminationCoordinator: NotesApplicationTerminationCoordinator?
     let clock: @Sendable () -> Date
+    let decompositionPlanner: any DecompositionPlanning
 
     @State private var viewModel: NotesWorkspaceViewModel
     @State private var autosave: NoteAutosaveCoordinator
     @State private var closeBridge: NoteCloseProtectionBridge
     @State private var editorIdentity: NoteEditorIdentity?
     @State private var editorInitialFocus: NoteInitialFocus?
-    @State private var nativeFinalizer: NoteNativeInputFinalizer?
+    @State private var nativeFinalizerSlot = NotesNativeFinalizerSlot()
     @State private var categoryManagerPresentation: CategoryManagerPresentation?
     @State private var browserCollapsed = false
     @State private var recoveryCandidate: DraftRecoveryCandidate?
     @State private var pendingImportPlan: NoteFileImportPlan?
     @State private var showsExportSheet = false
     @State private var statusBanner: String?
-    @State private var activeEditorSession: BlockEditorSession?
+    @State private var ownedEditorSession: NotesOwnedBlockEditorSession?
     @State private var pendingPermanentDelete: PendingNotePermanentDelete?
     @State private var pendingNewNoteInputRequestID: UUID?
     @State private var availableWidth: CGFloat = .infinity
     @State private var recoveryUndoNotice: RecoveryUndoNotice?
     @State private var noteActionUndoNotice: NoteActionUndoNotice?
+    @State private var workbenchNotice: NoteWorkbenchNotice?
     @State private var browserLocation: NotesBrowserLocation = .all
     @State private var expandedBrowserLocations: Set<NotesBrowserLocation> = []
     @Environment(\.workspaceActiveRoute) private var activeWorkspaceRoute
@@ -117,7 +183,10 @@ struct NotesSplitView: View {
         newItemRouter: WorkspaceNewItemRouter = WorkspaceNewItemRouter(),
         searchIndex: WorkspaceSearchIndex = WorkspaceSearchIndex(),
         terminationCoordinator: NotesApplicationTerminationCoordinator? = nil,
-        clock: @escaping @Sendable () -> Date = Date.init
+        clock: @escaping @Sendable () -> Date = Date.init,
+        decompositionPlanner: any DecompositionPlanning = UnavailableDecompositionPlanner(
+            reason: .systemVersionUnsupported
+        )
     ) {
         self.store = store
         self.focusRegistry = focusRegistry
@@ -127,6 +196,7 @@ struct NotesSplitView: View {
         self.searchIndex = searchIndex
         self.terminationCoordinator = terminationCoordinator
         self.clock = clock
+        self.decompositionPlanner = decompositionPlanner
         let autosave = NoteAutosaveCoordinator(store: store)
         let viewModel = NotesWorkspaceViewModel(
             store: store,
@@ -269,6 +339,9 @@ struct NotesSplitView: View {
         .onChange(of: editorIdentity) { _, _ in
             registerRouteBridge()
         }
+        .onChange(of: editorIdentity?.noteID) { _, _ in
+            workbenchNotice = nil
+        }
         .onChange(of: store.statePublicationGeneration) { _, _ in
             if let notice = recoveryUndoNotice,
                notice.stateGeneration != store.statePublicationGeneration {
@@ -293,7 +366,7 @@ struct NotesSplitView: View {
             showsExportSheet = false
             pendingPermanentDelete = nil
         }
-        .background(NotesWindowCloseMonitor(bridge: closeBridge, finalizer: nativeFinalizer))
+        .background(NotesWindowCloseMonitor(bridge: closeBridge, finalizerSlot: nativeFinalizerSlot))
     }
 
     @ViewBuilder
@@ -338,7 +411,7 @@ struct NotesSplitView: View {
     private func activateBrowserLocation(_ location: NotesBrowserLocation) async -> Bool {
         let selectionFallsOutsideLocation = viewModel.selectedNote.map { !location.contains($0) } ?? false
         if selectionFallsOutsideLocation {
-            let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizer)
+            let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizerSlot.value)
             guard decision == .allow, await viewModel.clearSelection() else {
                 statusBanner = "请先完成当前笔记的保存。"
                 return false
@@ -408,21 +481,23 @@ struct NotesSplitView: View {
                 showsBrowserButton: showsBrowserButton,
                 onToggleBrowser: { browserCollapsed = false },
                 sessionSink: { session in
-                    if let session {
-                        activeEditorSession = session
-                    } else if activeEditorSession?.noteID == identity.noteID,
-                              activeEditorSession?.editSessionID == identity.editSessionID {
-                        activeEditorSession = nil
-                    }
+                    ownedEditorSession = NotesLiveEditorSessionRouting.receive(
+                        ownerIdentity: identity,
+                        currentOwnerIdentity: editorIdentity,
+                        current: ownedEditorSession,
+                        incoming: session
+                    )
                 },
-                nativeFinalizerHook: $nativeFinalizer,
+                nativeFinalizerHook: currentNativeFinalizerBinding,
                 onInitialFocusApplied: {
                     guard initialFocusIsTitle,
                           let requestID = pendingNewNoteInputRequestID
                     else { return }
                     pendingNewNoteInputRequestID = nil
                     newItemRouter.deliverCapturedTyping(for: requestID)
-                }
+                },
+                decompositionPlanner: decompositionPlanner,
+                workbenchNotice: $workbenchNotice
             )
             .id(identity)
         } else {
@@ -461,15 +536,29 @@ struct NotesSplitView: View {
         editorInitialFocus == .title
     }
 
+    private var currentNativeFinalizerBinding: Binding<NoteNativeInputFinalizer?> {
+        Binding(
+            get: { nativeFinalizerSlot.value },
+            set: { setNativeFinalizer($0) }
+        )
+    }
+
+    private func setNativeFinalizer(_ value: NoteNativeInputFinalizer?) {
+        nativeFinalizerSlot.value = value
+        NotesNativeFinalizerLifecycleWiring.apply(
+            value,
+            closeBridge: closeBridge,
+            transitionCoordinator: transitionCoordinator,
+            terminationCoordinator: terminationCoordinator
+        )
+    }
+
     private func registerRouteBridge() {
-        transitionCoordinator?.attachNotesCloseBridge(closeBridge, finalizer: nativeFinalizer)
-        terminationCoordinator?.updateDecision {
-            await closeBridge.decision(for: .termination, finalizer: nativeFinalizer)
-        }
+        setNativeFinalizer(nativeFinalizerSlot.value)
     }
 
     private func selectNote(_ noteID: NoteID, initialFocus: NoteInitialFocus? = nil) async {
-        let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizer)
+        let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizerSlot.value)
         guard decision == .allow else {
             statusBanner = "请先完成当前笔记的保存。"
             return
@@ -519,7 +608,7 @@ struct NotesSplitView: View {
             statusBanner = "请先处理待恢复草稿，再新建笔记。"
             return
         }
-        let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizer)
+        let decision = await closeBridge.decision(for: .selection, finalizer: nativeFinalizerSlot.value)
         guard decision == .allow else {
             if let inputRequestID { newItemRouter.cancelCapturedTyping(for: inputRequestID) }
             statusBanner = "请先完成当前笔记的保存。"
@@ -561,7 +650,7 @@ struct NotesSplitView: View {
 
     private func archiveSelected() async {
         guard let noteID = viewModel.selectedNoteID else { return }
-        let decision = await closeBridge.decision(for: .archive, finalizer: nativeFinalizer)
+        let decision = await closeBridge.decision(for: .archive, finalizer: nativeFinalizerSlot.value)
         guard decision == .allow else {
             statusBanner = "归档前需要完成主文件保存。"
             return
@@ -570,6 +659,7 @@ struct NotesSplitView: View {
             statusBanner = "归档笔记未完成。"
             return
         }
+        workbenchNotice = nil
         if let selected = viewModel.selectedNoteID {
             editorInitialFocus = nil
             editorIdentity = .init(noteID: selected, editSessionID: UUID())
@@ -633,6 +723,7 @@ struct NotesSplitView: View {
                 impactChecksum: request.preview.checksum
             )
             _ = try await viewModel.permanentlyDelete(request.noteID, authorization: authorization)
+            workbenchNotice = nil
             if let selected = viewModel.selectedNoteID {
                 editorInitialFocus = nil
                 editorIdentity = .init(noteID: selected, editSessionID: UUID())
@@ -720,7 +811,11 @@ struct NotesSplitView: View {
             editorIdentity = nil
             return
         }
-        guard let activeEditorSession,
+        guard let activeEditorSession = NotesLiveEditorSessionRouting.matchingSession(
+            currentOwnerIdentity: identity,
+            current: ownedEditorSession,
+            noteID: identity.noteID
+        ),
               activeEditorSession.document != note.document,
               autosave.canReplaceSessionWithPersistedStoreSnapshot
         else { return }
@@ -780,7 +875,12 @@ struct NotesSplitView: View {
     private func applyPendingImport(_ mode: BlockDocumentIngestMode) {
         guard let plan = pendingImportPlan else { return }
         pendingImportPlan = nil
-        guard let session = activeEditorSession ?? nil else {
+        guard let selectedNote = viewModel.selectedNote,
+              let session = NotesLiveEditorSessionRouting.matchingSession(
+                currentOwnerIdentity: editorIdentity,
+                current: ownedEditorSession,
+                noteID: selectedNote.id
+              ) else {
             // Fall back through autosave document update when session sink not yet wired.
             let document = plan.result.document
             switch mode {
@@ -819,16 +919,11 @@ struct NotesSplitView: View {
 
     private func exportFile(_ format: NoteFileFormat) {
         guard let note = viewModel.selectedNote else { return }
-        let matchingSession: BlockEditorSession?
-        if let editorIdentity,
-           editorIdentity.noteID == note.id,
-           let activeEditorSession,
-           activeEditorSession.noteID == note.id,
-           activeEditorSession.editSessionID == editorIdentity.editSessionID {
-            matchingSession = activeEditorSession
-        } else {
-            matchingSession = nil
-        }
+        let matchingSession = NotesLiveEditorSessionRouting.matchingSession(
+            currentOwnerIdentity: editorIdentity,
+            current: ownedEditorSession,
+            noteID: note.id
+        )
         guard matchingSession?.terminallyFinalizeNativeComposition() != false else {
             statusBanner = "请先完成当前输入，再导出笔记。"
             return

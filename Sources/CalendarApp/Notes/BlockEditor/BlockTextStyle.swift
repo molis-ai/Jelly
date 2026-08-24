@@ -20,7 +20,8 @@ enum BlockTextStyle {
 
     static func attributedString(
         for block: DocumentBlock,
-        appearance: CalendarSemanticAppearance?
+        appearance: CalendarSemanticAppearance?,
+        completionDescriptionWidth: CGFloat = NoteEditorLayout.maximumContentWidth - 32
     ) -> NSAttributedString {
         if block.kind == .divider {
             return NSAttributedString(string: "")
@@ -32,7 +33,15 @@ enum BlockTextStyle {
         guard fullRange.length > 0 else { return attributed }
 
         let baseFont = baseFont(for: block.kind)
-        attributed.addAttributes(blockAttributes(for: block, appearance: appearance), range: fullRange)
+        attributed.addAttributes(
+            blockAttributes(for: block, appearance: appearance),
+            range: fullRange
+        )
+        applyTrailingCompletionReserve(
+            to: attributed,
+            block: block,
+            completionDescriptionWidth: completionDescriptionWidth
+        )
         var cursor = 0
         for span in block.inlineContent.spans {
             let length = (span.text as NSString).length
@@ -137,6 +146,67 @@ enum BlockTextStyle {
         return font
     }
 
+    static func secondaryTextColor(appearance: CalendarSemanticAppearance?) -> NSColor {
+        appearance.map { color(hex: $0.secondaryTextHex) } ?? .secondaryLabelColor
+    }
+
+    static func paragraphStyle(
+        for block: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) -> NSParagraphStyle {
+        let style = paragraphStyle(
+            for: block.kind,
+            indentLevel: block.indentLevel
+        ).mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        if let extra = TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+            for: block,
+            width: completionDescriptionWidth
+        ) {
+            style.paragraphSpacing += extra
+        }
+        return style
+    }
+
+    static func paragraphRange(in string: NSString, atUTF16Offset location: Int) -> NSRange? {
+        guard string.length > 0 else { return nil }
+        let clamped = min(max(0, location), string.length - 1)
+        var start = 0
+        var end = 0
+        var contentsEnd = 0
+        string.getParagraphStart(
+            &start,
+            end: &end,
+            contentsEnd: &contentsEnd,
+            for: NSRange(location: clamped, length: 0)
+        )
+        let length = end - start
+        guard length > 0 else { return nil }
+        return NSRange(location: start, length: length)
+    }
+
+    private static func applyTrailingCompletionReserve(
+        to attributed: NSMutableAttributedString,
+        block: DocumentBlock,
+        completionDescriptionWidth: CGFloat
+    ) {
+        guard TaskCompletionDescriptionMetrics.reservedParagraphSpacing(
+            for: block,
+            width: completionDescriptionWidth
+        ) != nil else { return }
+        guard let range = paragraphRange(
+            in: attributed.string as NSString,
+            atUTF16Offset: attributed.length - 1
+        ) else { return }
+        attributed.addAttribute(
+            .paragraphStyle,
+            value: paragraphStyle(
+                for: block,
+                completionDescriptionWidth: completionDescriptionWidth
+            ),
+            range: range
+        )
+    }
+
     private static func blockAttributes(
         for block: DocumentBlock,
         appearance: CalendarSemanticAppearance?
@@ -159,6 +229,11 @@ enum BlockTextStyle {
         }
         if block.taskState?.completedAt != nil {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            if let color = attributes[.foregroundColor] as? NSColor {
+                attributes[.foregroundColor] = color.withAlphaComponent(
+                    TaskCompletionDescriptionMetrics.completedOpacity
+                )
+            }
         }
         return attributes
     }

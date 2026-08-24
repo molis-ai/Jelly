@@ -14,6 +14,7 @@ struct AppEnvironment {
     let materialDigestOperator: (any MaterialDigestOperating)?
     let digestSettingsStore: DigestSettingsStore
     let digestCredentialStore: any DigestCredentialStoring
+    let decompositionPlanner: any DecompositionPlanning
 
     var whisperModelDirectory: URL {
         dataURLs.root.appendingPathComponent("Models/WhisperKit", isDirectory: true)
@@ -70,7 +71,8 @@ struct AppEnvironment {
             features: .production,
             materialDigestOperator: coordinator,
             digestSettingsStore: digestSettingsStore,
-            digestCredentialStore: digestCredentialStore
+            digestCredentialStore: digestCredentialStore,
+            decompositionPlanner: LiveDecompositionPlanner.make()
         )
     }
 

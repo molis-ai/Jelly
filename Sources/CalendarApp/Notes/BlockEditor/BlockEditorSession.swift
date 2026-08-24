@@ -157,7 +157,8 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
         if let continuousHost {
             let projection = BlockDocumentTextProjection(
                 document: document,
-                appearance: continuousHost.semanticAppearance
+                appearance: continuousHost.semanticAppearance,
+                completionDescriptionWidth: continuousHost.completionDescriptionWidth
             )
             let range = (try? projection.nsRange(for: selection))
                 ?? .init(location: projection.attributedString.length, length: 0)
@@ -910,7 +911,12 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
             return continuousProjection
         }
         guard let appearance = continuousHost?.semanticAppearance else { return nil }
-        return BlockDocumentTextProjection(document: document, appearance: appearance)
+        return BlockDocumentTextProjection(
+            document: document,
+            appearance: appearance,
+            completionDescriptionWidth: continuousHost?.completionDescriptionWidth
+                ?? NoteEditorLayout.maximumContentWidth - 32
+        )
     }
 
     private static func text(_ block: DocumentBlock) -> String { block.inlineContent.spans.map(\.text).joined() }

@@ -5,6 +5,7 @@ import Foundation
 protocol ContinuousBlockEditorHost: AnyObject {
     var textView: ContinuousBlockEditorTextView { get }
     var semanticAppearance: CalendarSemanticAppearance { get }
+    var completionDescriptionWidth: CGFloat { get }
     func apply(
         diff: BlockDocumentProjectionDiff?,
         projection: BlockDocumentTextProjection,
@@ -12,15 +13,26 @@ protocol ContinuousBlockEditorHost: AnyObject {
     )
 }
 
+extension ContinuousBlockEditorHost {
+    var completionDescriptionWidth: CGFloat {
+        max(1, textView.bounds.width - BlockTextStyle.textColumnOffset(for: .task) - 10)
+    }
+}
+
 @MainActor
 final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
     let textView = ContinuousBlockEditorTextView(frame: .zero)
     let taskCheckboxOverlay = TaskBlockCheckboxOverlay(frame: .zero)
+    let taskCompletionDescriptionOverlay = TaskBlockCompletionDescriptionOverlay(frame: .zero)
     var semanticAppearance: CalendarSemanticAppearance {
         didSet { needsLayout = true }
     }
+    var completionDescriptionWidth: CGFloat {
+        max(1, bounds.width - BlockTextStyle.textColumnOffset(for: .task) - 10)
+    }
     private var measuredHeight: CGFloat = 80
     private var measuredWidth: CGFloat?
+    private var lastProjectedCompletionWidth: CGFloat?
     private var deferredLayoutTask: Task<Void, Never>?
 
     init(appearance: CalendarSemanticAppearance) {
@@ -28,6 +40,7 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
         super.init(frame: .zero)
         addSubview(textView)
         addSubview(taskCheckboxOverlay)
+        addSubview(taskCompletionDescriptionOverlay)
         setAccessibilityElement(false)
     }
 
@@ -36,6 +49,7 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
         super.init(coder: coder)
         addSubview(textView)
         addSubview(taskCheckboxOverlay)
+        addSubview(taskCompletionDescriptionOverlay)
         setAccessibilityElement(false)
     }
 
@@ -50,9 +64,16 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
         let width = max(1, bounds.width)
         textView.frame = .init(x: 0, y: 0, width: width, height: max(measuredHeight, bounds.height))
         taskCheckboxOverlay.frame = textView.frame
+        taskCompletionDescriptionOverlay.frame = textView.frame
+        if !taskCompletionDescriptionOverlay.subviews.isEmpty,
+           !textView.hasMarkedText(),
+           lastProjectedCompletionWidth.map({ abs($0 - completionDescriptionWidth) > 0.5 }) ?? true {
+            textView.attachedSession?.projectAuthoritativeState()
+        }
         if measuredWidth.map({ abs($0 - width) > 0.5 }) ?? true {
             updateMeasuredHeight(width: width)
             taskCheckboxOverlay.updateFrames()
+            taskCompletionDescriptionOverlay.updateFrames()
         }
     }
 
@@ -61,11 +82,18 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
         projection: BlockDocumentTextProjection,
         selectedRange: NSRange
     ) {
+        lastProjectedCompletionWidth = completionDescriptionWidth
         textView.apply(diff: diff, projection: projection, selectedRange: selectedRange)
         let needsImmediateLayout = diff == nil
         taskCheckboxOverlay.apply(
             document: projection.document,
             textView: textView,
+            updateFramesImmediately: needsImmediateLayout
+        )
+        taskCompletionDescriptionOverlay.apply(
+            document: projection.document,
+            textView: textView,
+            appearance: semanticAppearance,
             updateFramesImmediately: needsImmediateLayout
         )
         if needsImmediateLayout {
@@ -78,12 +106,21 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
 
     private func updateMeasuredHeight(width: CGFloat) {
         measuredWidth = width
-        let next = max(80, textView.measuredContentHeight(for: width))
+        let textHeight = max(80, textView.measuredContentHeight(for: width))
+        let layoutHeight = max(textHeight, bounds.height, measuredHeight)
+        textView.frame.size.height = layoutHeight
+        taskCheckboxOverlay.frame.size.height = layoutHeight
+        taskCompletionDescriptionOverlay.frame.size.height = layoutHeight
+        taskCheckboxOverlay.updateFrames()
+        taskCompletionDescriptionOverlay.updateFrames()
+        let next = max(textHeight, taskCompletionDescriptionOverlay.requiredContentHeight())
         guard abs(next - measuredHeight) > 0.5 else { return }
         measuredHeight = next
         textView.frame.size.height = next
         taskCheckboxOverlay.frame.size.height = next
+        taskCompletionDescriptionOverlay.frame.size.height = next
         taskCheckboxOverlay.updateFrames()
+        taskCompletionDescriptionOverlay.updateFrames()
         invalidateIntrinsicContentSize()
         // The first reveal request happens before the debounced full height is
         // known. Once the outer SwiftUI ScrollView receives the new intrinsic
@@ -107,6 +144,7 @@ final class ContinuousBlockEditorHostView: NSView, ContinuousBlockEditorHost {
             guard let self, !Task.isCancelled else { return }
             self.updateMeasuredHeight(width: max(1, self.bounds.width))
             self.taskCheckboxOverlay.updateFrames()
+            self.taskCompletionDescriptionOverlay.updateFrames()
             self.deferredLayoutTask = nil
         }
     }

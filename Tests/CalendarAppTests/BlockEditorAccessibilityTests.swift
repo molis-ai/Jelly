@@ -5,7 +5,7 @@ import Testing
 import WorkspaceDomain
 @testable import CalendarApp
 
-@Suite("BlockEditorAccessibilityTests")
+@Suite("BlockEditorAccessibilityTests", .serialized)
 @MainActor
 struct BlockEditorAccessibilityTests {
     @Test func continuousAccessibilityTreeHasOneBodyNoPerBlockStopsAndActionableTasks() throws {
@@ -40,6 +40,39 @@ struct BlockEditorAccessibilityTests {
         #expect(taskButton.accessibilityValue() as? String == "已完成")
     }
 
+    @Test func taskCompletionDescriptionIsStaticTextAndDoesNotBecomeAnEditableBody() throws {
+        let paragraph = projectionBlock(BlockID(), .paragraph, "正文")
+        let task = try DocumentBlock.task(
+            text: "给物业打电话",
+            completionDescription: "拿到明确上门时间"
+        )
+        let document = BlockDocument(blocks: [paragraph, task])
+        let session = BlockEditorSession(
+            noteID: NoteID(), editSessionID: UUID(), initialDocument: document,
+            initialSelection: projectionCaret(paragraph.id, 0),
+            focusRegistry: EditorFocusRegistry(), onDocumentChange: { _ in }
+        )
+        let host = ContinuousBlockEditorHostView(appearance: CalendarTheme.light)
+        host.frame = .init(x: 0, y: 0, width: 600, height: 220)
+        session.attach(host: host, hostToken: UUID())
+        host.layoutSubtreeIfNeeded()
+
+        let bodies = accessibilityDescendants(of: host, as: ContinuousBlockEditorTextView.self)
+        let textAreas = accessibilityDescendants(of: host, as: NSTextView.self).filter {
+            $0.accessibilityRole() == .textArea
+        }
+        let label = try #require(accessibilityDescendants(of: host, as: NSTextField.self).first {
+            $0.accessibilityIdentifier() == "task-block-completion-\(task.id.rawValue.uuidString)"
+        })
+        #expect(bodies.count == 1)
+        #expect(textAreas.count == 1)
+        #expect(label.accessibilityRole() == .staticText)
+        #expect(label.accessibilityLabel() == "完成说明")
+        #expect(label.accessibilityValue() == "拿到明确上门时间")
+        #expect(label.isEditable == false)
+        #expect(host.taskCompletionDescriptionOverlay.hitTest(label.frame.origin) == nil)
+    }
+
     @Test func reducedMotionKeepsAllEditorStatesAndActionsAvailable() {
         let reduced = CalendarMotionPolicy(reduceMotion: true)
         #expect(reduced.snapAnimation == nil)
@@ -48,6 +81,102 @@ struct BlockEditorAccessibilityTests {
         #expect(reduced.shouldAlignToWeek)
         #expect(BlockFormattingAction.allCases.count == 13)
         #expect(BlockFormattingAction.allCases.allSatisfy { !$0.accessibilityLabel.isEmpty })
+    }
+
+    @Test func planAndScheduleWorkbenchControlsExposeChineseVoiceOverNamesAndHelp() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        var note = Note.empty(id: NoteID(), categoryID: calendar.uncategorizedID, now: .distantPast)
+        note.document = .init(blocks: [
+            .init(
+                id: BlockID(),
+                kind: .paragraph,
+                inlineContent: .plain("预约牙医"),
+                taskState: nil,
+                indentLevel: 0
+            )
+        ])
+        _ = try await store.sendWorkspace(.createNote(.init(note: note)))
+        let persisted = try #require(store.state.notes[note.id])
+        let snapshot = try DecompositionSourceCapture.capture(
+            note: persisted,
+            workspaceRevision: store.state.revision,
+            selection: .text(
+                anchor: .init(blockID: persisted.document.blocks[0].id, graphemeOffset: 0),
+                focus: .init(blockID: persisted.document.blocks[0].id, graphemeOffset: 4),
+                preferredColumn: nil,
+                typingAttributes: .init(marks: [], linkURL: nil)
+            )
+        )
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000941")!
+        let second = UUID(uuidString: "00000000-0000-0000-0000-000000000942")!
+        let model = DecompositionWorkbenchModel(
+            snapshot: snapshot,
+            planner: ScriptedDecompositionPlanner([
+                .clarification(.notNeeded),
+                .candidates([
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "打电话确认",
+                        completionDescription: "拿到明确上门时间",
+                        estimatedMinutes: 15
+                    ),
+                    PlannerCandidate(
+                        existingID: nil,
+                        title: "准备材料",
+                        completionDescription: "把证件放一起",
+                        estimatedMinutes: 30
+                    )
+                ])
+            ]),
+            store: store,
+            uuid: SequentialAccessibilityUUID([first, second]).next
+        )
+        await model.start()
+        _ = try #require(model.draft.candidates.count == 2)
+        let hosting = NSHostingView(rootView: DecompositionWorkbenchView(
+            model: model,
+            onCancel: {},
+            onCommitted: { _ in }
+        ))
+        hosting.frame = .init(x: 0, y: 0, width: 960, height: 680)
+        let window = NSWindow(
+            contentRect: hosting.frame,
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        defer { window.contentView = nil }
+        hosting.layoutSubtreeIfNeeded()
+        let moreID = "decomposition-more-\(first.uuidString)"
+        #expect(await waitUntil {
+            hosting.layoutSubtreeIfNeeded()
+            return accessibilityDescendants(of: hosting, as: NSButton.self).contains {
+                $0.accessibilityIdentifier() == moreID
+            }
+        })
+        let buttons = accessibilityDescendants(of: hosting, as: NSButton.self)
+        var labeled: [String: NSButton] = [:]
+        for button in buttons {
+            let identifier = button.accessibilityIdentifier()
+            if !identifier.isEmpty, labeled[identifier] == nil {
+                labeled[identifier] = button
+            }
+        }
+        #expect(labeled["decomposition-split-\(first.uuidString)"]?.accessibilityLabel() == "继续拆开")
+        #expect(labeled["decomposition-move-up-\(first.uuidString)"]?.accessibilityLabel() == "上移行动")
+        #expect(labeled["decomposition-move-down-\(first.uuidString)"]?.accessibilityLabel() == "下移行动")
+        #expect(labeled[moreID]?.accessibilityLabel() == "更多操作")
+        #expect(labeled["decomposition-add-candidate"]?.accessibilityLabel() == "添加行动")
+        #expect(labeled["decomposition-move-up-\(first.uuidString)"]?.accessibilityHelp() == "把这项行动上移一位")
+        #expect(labeled["decomposition-move-down-\(first.uuidString)"]?.accessibilityHelp() == "把这项行动下移一位")
+        #expect(labeled["decomposition-split-\(first.uuidString)"]?.accessibilityHelp() == "只把这一项继续拆开，其他行动保持不变")
+        #expect(CalendarMotionPolicy(reduceMotion: true).overlayAnimation == nil)
     }
 
     @Test func fixedFormattingBarDefinesEveryHumanAndAgentReadableAction() {
@@ -156,6 +285,59 @@ struct BlockEditorAccessibilityTests {
         #expect(adapter.write(payload: payload))
         #expect(adapter.readPayload() == .inlineContent(content, fallbackPlainText: "保留行内"))
         #expect(pasteboard.string(forType: .string) == "保留行内")
+    }
+
+    @Test func privateClipboardRoundTripsTaskCompletionDescriptionAndKeepsOldEnvelopesReadable() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        let adapter = BlockPasteboardAdapter(pasteboard: pasteboard)
+        let payload = BlockClipboardPayload(
+            plainText: "给物业打电话",
+            richBlocks: [
+                .init(
+                    kind: .task,
+                    inlineContent: .plain("给物业打电话"),
+                    indentLevel: 0,
+                    codeInfoString: nil,
+                    completionDescription: "拿到明确上门时间"
+                )
+            ]
+        )
+
+        #expect(adapter.write(payload: payload))
+        let restored = try #require(adapter.readPayload())
+        guard case let .richText(blocks, fallback) = restored else {
+            Issue.record("task clipboard should round-trip as rich text")
+            return
+        }
+        #expect(fallback == "给物业打电话")
+        #expect(blocks[0].kind == .task)
+        #expect(blocks[0].completionDescription == "拿到明确上门时间")
+        #expect(pasteboard.string(forType: .string) == "给物业打电话")
+
+        let encoded = try #require(pasteboard.data(forType: BlockPasteboardAdapter.privateType))
+        var envelope = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var blockDTOs = try #require(envelope["blocks"] as? [[String: Any]])
+        blockDTOs[0].removeValue(forKey: "completionDescription")
+        envelope["blocks"] = blockDTOs
+        let legacy = try JSONSerialization.data(withJSONObject: envelope)
+        pasteboard.clearContents()
+        _ = pasteboard.setString("给物业打电话", forType: .string)
+        _ = pasteboard.setData(legacy, forType: BlockPasteboardAdapter.privateType)
+        let legacyPayload = try #require(adapter.readPayload())
+        guard case let .richText(legacyBlocks, _) = legacyPayload else {
+            Issue.record("legacy envelope without completionDescription must still parse")
+            return
+        }
+        #expect(legacyBlocks[0].kind == .task)
+        #expect(legacyBlocks[0].completionDescription == nil)
+
+        blockDTOs[0]["completionDescription"] = "  空白应拒绝  "
+        envelope["blocks"] = blockDTOs
+        let invalid = try JSONSerialization.data(withJSONObject: envelope)
+        pasteboard.clearContents()
+        _ = pasteboard.setString("给物业打电话", forType: .string)
+        _ = pasteboard.setData(invalid, forType: BlockPasteboardAdapter.privateType)
+        #expect(adapter.readPayload() == .plainText("给物业打电话"))
     }
 
     @Test func pasteboardCorruptInvalidAndUnsafeRichDataFallBackWithoutIDsOrUnsupportedStyles() throws {
@@ -1181,6 +1363,14 @@ private func projectionCaret(_ id: BlockID, _ offset: Int) -> BlockEditorSelecti
     )
 }
 
+private final class SequentialAccessibilityUUID: @unchecked Sendable {
+    private var values: [UUID]
+    init(_ values: [UUID]) { self.values = values }
+    func next() -> UUID {
+        values.isEmpty ? UUID() : values.removeFirst()
+    }
+}
+
 @MainActor
 private func projectionFont(_ view: BlockEditorTextView?) throws -> NSFont {
     let storage = try #require(view?.textStorage)
@@ -1197,4 +1387,18 @@ private func projectionParagraph(_ view: BlockEditorTextView?) throws -> NSParag
 private func accessibilityDescendants<T: NSView>(of view: NSView, as type: T.Type) -> [T] {
     let own = (view as? T).map { [$0] } ?? []
     return own + view.subviews.flatMap { accessibilityDescendants(of: $0, as: type) }
+}
+
+@MainActor
+private func waitUntil(
+    timeout: Duration = .seconds(1.5),
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while clock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
 }

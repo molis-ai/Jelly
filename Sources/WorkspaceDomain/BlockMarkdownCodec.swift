@@ -190,9 +190,19 @@ public enum BlockMarkdownCodec {
                     firstLineNumber: index + 1,
                     diagnostics: &diagnostics
                 )
-                let taskState = item.kind == .task
+                var taskState = item.kind == .task
                     ? TaskBlockState(completedAt: item.checked ? checkedTaskCompletedAt : nil)
                     : nil
+                var nextIndex = scanned.nextIndex
+                if item.kind == .task,
+                   nextIndex < lines.count,
+                   let description = JellyTaskCompletionMetadata.description(from: lines[nextIndex]) {
+                    taskState = TaskBlockState(
+                        completedAt: taskState?.completedAt,
+                        completionDescription: description
+                    )
+                    nextIndex += 1
+                }
                 try addBlock(
                     item.kind,
                     content: MarkdownInlineLexer.decode(scanned.text, firstLineNumber: index + 1, diagnostics: &diagnostics),
@@ -202,7 +212,7 @@ public enum BlockMarkdownCodec {
                 activeListLevels = Set(activeListLevels.filter { $0 <= item.indentLevel })
                 activeListLevels.insert(item.indentLevel)
                 preserveListContextAcrossNextBlank = scanned.endedWithSpanTerminalBoundary
-                index = scanned.nextIndex
+                index = nextIndex
                 continue
             }
 
@@ -259,7 +269,13 @@ public enum BlockMarkdownCodec {
                 rendered = "\(markdownListIndent(block.indentLevel))\(number). \(inline)"
             case .task:
                 let checkbox = block.taskState?.completedAt == nil ? "[ ]" : "[x]"
-                rendered = "\(markdownListIndent(block.indentLevel))- \(checkbox) \(inline)"
+                let line = "\(markdownListIndent(block.indentLevel))- \(checkbox) \(inline)"
+                if let description = block.taskState?.completionDescription,
+                   let marker = JellyTaskCompletionMetadata.line(for: description) {
+                    rendered = line + "\n" + marker
+                } else {
+                    rendered = line
+                }
             case .quote:
                 rendered = inline.components(separatedBy: "\n").map { "> \($0)" }.joined(separator: "\n")
             case .code:
@@ -355,6 +371,31 @@ private struct MarkdownListItem {
     let text: String
     let indentLevel: Int
     let checked: Bool
+}
+
+private enum JellyTaskCompletionMetadata {
+    static let prefix = "<!--jelly:task-completion:v1;b64="
+    static let suffix = "-->"
+
+    static func line(for description: String) -> String? {
+        guard let canonical = TaskBlockState.canonicalCompletionDescription(description) else {
+            return nil
+        }
+        return prefix + Data(canonical.utf8).base64EncodedString() + suffix
+    }
+
+    static func description(from line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(prefix), trimmed.hasSuffix(suffix) else { return nil }
+        let encoded = String(trimmed.dropFirst(prefix.count).dropLast(suffix.count))
+        guard !encoded.isEmpty,
+              let data = Data(base64Encoded: encoded),
+              let raw = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        return TaskBlockState.canonicalCompletionDescription(raw)
+    }
 }
 
 private struct MarkdownPhysicalScan {

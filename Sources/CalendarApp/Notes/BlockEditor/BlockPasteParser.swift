@@ -50,6 +50,8 @@ enum BlockPasteParser: BlockPasteParsing {
             throw BlockPasteParserError.invalidIndent(index: index)
         }
 
+        try validateCompletionDescription(block, index: index)
+
         if block.inlineContent.spans.contains(where: { span in
             guard let url = span.linkURL else { return false }
             return !BlockURLValidator.isValid(url)
@@ -91,6 +93,23 @@ enum BlockPasteParser: BlockPasteParsing {
         case .paragraph, .heading1, .heading2, .heading3, .bullet, .ordered, .task, .quote:
             guard block.codeInfoString == nil else {
                 throw BlockPasteParserError.invalidCodeInfo(index: index)
+            }
+        }
+    }
+
+    private static func validateCompletionDescription(_ block: BlockPasteBlock, index: Int) throws {
+        let canonical = TaskBlockState(
+            completedAt: nil,
+            completionDescription: block.completionDescription
+        ).completionDescription
+        switch block.kind {
+        case .task:
+            if block.completionDescription != canonical {
+                throw BlockPasteParserError.invalidBlock(index: index)
+            }
+        default:
+            if block.completionDescription != nil {
+                throw BlockPasteParserError.invalidBlock(index: index)
             }
         }
     }

@@ -79,6 +79,7 @@ struct AppShellView: View {
     let focusRegistry: EditorFocusRegistry
     let searchIndex: WorkspaceSearchIndex
     let terminationCoordinator: NotesApplicationTerminationCoordinator?
+    let decompositionPlanner: any DecompositionPlanning
     @ObservedObject var routeState: WorkspaceRouteState
     @ObservedObject var newItemRouter: WorkspaceNewItemRouter
     @ObservedObject var deepLinkRouter: WorkspaceDeepLinkRouter
@@ -100,6 +101,9 @@ struct AppShellView: View {
         terminationCoordinator: NotesApplicationTerminationCoordinator? = nil,
         materialDigestOperator: (any MaterialDigestOperating)? = nil,
         isDigestConfigured: @escaping @MainActor () -> Bool = { true },
+        decompositionPlanner: any DecompositionPlanning = UnavailableDecompositionPlanner(
+            reason: .systemVersionUnsupported
+        ),
         moduleHostBuilder: ((WorkspaceRoute) -> WorkspaceModuleHost)? = nil
     ) {
         self.store = store
@@ -107,6 +111,7 @@ struct AppShellView: View {
         self.focusRegistry = focusRegistry
         self.searchIndex = searchIndex
         self.terminationCoordinator = terminationCoordinator
+        self.decompositionPlanner = decompositionPlanner
         self.routeState = routeState
         self.newItemRouter = newItemRouter
         self.deepLinkRouter = deepLinkRouter
@@ -138,7 +143,8 @@ struct AppShellView: View {
                         deepLinkRouter: deepLinkRouter,
                         newItemRouter: newItemRouter,
                         searchIndex: searchIndex,
-                        terminationCoordinator: terminationCoordinator
+                        terminationCoordinator: terminationCoordinator,
+                        decompositionPlanner: decompositionPlanner
                     )),
                     lifetimeToken: WorkspaceModuleLifetimeToken()
                 )

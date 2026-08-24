@@ -4,6 +4,7 @@ import SwiftUI
 struct CalendarSemanticAppearance: Equatable, Sendable {
     let canvasHex: String
     let elevatedSurfaceHex: String
+    let conversationSurfaceHex: String
     let separatorHex: String
     let primaryTextHex: String
     let secondaryTextHex: String
@@ -22,7 +23,7 @@ struct CalendarSemanticAppearance: Equatable, Sendable {
 
     var semanticHexValues: [String] {
         [
-            canvasHex, elevatedSurfaceHex, separatorHex, primaryTextHex, secondaryTextHex,
+            canvasHex, elevatedSurfaceHex, conversationSurfaceHex, separatorHex, primaryTextHex, secondaryTextHex,
             todayFillHex, todayOutlineHex, selectionFillHex, selectionOutlineHex,
             rangePreviewFillHex, rangePreviewOutlineHex, dragPreviewFillHex,
             dragPreviewOutlineHex, subtleBorderHex, subtleShadowHex, controlAccentHex, errorHex
@@ -39,6 +40,7 @@ struct CalendarSemanticAppearance: Equatable, Sendable {
 
     var canvas: Color { CalendarTheme.categoryColor(canvasHex) }
     var elevatedSurface: Color { CalendarTheme.categoryColor(elevatedSurfaceHex) }
+    var conversationSurface: Color { CalendarTheme.categoryColor(conversationSurfaceHex) }
     var separator: Color { CalendarTheme.categoryColor(separatorHex) }
     var primaryText: Color { CalendarTheme.categoryColor(primaryTextHex) }
     var secondaryText: Color { CalendarTheme.categoryColor(secondaryTextHex) }
@@ -91,6 +93,7 @@ enum CalendarTheme {
     static let light = CalendarSemanticAppearance(
         canvasHex: "#F7F1E7",
         elevatedSurfaceHex: "#FFF9F0",
+        conversationSurfaceHex: "#EBE3D6",
         separatorHex: "#D8CEC1",
         primaryTextHex: "#2A2420",
         secondaryTextHex: "#6D625B",
@@ -111,6 +114,7 @@ enum CalendarTheme {
     static let dark = CalendarSemanticAppearance(
         canvasHex: "#211E1B",
         elevatedSurfaceHex: "#2B2723",
+        conversationSurfaceHex: "#191714",
         separatorHex: "#4A433D",
         primaryTextHex: "#F4EDE4",
         secondaryTextHex: "#C5B9AD",

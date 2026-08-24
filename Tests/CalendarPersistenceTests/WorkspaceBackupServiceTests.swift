@@ -5,6 +5,54 @@ import Testing
 
 @Suite("WorkspaceBackupServiceTests")
 struct WorkspaceBackupServiceTests {
+    @Test func backupExportAndRestorePreserveTaskCompletionDescription() async throws {
+        let directory = try WorkspacePersistenceTemporaryDirectory()
+        defer { directory.remove() }
+        let main = directory.file("main.json")
+        let backup = directory.file("backup.json")
+        let restoreSource = directory.file("restore.json")
+        let (original, itemID) = try WorkspacePersistenceFixtures.linkedTaskWorkspace(
+            calendarTitle: "正文里的行动",
+            completionDescription: "拿到明确上门时间"
+        )
+        let current = try WorkspacePersistenceFixtures.workspaceWithOneNote(revision: 1)
+        try WorkspaceDocumentCodec.encode(current).write(to: main)
+        try WorkspaceDocumentCodec.encode(original).write(to: restoreSource)
+        let repository = JSONWorkspaceRepository(documentURL: main, seed: { current })
+        _ = try await repository.load()
+        try await repository.save(current)
+        let originalRepository = JSONWorkspaceRepository(
+            documentURL: restoreSource,
+            seed: { original }
+        )
+        _ = try await originalRepository.load()
+
+        try await BackupService().exportCurrent(from: originalRepository, to: backup)
+        let exported = try WorkspaceDocumentCodec.decode(Data(contentsOf: backup))
+        #expect(exported.state == original)
+        #expect(
+            exported.state.notes.values.first?.document.blocks[0].taskState?.completionDescription
+                == "拿到明确上门时间"
+        )
+        #expect(exported.state.calendar.items[itemID]?.title == "正文里的行动")
+
+        let preview = try await BackupService().inspectRestoreSource(backup)
+        #expect(preview.loadResult.state == original)
+        let prepared = try await repository.prepareRestore(preview, rollbackDirectoryURL: directory.url)
+        _ = try await repository.commitRestore(prepared, state: original)
+        let restored = try await JSONWorkspaceRepository(documentURL: main, seed: { current }).load()
+        #expect(restored.state == original)
+        #expect(
+            restored.state.notes.values.first?.document.blocks[0].taskState?.completionDescription
+                == "拿到明确上门时间"
+        )
+        #expect(restored.state.calendar.items[itemID]?.title == "正文里的行动")
+        #expect(
+            try WorkspaceChecksum.noteSnapshotChecksum(try #require(restored.state.notes.values.first))
+                == WorkspaceChecksum.noteSnapshotChecksum(try #require(original.notes.values.first))
+        )
+    }
+
     @Test func exportingLoadedLegacyBytesCopiesTheExactPrimaryWithoutForcingV3Save() async throws {
         let directory = try WorkspacePersistenceTemporaryDirectory()
         defer { directory.remove() }

@@ -153,6 +153,21 @@ struct BlockPasteBlock: Equatable, Sendable {
     let inlineContent: InlineContent
     let indentLevel: Int
     let codeInfoString: String?
+    let completionDescription: String?
+
+    init(
+        kind: BlockKind,
+        inlineContent: InlineContent,
+        indentLevel: Int,
+        codeInfoString: String?,
+        completionDescription: String? = nil
+    ) {
+        self.kind = kind
+        self.inlineContent = inlineContent
+        self.indentLevel = indentLevel
+        self.codeInfoString = codeInfoString
+        self.completionDescription = completionDescription
+    }
 }
 
 struct BlockClipboardPayload: Equatable, Sendable {

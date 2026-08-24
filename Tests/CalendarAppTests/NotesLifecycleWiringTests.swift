@@ -9,8 +9,103 @@ import WorkspaceDomain
 @Suite("NotesLifecycleWiringTests")
 @MainActor
 struct NotesLifecycleWiringTests {
+    @Test func replacingNativeFinalizerReattachesTheRouteCoordinatorToTheCurrentFinalizer() async throws {
+        let calendar = makeEmptyState()
+        let note = Note.empty(
+            id: NoteID(),
+            categoryID: calendar.uncategorizedID,
+            now: .distantPast
+        )
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        _ = try await store.sendWorkspace(.createNote(.init(note: note)))
+        let persisted = try #require(store.state.notes[note.id])
+        let autosave = NoteAutosaveCoordinator(store: store)
+        try autosave.beginSession(
+            persisted,
+            linkedTaskBlockLinks: [],
+            editSessionID: UUID(),
+            activeHostToken: UUID()
+        )
+        let closeBridge = NoteCloseProtectionBridge(coordinator: autosave)
+        let features = WorkspaceFeatures.production
+        let routeState = WorkspaceRouteState(
+            features: features,
+            preferences: NotesTestRoutePreferenceStore(initial: "notes")
+        )
+        let transition = WorkspaceRouteTransitionCoordinator(routeState: routeState, features: features)
+        let termination = NotesApplicationTerminationCoordinator(
+            decision: { .allow },
+            reply: { _ in }
+        )
+
+        var staleCount = 0
+        var currentCount = 0
+        let stale: NoteNativeInputFinalizer = { _, _ in
+            staleCount += 1
+            return true
+        }
+        let current: NoteNativeInputFinalizer = { _, _ in
+            currentCount += 1
+            return true
+        }
+
+        let slot = NotesNativeFinalizerSlot()
+        let hook = Binding<NoteNativeInputFinalizer?>(
+            get: { slot.value },
+            set: { value in
+                slot.value = value
+                NotesNativeFinalizerLifecycleWiring.apply(
+                    value,
+                    closeBridge: closeBridge,
+                    transitionCoordinator: transition,
+                    terminationCoordinator: termination
+                )
+            }
+        )
+        hook.wrappedValue = stale
+        hook.wrappedValue = current
+
+        #expect(await transition.requestActivation(.calendar))
+        #expect(staleCount == 0)
+        #expect(currentCount == 1)
+        #expect(routeState.route == .calendar)
+    }
+
+    @Test func replacingNativeFinalizerThroughSlotDoesNotInvalidateTheHostingView() async {
+        _ = NSApplication.shared
+        let counter = NotesNativeFinalizerRenderCounter()
+        var hook: Binding<NoteNativeInputFinalizer?>?
+        let root = NotesNativeFinalizerSlotProbeView(counter: counter) { hook = $0 }
+        let hosting = NSHostingView(rootView: root)
+        let window = NSWindow(
+            contentRect: .init(x: 0, y: 0, width: 200, height: 100),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hosting
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hosting.layoutSubtreeIfNeeded()
+
+        #expect(await waitUntil { hook != nil })
+        let afterAppear = counter.count
+        hook?.wrappedValue = { _, _ in true }
+        hook?.wrappedValue = { _, _ in false }
+        hook?.wrappedValue = { _, _ in true }
+        hosting.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(counter.count <= afterAppear + 2)
+    }
+
     @Test func returningFromCalendarRefreshesAnExternallyCompletedTaskBlock() async throws {
         _ = NSApplication.shared
+        let started = ContinuousClock().now
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
             initialState: .empty(calendar: calendar),
@@ -94,6 +189,7 @@ struct NotesLifecycleWiringTests {
                     && $0.state == .on
             }
         })
+        #expect(ContinuousClock().now - started < .seconds(8))
     }
 
     @Test func reopeningLinkedTaskThenCreatingNoteShowsTheNewEditor() async throws {
@@ -713,6 +809,28 @@ private func divergentRecoveryEntry(
         noteSnapshotChecksum: unsigned.noteSnapshotChecksum,
         journalChecksum: try DraftJournal.entryChecksum(for: unsigned)
     )
+}
+
+@MainActor
+private final class NotesNativeFinalizerRenderCounter {
+    var count = 0
+}
+
+private struct NotesNativeFinalizerSlotProbeView: View {
+    @State private var slot = NotesNativeFinalizerSlot()
+    let counter: NotesNativeFinalizerRenderCounter
+    let hookSink: (Binding<NoteNativeInputFinalizer?>) -> Void
+
+    var body: some View {
+        let _ = counter.count += 1
+        Color.clear
+            .onAppear {
+                hookSink(Binding(
+                    get: { slot.value },
+                    set: { slot.value = $0 }
+                ))
+            }
+    }
 }
 
 @MainActor

@@ -78,7 +78,7 @@ struct ContinuousBlockEditorHostTests {
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
     }
 
-    @Test @MainActor func focusedEmptyDocumentHidesPlaceholderBeforeTheFirstCharacter() {
+    @Test @MainActor func focusedEmptyDocumentShowsPlaceholderUntilMarkedText() {
         _ = NSApplication.shared
         let block = continuousBlock(id: 261, text: "")
         let fixture = continuousFixture(blocks: [block], selection: continuousCaret(block.id, 0))
@@ -95,7 +95,15 @@ struct ContinuousBlockEditorHostTests {
         defer { window.orderOut(nil) }
 
         #expect(window.makeFirstResponder(fixture.view))
+        #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
+        fixture.view.setMarkedText(
+            "pin",
+            selectedRange: .init(location: 3, length: 0),
+            replacementRange: .init(location: NSNotFound, length: 0)
+        )
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder == false)
+        fixture.view.cancelOperation(nil)
+        #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
         #expect(window.makeFirstResponder(nil))
         #expect(fixture.view.isPresentingEmptyDocumentPlaceholder)
     }
@@ -1207,6 +1215,34 @@ struct ContinuousBlockEditorHostTests {
         #expect(dividerFixture.session.document.blocks.last?.kind == .paragraph)
         dividerFixture.session.focusDocumentEnd()
         #expect(dividerFixture.session.document.blocks.count == 3)
+    }
+
+    @Test @MainActor func taskCompletionDescriptionKeepsASingleEditableBodyAndTitleCoordinates() throws {
+        let task = try DocumentBlock.task(
+            text: "给物业打电话",
+            completionDescription: "拿到明确时间"
+        )
+        let next = continuousBlock(id: 80, text: "下一块")
+        let fixture = continuousFixture(
+            blocks: [task, next],
+            selection: continuousCaret(task.id, "给物业打电话".count)
+        )
+        fixture.host.frame = .init(x: 0, y: 0, width: 480, height: 220)
+        fixture.host.layoutSubtreeIfNeeded()
+
+        #expect(continuousDescendants(of: fixture.host, as: ContinuousBlockEditorTextView.self).count == 1)
+        #expect(fixture.view.isEditable)
+        #expect(fixture.view.string == "给物业打电话\n下一块")
+        #expect(fixture.host.completionDescriptionWidth == fixture.host.bounds.width
+            - BlockTextStyle.textColumnOffset(for: .task) - 10)
+
+        fixture.view.insertText("x", replacementRange: .init(location: NSNotFound, length: 0))
+        #expect(fixture.view.string == "给物业打电话x\n下一块")
+        #expect(fixture.view.selectedRange == .init(
+            location: ("给物业打电话x" as NSString).length,
+            length: 0
+        ))
+        #expect(fixture.session.document.blocks[0].taskState?.completionDescription == "拿到明确时间")
     }
 }
 

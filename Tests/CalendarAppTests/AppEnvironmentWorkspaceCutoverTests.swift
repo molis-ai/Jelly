@@ -20,6 +20,10 @@ struct AppEnvironmentWorkspaceCutoverTests {
         #expect(environment.materialDigestOperator is MaterialDigestCoordinator)
         #expect(environment.whisperModelDirectory.path.hasSuffix("Models/WhisperKit"))
         #expect(FileManager.default.fileExists(atPath: environment.whisperModelDirectory.path))
+        let plannerName = String(describing: type(of: environment.decompositionPlanner))
+        #expect(!plannerName.localizedCaseInsensitiveContains("scripted"))
+        #expect(!plannerName.localizedCaseInsensitiveContains("mock"))
+        #expect(!plannerName.localizedCaseInsensitiveContains("fixture"))
     }
 
     @Test func liveEnvironmentBuildsDescriptorRouterAndV3Summarizer() throws {

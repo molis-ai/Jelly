@@ -107,4 +107,34 @@ struct BlockHTMLCodecTests {
             "表格结构暂不支持，已按正文保留"
         ])
     }
+
+    @Test func jellyTaskCompletionAttributeRoundTripsWithoutExecutingMarkup() throws {
+        let source = BlockDocument(blocks: [
+            try .task(text: "给物业打电话", completionDescription: #"拿到<script>alert(1)</script>时间"#)
+        ])
+        let html = try BlockHTMLCodec.exportHTML(source, title: "完成说明")
+        #expect(html.contains("data-jelly-completion-description="))
+        #expect(html.contains("data-jelly-kind=\"task\""))
+        #expect(html.contains("&lt;script&gt;"))
+        #expect(!html.contains("<script>alert(1)</script>"))
+
+        let restored = try BlockHTMLCodec.importHTML(html, checkedTaskCompletedAt: .distantPast)
+        #expect(restored.document.blocks.map(\.kind) == [.task])
+        #expect(restored.document.blocks[0].inlineContent.plainText == "给物业打电话")
+        #expect(restored.document.blocks[0].taskState?.completionDescription == #"拿到<script>alert(1)</script>时间"#)
+
+        let external = try BlockHTMLCodec.importHTML(
+            #"<ul><li data-jelly-kind="task"><input type="checkbox" disabled>外部任务</li></ul>"#,
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(external.document.blocks[0].taskState?.completionDescription == nil)
+
+        let malicious = try BlockHTMLCodec.importHTML(
+            #"<ul><li data-jelly-kind="task" data-jelly-completion-description="&lt;img src=x onerror=alert(1)&gt;原字符串"><input type="checkbox" disabled>恶意属性</li></ul>"#,
+            checkedTaskCompletedAt: .distantPast
+        )
+        #expect(malicious.document.blocks[0].inlineContent.plainText == "恶意属性")
+        #expect(malicious.document.blocks[0].taskState?.completionDescription == "<img src=x onerror=alert(1)>原字符串")
+        #expect(malicious.diagnostics.isEmpty)
+    }
 }

@@ -268,7 +268,13 @@ private extension DocumentBlock {
     }
 
     func pasteBlock(content: InlineContent? = nil) -> BlockPasteBlock {
-        .init(kind: kind, inlineContent: content ?? inlineContent, indentLevel: indentLevel, codeInfoString: codeInfoString)
+        .init(
+            kind: kind,
+            inlineContent: content ?? inlineContent,
+            indentLevel: indentLevel,
+            codeInfoString: codeInfoString,
+            completionDescription: kind == .task ? taskState?.completionDescription : nil
+        )
     }
 }
 
@@ -414,12 +420,14 @@ private extension ReductionContext {
         }
         var leftKind = block.kind
         if leftKind == .link, !leftContent.containsValidLink { leftKind = .paragraph }
+        let leftTask = Self.preservedTaskState(kind: leftKind, from: block)
         candidate.blocks[index] = Self.makeBlock(
             id: block.id,
             kind: leftKind,
             content: leftContent,
             indent: leftKind.allowsIndentation ? block.indentLevel : 0,
-            completedAt: leftKind == .task ? block.taskState?.completedAt : nil,
+            completedAt: leftTask.completedAt,
+            completionDescription: leftTask.completionDescription,
             codeInfo: leftKind == .code ? block.codeInfoString : nil
         )
         candidate.blocks.insert(Self.makeBlock(
@@ -566,12 +574,14 @@ private extension ReductionContext {
             guard startBlock.isTextCapable, endBlock.isTextCapable else { throw BlockInputError.invalidCandidate }
             let (prefix, _) = startBlock.inlineContent.split(at: range.start.graphemeOffset)
             let (_, suffix) = endBlock.inlineContent.split(at: range.end.graphemeOffset)
+            let startTask = Self.preservedTaskState(kind: startBlock.kind, from: startBlock)
             var replacement = Self.makeBlock(
                 id: startBlock.id,
                 kind: startBlock.kind,
                 content: .concatenating([prefix, suffix]),
                 indent: startBlock.indentLevel,
-                completedAt: startBlock.taskState?.completedAt,
+                completedAt: startTask.completedAt,
+                completionDescription: startTask.completionDescription,
                 codeInfo: startBlock.codeInfoString
             )
             if replacement.kind == .link, !replacement.inlineContent.containsValidLink {
@@ -651,6 +661,7 @@ private extension ReductionContext {
         content: InlineContent,
         indent: Int = 0,
         completedAt: Date? = nil,
+        completionDescription: String? = nil,
         codeInfo: String? = nil
     ) -> DocumentBlock {
         let canonicalContent: InlineContent
@@ -664,10 +675,20 @@ private extension ReductionContext {
             id: id,
             kind: kind,
             inlineContent: canonicalContent,
-            taskState: kind == .task ? .init(completedAt: completedAt) : nil,
+            taskState: kind == .task
+                ? .init(completedAt: completedAt, completionDescription: completionDescription)
+                : nil,
             indentLevel: kind.allowsIndentation ? indent : 0,
             codeInfoString: kind == .code ? canonicalCodeInfo(codeInfo) : nil
         )
+    }
+
+    static func preservedTaskState(
+        kind: BlockKind,
+        from block: DocumentBlock
+    ) -> (completedAt: Date?, completionDescription: String?) {
+        guard kind == .task, block.kind == .task else { return (nil, nil) }
+        return (block.taskState?.completedAt, block.taskState?.completionDescription)
     }
 
     static func canonicalCodeInfo(_ raw: String?) -> String? {
@@ -982,12 +1003,14 @@ private extension ReductionContext {
     func convertedBlock(_ block: DocumentBlock, kind: BlockKind, content: InlineContent) -> DocumentBlock? {
         if kind == .divider, !content.plainText.isEmpty { return nil }
         if kind == .link, !content.containsValidLink { return nil }
+        let task = Self.preservedTaskState(kind: kind, from: block)
         return Self.makeBlock(
             id: block.id,
             kind: kind,
             content: content,
             indent: kind.allowsIndentation ? block.indentLevel : 0,
-            completedAt: kind == .task && block.kind == .task ? block.taskState?.completedAt : nil,
+            completedAt: task.completedAt,
+            completionDescription: task.completionDescription,
             codeInfo: kind == .code && block.kind == .code ? block.codeInfoString : nil
         )
     }
@@ -1345,12 +1368,14 @@ private extension ReductionContext {
         guard block.isTextCapable else { return noChange(.unsupportedBlockKind) }
         let (prefix, _) = block.inlineContent.split(at: range.start.graphemeOffset)
         let (_, suffix) = block.inlineContent.split(at: range.end.graphemeOffset)
+        let currentTask = Self.preservedTaskState(kind: block.kind, from: block)
         var replacement = Self.makeBlock(
             id: block.id,
             kind: block.kind,
             content: InlineContent.concatenating([prefix, inserted, suffix]).coalescingAdjacentStyles(),
             indent: block.indentLevel,
-            completedAt: block.taskState?.completedAt,
+            completedAt: currentTask.completedAt,
+            completionDescription: currentTask.completionDescription,
             codeInfo: block.codeInfoString
         )
         if replacement.kind == .link, !replacement.inlineContent.containsValidLink {
@@ -1412,13 +1437,15 @@ private extension ReductionContext {
                 value.isEmpty ? .init(spans: []) : .init(spans: [.init(text: value, marks: attributes.marks, linkURL: attributes.linkURL)])
             }
             var replacements: [DocumentBlock] = []
+            let startTask = Self.preservedTaskState(kind: startBlock.kind, from: startBlock)
             if lines.count == 1 {
                 var first = Self.makeBlock(
                     id: startBlock.id,
                     kind: startBlock.kind,
                     content: .concatenating([prefix, inserted(lines[0]), suffix]),
                     indent: startBlock.indentLevel,
-                    completedAt: startBlock.taskState?.completedAt,
+                    completedAt: startTask.completedAt,
+                    completionDescription: startTask.completionDescription,
                     codeInfo: startBlock.codeInfoString
                 )
                 if first.kind == .link, !first.inlineContent.containsValidLink {
@@ -1431,7 +1458,8 @@ private extension ReductionContext {
                     kind: startBlock.kind,
                     content: .concatenating([prefix, inserted(lines[0])]),
                     indent: startBlock.indentLevel,
-                    completedAt: startBlock.taskState?.completedAt,
+                    completedAt: startTask.completedAt,
+                    completionDescription: startTask.completionDescription,
                     codeInfo: startBlock.codeInfoString
                 )
                 if first.kind == .link, !first.inlineContent.containsValidLink {
@@ -1489,12 +1517,14 @@ private extension ReductionContext {
             let hasSuffix = !suffix.plainText.isEmpty
             var replacements: [DocumentBlock] = []
             if hasPrefix {
+                let startTask = Self.preservedTaskState(kind: startBlock.kind, from: startBlock)
                 var fragment = Self.makeBlock(
                     id: startBlock.id,
                     kind: startBlock.kind,
                     content: prefix,
                     indent: startBlock.indentLevel,
-                    completedAt: startBlock.taskState?.completedAt,
+                    completedAt: startTask.completedAt,
+                    completionDescription: startTask.completionDescription,
                     codeInfo: startBlock.codeInfoString
                 )
                 if fragment.kind == .link, !fragment.inlineContent.containsValidLink {
@@ -1517,12 +1547,16 @@ private extension ReductionContext {
                 let suffixID: BlockID
                 let retainEndID = range.startIndex != range.endIndex || !hasPrefix
                 if retainEndID { suffixID = endBlock.id } else { suffixID = try identifiers.next() }
+                let suffixTask = suffixID == endBlock.id
+                    ? Self.preservedTaskState(kind: endBlock.kind, from: endBlock)
+                    : (completedAt: Date?.none, completionDescription: String?.none)
                 var fragment = Self.makeBlock(
                     id: suffixID,
                     kind: endBlock.kind,
                     content: suffix,
                     indent: endBlock.indentLevel,
-                    completedAt: suffixID == endBlock.id ? endBlock.taskState?.completedAt : nil,
+                    completedAt: suffixTask.completedAt,
+                    completionDescription: suffixTask.completionDescription,
                     codeInfo: endBlock.codeInfoString
                 )
                 if fragment.kind == .link, !fragment.inlineContent.containsValidLink {
@@ -1548,6 +1582,7 @@ private extension ReductionContext {
             content: block.inlineContent,
             indent: block.indentLevel,
             completedAt: nil,
+            completionDescription: block.kind == .task ? block.completionDescription : nil,
             codeInfo: block.codeInfoString
         )
     }

@@ -279,6 +279,33 @@ struct WorkspaceDocumentCodecTests {
         }
     }
 
+    @Test func taskCompletionDescriptionRoundTripsWithoutEnteringCalendarTitle() throws {
+        let (workspace, itemID) = try WorkspacePersistenceFixtures.linkedTaskWorkspace(
+            calendarTitle: "正文里的行动",
+            completionDescription: "拿到明确上门时间"
+        )
+        let encoded = try WorkspaceDocumentCodec.encode(workspace)
+        let decoded = try WorkspaceDocumentCodec.decode(encoded)
+        let note = try #require(decoded.state.notes.values.first)
+        let originalNote = try #require(workspace.notes.values.first)
+
+        #expect(decoded.state == workspace)
+        #expect(note.document.blocks[0].taskState?.completionDescription == "拿到明确上门时间")
+        #expect(decoded.state.calendar.items[itemID]?.title == "正文里的行动")
+        #expect(decoded.state.calendar.items[itemID]?.title.contains("拿到明确上门时间") == false)
+        #expect(
+            try WorkspaceChecksum.noteSnapshotChecksum(note)
+                == WorkspaceChecksum.noteSnapshotChecksum(originalNote)
+        )
+        try WorkspaceValidator.validate(decoded.state)
+
+        let legacyTaskJSON = Data(#"{"completedAt":null}"#.utf8)
+        #expect(
+            try JSONDecoder.workspaceDeterministic.decode(TaskBlockState.self, from: legacyTaskJSON)
+                == TaskBlockState(completedAt: nil, completionDescription: nil)
+        )
+    }
+
     @Test func currentLinkedTaskTitleMismatchIsRejectedAsFatal() throws {
         let (workspace, _) = try WorkspacePersistenceFixtures.linkedTaskWorkspace(
             calendarTitle: "冲突的日历标题"
@@ -787,7 +814,10 @@ enum WorkspacePersistenceFixtures {
         )
     }
 
-    static func linkedTaskWorkspace(calendarTitle: String) throws -> (WorkspaceState, UUID) {
+    static func linkedTaskWorkspace(
+        calendarTitle: String,
+        completionDescription: String? = nil
+    ) throws -> (WorkspaceState, UUID) {
         let now = Date(timeIntervalSince1970: 100)
         let noteID = NoteID(UUID(uuidString: "00000000-0000-0000-0000-000000000511")!)
         let blockID = BlockID(UUID(uuidString: "00000000-0000-0000-0000-000000000512")!)
@@ -811,7 +841,13 @@ enum WorkspacePersistenceFixtures {
         let note = Note(
             id: noteID,
             title: "迁移待办",
-            document: .init(blocks: [try .task(id: blockID, text: "正文里的行动")]),
+            document: .init(blocks: [
+                try .task(
+                    id: blockID,
+                    text: "正文里的行动",
+                    completionDescription: completionDescription
+                )
+            ]),
             categoryID: categoryID,
             archivedAt: nil,
             revision: 1,
