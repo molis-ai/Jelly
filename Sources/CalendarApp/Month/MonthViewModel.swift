@@ -96,6 +96,17 @@ final class MonthViewModel: ObservableObject {
         moveFocus(to: date, preservingCivilDayIntent: false)
     }
 
+    /// Landing date for a month→week switch. A tap-selected day still wins,
+    /// but chevron flips move the browsed month without clearing the old
+    /// selection — following it would open the week grid on a month the user
+    /// has already navigated away from, so fall back to the focus week.
+    func monthToWeekAnchorDate() -> CalendarDate {
+        guard let selectedDate,
+              weekStream.selectionBelongsToFocusedLogicalMonth(selectedDate)
+        else { return focusWeek }
+        return selectedDate
+    }
+
     func extendEarlier(visibleWeek: CalendarDate, pixelOffset: CGFloat) -> WeekStreamAnchor {
         objectWillChange.send()
         let anchor = weekStream.extendEarlier(

@@ -475,7 +475,7 @@ struct MonthView: View {
                 editorSession = nil
                 switch CalendarPrimaryViewMode(rawValue: raw) ?? .month {
                 case .week:
-                    weekModel.focus(on: model.selectedDate ?? model.focusWeek)
+                    weekModel.focus(on: model.monthToWeekAnchorDate())
                     weekModel.update(
                         state: store.calendarState,
                         hiddenCategoryIDs: hiddenCategoryIDs,

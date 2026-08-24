@@ -45,6 +45,14 @@ struct WeekStreamModel: Equatable, Sendable {
         selectedDate = date
     }
 
+    /// True when `date` sits in the calendar month the stream is currently
+    /// browsing (the title month). Chevron navigation moves this window while
+    /// leaving `selectedDate` untouched, so callers can detect a stale
+    /// selection before following it.
+    func selectionBelongsToFocusedLogicalMonth(_ date: CalendarDate) -> Bool {
+        Self.monthStart(date) == logicalMonth
+    }
+
     mutating func moveFocus(to date: CalendarDate, preservingCivilDayIntent: Bool) {
         if preservingCivilDayIntent {
             logicalMonth = Self.monthStart(date)
