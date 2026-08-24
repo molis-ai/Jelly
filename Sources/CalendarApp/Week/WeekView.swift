@@ -12,6 +12,8 @@ enum WeekTimeGridMetrics {
     static let allDayMinHeight: CGFloat = 34
     /// Viewport shows this many chips; overflow scrolls (no +N truncate).
     static let allDayVisibleRows = 3
+    /// Expanded viewport cap; beyond this the per-column scroll still applies.
+    static let allDayExpandedRowLimit = 8
     static let dayHeaderHeight: CGFloat = 44
     static let gridCoordinateSpace = "week-timed-grid"
 
@@ -34,11 +36,16 @@ enum WeekTimeGridMetrics {
         max(hourHeight * 0.35, yOffset(minute: endMinute - startMinute))
     }
 
-    /// Fixed viewport for `allDayVisibleRows` (scroll inside for more).
-    static var allDaySectionHeight: CGFloat {
-        let content = CGFloat(allDayVisibleRows) * allDayChipHeight
-            + CGFloat(allDayVisibleRows - 1) * allDayChipSpacing
+    /// Fixed viewport for the given chip row count (scroll inside for more).
+    static func allDaySectionHeight(rowCount: Int) -> CGFloat {
+        let rows = max(1, rowCount)
+        let content = CGFloat(rows) * allDayChipHeight + CGFloat(rows - 1) * allDayChipSpacing
         return max(allDayMinHeight, content + allDayVerticalPadding * 2)
+    }
+
+    /// Collapsed viewport height (`allDayVisibleRows`).
+    static var allDaySectionHeight: CGFloat {
+        allDaySectionHeight(rowCount: allDayVisibleRows)
     }
 }
 
@@ -66,6 +73,7 @@ struct WeekView: View {
     @State private var timedDrag: TimedDragState?
     @State private var allDayDrag: AllDayDragState?
     @State private var createSelection: CreateSelectionState?
+    @State private var isAllDayExpanded = false
 
     private var theme: CalendarSemanticAppearance {
         CalendarTheme.appearance(for: colorScheme)
@@ -107,16 +115,48 @@ struct WeekView: View {
 
     // MARK: - All-day
 
+    private var maxAllDayRowCount: Int {
+        (0..<model.dayStarts.count).map { model.allDayItems(on: $0).count }.max() ?? 0
+    }
+
+    private var canExpandAllDay: Bool {
+        maxAllDayRowCount > WeekTimeGridMetrics.allDayVisibleRows
+    }
+
+    private var allDayViewportRows: Int {
+        isAllDayExpanded
+            ? min(max(maxAllDayRowCount, 1), WeekTimeGridMetrics.allDayExpandedRowLimit)
+            : WeekTimeGridMetrics.allDayVisibleRows
+    }
+
     private var allDaySection: some View {
-        let sectionHeight = WeekTimeGridMetrics.allDaySectionHeight
+        let sectionHeight = WeekTimeGridMetrics.allDaySectionHeight(rowCount: allDayViewportRows)
         return GeometryReader { sectionProxy in
             HStack(alignment: .top, spacing: 0) {
-                Text("全天")
-                    .font(.system(size: 10, weight: .medium))
+                VStack(spacing: 2) {
+                    Text("全天")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.secondaryText)
+                    Button {
+                        withAnimation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.15)) {
+                            isAllDayExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isAllDayExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                     .foregroundStyle(theme.secondaryText)
-                    .frame(width: WeekTimeGridMetrics.gutterWidth, alignment: .trailing)
-                    .padding(.trailing, 6)
-                    .padding(.top, 8)
+                    .disabled(!canExpandAllDay)
+                    .opacity(canExpandAllDay ? 1 : 0.35)
+                    .accessibilityLabel(isAllDayExpanded ? "收起全天事项" : "展开全天事项")
+                    .help(isAllDayExpanded ? "收起全天事项" : "展开全天事项")
+                }
+                .frame(width: WeekTimeGridMetrics.gutterWidth, alignment: .trailing)
+                .padding(.trailing, 6)
+                .padding(.top, 8)
 
                 ForEach(Array(model.dayStarts.enumerated()), id: \.offset) { dayIndex, day in
                     let items = model.allDayItems(on: dayIndex)
