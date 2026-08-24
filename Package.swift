@@ -50,7 +50,9 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("Security"),
-                .linkedFramework("AVFoundation")
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("Vision"),
+                .linkedFramework("PDFKit")
             ]
         ),
         .testTarget(
