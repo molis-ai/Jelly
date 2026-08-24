@@ -21,12 +21,17 @@ struct AppEnvironment {
     }
 
     static func live(
+        profile: AppDataProfile? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaultApplicationSupportURL: URL? = nil
     ) throws -> AppEnvironment {
+        let resolvedProfile = try profile ?? AppDataProfile.bundled()
         let dataURLs = try AppDataDirectoryResolver.resolve(
+            profile: resolvedProfile,
             environment: environment,
-            fileManager: fileManager
+            fileManager: fileManager,
+            defaultApplicationSupportURL: defaultApplicationSupportURL
         )
         let uncategorizedID = UUID()
         let calendar = CalendarState.empty(uncategorizedID: uncategorizedID, now: Date())
@@ -77,9 +82,18 @@ struct AppEnvironment {
     }
 
     static func loadLive(
+        profile: AppDataProfile? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        defaultApplicationSupportURL: URL? = nil
     ) -> Result<AppEnvironment, Error> {
-        Result { try live(environment: environment, fileManager: fileManager) }
+        Result {
+            try live(
+                profile: profile,
+                environment: environment,
+                fileManager: fileManager,
+                defaultApplicationSupportURL: defaultApplicationSupportURL
+            )
+        }
     }
 }

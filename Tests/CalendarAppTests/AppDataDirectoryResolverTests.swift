@@ -4,6 +4,47 @@ import Testing
 
 @Suite("AppDataDirectoryResolverTests")
 struct AppDataDirectoryResolverTests {
+    @Test func bundledDataProfileRequiresAnExactPackagedIdentity() throws {
+        #expect(try AppDataProfile.resolve(
+            configuredValue: "daily",
+            bundleIdentifier: "com.oreal.personalcalendar"
+        ) == .daily)
+        #expect(try AppDataProfile.resolve(
+            configuredValue: "preview",
+            bundleIdentifier: "com.oreal.personalcalendar.preview"
+        ) == .preview)
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(
+                configuredValue: nil,
+                bundleIdentifier: "com.oreal.personalcalendar.preview"
+            )
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(
+                configuredValue: "daily",
+                bundleIdentifier: "com.oreal.personalcalendar.preview"
+            )
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(
+                configuredValue: "preview",
+                bundleIdentifier: "com.oreal.personalcalendar"
+            )
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(configuredValue: "development", bundleIdentifier: nil)
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(configuredValue: 1, bundleIdentifier: nil)
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(configuredValue: nil, bundleIdentifier: nil)
+        }
+        #expect(throws: AppDataProfileError.invalidConfiguration) {
+            _ = try AppDataProfile.resolve(configuredValue: "daily", bundleIdentifier: nil)
+        }
+    }
+
     @Test func rejectsRootAndRelativeAcceptanceDirectories() throws {
         #expect(throws: AppDataDirectoryResolverError.invalidOverride) {
             _ = try AppDataDirectoryResolver.resolve(environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": "/"])
@@ -38,6 +79,70 @@ struct AppDataDirectoryResolverTests {
         #expect(urls.root == support.appendingPathComponent("PersonalCalendar", isDirectory: true).standardizedFileURL)
         #expect(urls.mainDocument == urls.root.appendingPathComponent("calendar-v1.json"))
         #expect(FileManager.default.fileExists(atPath: urls.root.path))
+    }
+
+    @Test func dailyAndPreviewProfilesUseDifferentApplicationSupportDirectories() throws {
+        let support = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-profile-support-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+
+        let daily = try AppDataDirectoryResolver.resolve(
+            profile: .daily,
+            environment: [:],
+            defaultApplicationSupportURL: support
+        )
+        let preview = try AppDataDirectoryResolver.resolve(
+            profile: .preview,
+            environment: [:],
+            defaultApplicationSupportURL: support
+        )
+
+        #expect(daily.root == support.appendingPathComponent("PersonalCalendar", isDirectory: true).standardizedFileURL)
+        #expect(preview.root == support.appendingPathComponent("PersonalCalendarPreview", isDirectory: true).standardizedFileURL)
+        #expect(daily.root != preview.root)
+    }
+
+    @Test func previewRejectsAnOverridePointingAtTheDailyDataDirectory() throws {
+        let support = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-profile-collision-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let dailyRoot = support.appendingPathComponent("PersonalCalendar", isDirectory: true)
+
+        #expect(throws: AppDataDirectoryResolverError.self) {
+            _ = try AppDataDirectoryResolver.resolve(
+                profile: .preview,
+                environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": dailyRoot.path],
+                defaultApplicationSupportURL: support
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: dailyRoot.path) == false)
+    }
+
+    @Test func previewRejectsCaseAliasesAndDescendantsOfTheDailyDataDirectory() throws {
+        let support = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jelly-profile-overlap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: support) }
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        let dailyRoot = support.appendingPathComponent("PersonalCalendar", isDirectory: true)
+        let caseAlias = support.appendingPathComponent("personalcalendar", isDirectory: true)
+        let nested = dailyRoot.appendingPathComponent("Preview", isDirectory: true)
+
+        #expect(throws: AppDataDirectoryResolverError.profileCollision) {
+            _ = try AppDataDirectoryResolver.resolve(
+                profile: .preview,
+                environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": caseAlias.path],
+                defaultApplicationSupportURL: support
+            )
+        }
+        #expect(throws: AppDataDirectoryResolverError.profileCollision) {
+            _ = try AppDataDirectoryResolver.resolve(
+                profile: .preview,
+                environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": nested.path],
+                defaultApplicationSupportURL: support
+            )
+        }
+        #expect(FileManager.default.fileExists(atPath: dailyRoot.path) == false)
     }
 
     @Test func rejectsOverrideThatEscapesThroughASymlink() throws {

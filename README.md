@@ -28,6 +28,23 @@ open dist/Jelly.app
 
 Local outputs: `dist/Jelly.app`, `dist/Jelly.app.zip`, `dist/Jelly.dmg`.
 
+## Daily app and Preview app
+
+- Use `Jelly` for daily records. Its default data directory remains `~/Library/Application Support/PersonalCalendar/`.
+- Use `Jelly Preview` for feature development and migration rehearsal. Its default data directory is `~/Library/Application Support/PersonalCalendarPreview/`.
+- Preview data never merges back into daily data automatically.
+- Both apps may run side by side during normal use. Quit both only before refreshing Preview data or replacing the installed daily app.
+
+Build the Preview app and, when needed, refresh it from a read-only copy of the current daily data:
+
+```bash
+./Scripts/build-preview-app.sh
+./Scripts/refresh-preview-data.sh
+open "dist/Jelly Preview.app"
+```
+
+Refreshing replaces only the Preview directory and moves its previous contents into `PersonalCalendarPreview-backups`. To promote a reviewed daily build, use `Scripts/install-desktop-app-safely.sh`; it accepts only a daily-profile app and creates verified app and formal-data backups before replacement. Both maintenance scripts stop without changing their targets if either Jelly process is still running.
+
 ## Layout
 
 | Path | Role |
