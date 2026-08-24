@@ -243,6 +243,9 @@ private struct MarkdownNotesTextView: NSViewRepresentable {
 
         var lastEmittedMarkdown: String
         private var isMutatingProgrammatically = false
+        /// Last caret while this field was first responder. Toolbar buttons
+        /// resign the text view, so `selectedRange()` at apply time can snap to 0.
+        private var lastEditingSelection = NSRange(location: 0, length: 0)
 
         init(markdown: String) {
             lastEmittedMarkdown = markdown
@@ -322,7 +325,9 @@ private struct MarkdownNotesTextView: NSViewRepresentable {
             // Ensure we have a text storage even if empty.
             let storage = textView.textStorage ?? NSTextStorage()
 
-            let selection = textView.selectedRange()
+            let selection = textView.window?.firstResponder === textView
+                ? textView.selectedRange()
+                : lastEditingSelection
 
             // Empty selection + bold/italic → arm next keystrokes.
             if selection.length == 0, command == .bold || command == .italic {
@@ -369,9 +374,11 @@ private struct MarkdownNotesTextView: NSViewRepresentable {
             let maxLen = storage.length
             let loc = min(newSelection.location, maxLen)
             let len = min(newSelection.length, max(0, maxLen - loc))
-            textView.setSelectedRange(NSRange(location: loc, length: len))
-            textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
+            let placed = NSRange(location: loc, length: len)
             textView.window?.makeFirstResponder(textView)
+            textView.setSelectedRange(placed)
+            lastEditingSelection = placed
+            textView.scrollRangeToVisible(NSRange(location: loc, length: 0))
 
             // Typing attributes follow the line's block (so Return continues the list).
             updateTypingAttributesFromCaret()
@@ -459,6 +466,9 @@ private struct MarkdownNotesTextView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
+            if let textView, textView.window?.firstResponder === textView {
+                lastEditingSelection = textView.selectedRange()
+            }
             updateTypingAttributesFromCaret()
         }
 

@@ -198,10 +198,77 @@ enum MarkdownRichTextCodec {
             renumberOrderedLists(in: mutable, metrics: metrics)
         }
 
-        let newLen = mutable.length
-        let loc = min(selection.location, newLen)
-        let len = min(selection.length, max(0, newLen - loc))
-        return (mutable, NSRange(location: loc, length: len))
+        switch command {
+        case .checklist, .unorderedList, .orderedList:
+            return (mutable, selectionAfterListMarkerChange(
+                before: attributed,
+                after: mutable,
+                selection: selection
+            ))
+        case .heading, .bold, .italic:
+            let newLen = mutable.length
+            let loc = min(selection.location, newLen)
+            let len = min(selection.length, max(0, newLen - loc))
+            return (mutable, NSRange(location: loc, length: len))
+        }
+    }
+
+    /// After inserting or removing a list marker, the caret must sit at the
+    /// body — to the right of `☐ ` / `• ` / `1. ` — not on the marker itself.
+    private static func selectionAfterListMarkerChange(
+        before: NSAttributedString,
+        after: NSAttributedString,
+        selection: NSRange
+    ) -> NSRange {
+        let newLen = after.length
+        if newLen == 0 {
+            return NSRange(location: 0, length: 0)
+        }
+        if before.length == 0 {
+            return NSRange(location: newLen, length: 0)
+        }
+
+        let oldNS = before.string as NSString
+        let oldCaret = min(max(0, selection.location), oldNS.length)
+        let oldLine = oldNS.lineRange(
+            for: NSRange(location: min(oldCaret, max(0, oldNS.length - 1)), length: 0)
+        )
+        var oldBody = oldLine
+        if oldBody.length > 0 {
+            let last = oldNS.character(at: NSMaxRange(oldBody) - 1)
+            if last == 10 || last == 13 { oldBody.length -= 1 }
+        }
+        let oldLineText = oldBody.length > 0 ? oldNS.substring(with: oldBody) : ""
+        let oldKind = oldBody.length > 0
+            ? blockKind(in: before, at: oldBody.location)
+            : .paragraph
+        let oldPrefix = displayPrefixLength(kind: oldKind, line: oldLineText)
+
+        let newNS = after.string as NSString
+        let newLineLoc = min(oldLine.location, newLen - 1)
+        let newLine = newNS.lineRange(for: NSRange(location: newLineLoc, length: 0))
+        var newBody = newLine
+        if newBody.length > 0 {
+            let last = newNS.character(at: NSMaxRange(newBody) - 1)
+            if last == 10 || last == 13 { newBody.length -= 1 }
+        }
+        let newLineText = newBody.length > 0 ? newNS.substring(with: newBody) : ""
+        let newKind = newBody.length > 0
+            ? blockKind(in: after, at: newBody.location)
+            : .paragraph
+        let newPrefix = displayPrefixLength(kind: newKind, line: newLineText)
+
+        let bodyStart = newLine.location + newPrefix
+        let bodyEnd = NSMaxRange(newBody)
+        if selection.length == 0 {
+            let mapped = selection.location + (newPrefix - oldPrefix)
+            let loc = min(max(mapped, bodyStart), max(bodyStart, bodyEnd))
+            return NSRange(location: min(loc, newLen), length: 0)
+        }
+
+        let loc = min(max(selection.location + (newPrefix - oldPrefix), bodyStart), newLen)
+        let end = min(selection.location + selection.length + (newPrefix - oldPrefix), max(loc, bodyEnd))
+        return NSRange(location: loc, length: max(0, end - loc))
     }
 
     /// Toggle ☐ ↔ ☑. `characterIndex` may be anywhere on the checklist line
