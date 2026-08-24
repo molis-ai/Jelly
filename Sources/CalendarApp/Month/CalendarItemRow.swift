@@ -180,6 +180,14 @@ struct CalendarItemRowPresentation: Equatable {
     let layout: CalendarItemRowLayout
 
     private static let compactRowContentWidth = 140.0
+    /// Rough advance width of one monospacedDigit character at the compact
+    /// font size; used only to decide whether a clock can share the chip.
+    private static let estimatedTimeCharacterWidth = 6.8
+    /// Priority badge + safety margin reserved ahead of the title.
+    private static let leadingReserveWidth = 20.0
+    /// Below roughly three CJK characters of title space, drop the clock so
+    /// the title never degrades into unreadable fragments in narrow cells.
+    private static let minimumReadableTitleWidth = 40.0
 
     static func make(
         availableContentWidth: Double,
@@ -194,7 +202,10 @@ struct CalendarItemRowPresentation: Equatable {
         }
         return CalendarItemRowPresentation(
             categoryName: nil,
-            timeText: timeText,
+            timeText: readableTimeText(
+                candidate: timeText,
+                availableContentWidth: availableContentWidth
+            ),
             title: title,
             accessibilityLabel: rowBodyAccessibilityLabel(
                 categoryName: categoryName,
@@ -236,11 +247,29 @@ struct CalendarItemRowPresentation: Equatable {
         let isCompactRow = availableContentWidth <= compactRowContentWidth
         return CalendarItemRowPresentation(
             categoryName: nil,
-            timeText: displayTimeText(for: schedule, style: timeTextStyle),
+            timeText: readableTimeText(
+                candidate: displayTimeText(for: schedule, style: timeTextStyle),
+                availableContentWidth: availableContentWidth
+            ),
             title: title,
             accessibilityLabel: accessibilityLabel,
             layout: isCompactRow ? .compact : .standard
         )
+    }
+
+    /// Narrow-cell guard: when the remaining width after the clock and the
+    /// leading badge cannot show a readable title, omit the clock entirely.
+    /// Accessibility labels keep the full time regardless of this decision.
+    private static func readableTimeText(
+        candidate: String?,
+        availableContentWidth: Double
+    ) -> String? {
+        guard let candidate else { return nil }
+        let reserved = estimatedTimeCharacterWidth * Double(candidate.count)
+            + leadingReserveWidth
+            + minimumReadableTitleWidth
+        guard availableContentWidth >= reserved else { return nil }
+        return candidate
     }
 
     /// Visible chip time. Month cells keep start only so the title can use
