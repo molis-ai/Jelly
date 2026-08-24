@@ -188,6 +188,28 @@ struct InspirationWorkspaceViewModelTests {
         #expect(model.statusMessage == "链接元数据获取失败，原文已保存。")
     }
 
+    @Test func failedMetadataKeepsDomainClassifiedKindForBilibiliVideo() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let resolver = SuspendedURLMetadataResolver()
+        let model = InspirationViewModel(store: store, metadataResolver: resolver)
+        let id = try await model.capture("https://www.bilibili.com/video/BV1xx411c7mD/")
+        #expect(await waitUntil { resolver.startedURLs.count == 1 })
+
+        resolver.fail(URLMetadataResolverError.httpFailure)
+
+        // 播放页常不是规整 HTML，解析失败也要留下域名判定的 kind，且原文不动。
+        #expect(await waitUntil {
+            store.state.inspirations[id]?.resolvedMetadata?.fetchStatus == .failed
+        })
+        #expect(store.state.inspirations[id]?.resolvedSourceKind == .video)
+        #expect(store.state.inspirations[id]?.rawURL == URL(string: "https://www.bilibili.com/video/BV1xx411c7mD/"))
+    }
+
     @Test func failedMetadataCanBeRetriedAndRecovered() async throws {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(

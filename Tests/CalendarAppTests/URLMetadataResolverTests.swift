@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WorkspaceDomain
 @testable import CalendarApp
 
 @Suite("URLMetadataResolverTests", .serialized)
@@ -28,6 +29,21 @@ struct URLMetadataResolverTests {
             _ = try await resolver.resolve(URL(string: "https://example.com/large")!)
             Issue.record("oversized response was silently truncated and accepted")
         } catch {}
+    }
+
+    @Test func classifiesKnownDomainsInsteadOfDefaultingToArticle() async throws {
+        let html = "<html><head><title>一个视频标题</title></head></html>"
+        let cases: [(url: String, expectedKind: ResolvedSourceKind)] = [
+            ("https://example.com/post", .article),
+            ("https://www.bilibili.com/video/BV1xx411c7mD/", .video),
+            ("https://www.xiaoyuzhoufm.com/episode/650a1b2ce1b3f16a04cb0f2e", .audio)
+        ]
+        for testCase in cases {
+            let resolver = makeResolver(contentType: "text/html; charset=utf-8", data: Data(html.utf8), maxBytes: 64)
+            let result = try await resolver.resolve(URL(string: testCase.url)!)
+            #expect(result.resolvedKind == testCase.expectedKind, testCase.url)
+            #expect(result.metadata.title == "一个视频标题", testCase.url)
+        }
     }
 
     private func makeResolver(contentType: String, data: Data, maxBytes: Int) -> URLMetadataResolver {

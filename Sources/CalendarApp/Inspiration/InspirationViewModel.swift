@@ -424,13 +424,15 @@ enum InspirationTextSaveState: Equatable {
                     fetchStatus: .failed
                 )
                 failedMetadata.fetchStatus = .failed
+                // 解析失败也要留下域名能判定的 kind，B 站 / 小宇宙播放页常不是规整 HTML。
+                let failedKind = SourceKindClassifier.classify(url) ?? latest.resolvedSourceKind
                 do {
                     _ = try await store.sendWorkspace(
                         .updateInspirationMetadata(
                             id,
                             expectedSource: .init(sourceChecksum: sourceChecksum),
                             metadata: failedMetadata,
-                            resolvedKind: latest.resolvedSourceKind
+                            resolvedKind: failedKind
                         )
                     )
                 } catch {

@@ -24,6 +24,8 @@ final class URLMetadataResolver: URLMetadataResolving, @unchecked Sendable {
     }
 
     func resolve(_ url: URL) async throws -> URLMetadataResolveResult {
+        // 域名能判定的源不依赖 HTML 解析结果；解析失败时由调用方兜底保留同一判定。
+        let classifiedKind = SourceKindClassifier.classify(url)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
@@ -56,7 +58,7 @@ final class URLMetadataResolver: URLMetadataResolving, @unchecked Sendable {
             thumbnailURL: nil,
             fetchStatus: .succeeded
         )
-        return .init(metadata: metadata, resolvedKind: .article)
+        return .init(metadata: metadata, resolvedKind: classifiedKind ?? .article)
     }
 
     private static func extractTitle(from html: String) -> String? {
