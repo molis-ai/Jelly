@@ -86,6 +86,7 @@ struct PersonalCalendarApp: App {
                     .task {
                         await environment.store.load()
                         await environment.materialDigestOperator?.reconcileInterruptedRuns()
+                        environment.mcpController?.startIfNeeded()
                     }
                 } else {
                     AppStartupFailureView(
@@ -136,10 +137,20 @@ struct PersonalCalendarApp: App {
 
         Settings {
             if let environment {
-                DigestSettingsView(
-                    settings: environment.digestSettingsStore,
-                    credentials: environment.digestCredentialStore
-                )
+                TabView {
+                    DigestSettingsView(
+                        settings: environment.digestSettingsStore,
+                        credentials: environment.digestCredentialStore
+                    )
+                    .tabItem {
+                        Label("材料提炼", systemImage: "wand.and.stars")
+                    }
+                    MCPServerSettingsView(controller: environment.mcpController)
+                        .tabItem {
+                            Label("MCP 服务器", systemImage: "server.rack")
+                        }
+                }
+                .frame(minWidth: 520, minHeight: 320)
             } else {
                 Text("无法打开材料提炼设置。")
                     .frame(minWidth: 360, minHeight: 180)

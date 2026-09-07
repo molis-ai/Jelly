@@ -286,6 +286,7 @@ if [[ -L "$DIST_DIR" ]]; then
 fi
 
 swift build -c release --product PersonalCalendar
+swift build -c release --product jelly-mcp
 BIN_DIR=$(swift build -c release --show-bin-path)
 
 if [[ -L "$DIST_DIR" ]]; then
@@ -336,6 +337,11 @@ MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BIN_DIR/PersonalCalendar" "$MACOS_DIR/PersonalCalendar"
+if [[ ! -f "$BIN_DIR/jelly-mcp" ]]; then
+  echo "Missing jelly-mcp bridge binary (swift build --product jelly-mcp)" >&2
+  exit 2
+fi
+cp "$BIN_DIR/jelly-mcp" "$MACOS_DIR/jelly-mcp"
 cp "$PROJECT_DIR/Support/Info.plist" "$CONTENTS_DIR/Info.plist"
 if [[ ! -f "$PROJECT_DIR/Support/AppIcon.icns" ]]; then
   echo "Missing Support/AppIcon.icns" >&2
@@ -343,6 +349,7 @@ if [[ ! -f "$PROJECT_DIR/Support/AppIcon.icns" ]]; then
 fi
 cp "$PROJECT_DIR/Support/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 chmod +x "$MACOS_DIR/PersonalCalendar"
+chmod +x "$MACOS_DIR/jelly-mcp"
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 xattr -cr "$STAGING_APP"
 codesign --force --deep --sign - "$STAGING_APP"

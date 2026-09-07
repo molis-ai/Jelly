@@ -1,6 +1,7 @@
 import CalendarDomain
 import CalendarPersistence
 import Foundation
+import JellyMCP
 import WorkspaceDomain
 
 @MainActor
@@ -15,6 +16,8 @@ struct AppEnvironment {
     let digestSettingsStore: DigestSettingsStore
     let digestCredentialStore: any DigestCredentialStoring
     let decompositionPlanner: any DecompositionPlanning
+    /// Nil only when MCP is explicitly disabled for this run (acceptance tests).
+    let mcpController: MCPServiceController?
 
     var whisperModelDirectory: URL {
         dataURLs.root.appendingPathComponent("Models/WhisperKit", isDirectory: true)
@@ -69,6 +72,15 @@ struct AppEnvironment {
                 )
             )
         )
+        let mcpController: MCPServiceController?
+        if environment["JELLY_MCP_DISABLED"]?.trimmingCharacters(in: .whitespaces) == "1" {
+            mcpController = nil
+        } else {
+            mcpController = MCPServiceController(
+                gateway: JellyMCPCalGateway(store: store),
+                endpointFileURL: dataURLs.mcpEndpoint
+            )
+        }
         return AppEnvironment(
             store: store,
             dataURLs: dataURLs,
@@ -77,7 +89,8 @@ struct AppEnvironment {
             materialDigestOperator: coordinator,
             digestSettingsStore: digestSettingsStore,
             digestCredentialStore: digestCredentialStore,
-            decompositionPlanner: LiveDecompositionPlanner.make()
+            decompositionPlanner: LiveDecompositionPlanner.make(),
+            mcpController: mcpController
         )
     }
 

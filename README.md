@@ -3,6 +3,7 @@
 Personal productivity app for macOS.
 
 **Now:** calendar and list-style items, structured Block notes, calendar–note relations, and a raw-first inspiration inbox.
+**Also built in:** a built-in MCP server that exposes calendar/schedule operations to AI clients over loopback HTTP (plus a bundled `jelly-mcp` stdio bridge) — see [docs/Jelly-MCP.md](docs/Jelly-MCP.md).
 **Next (not built yet):** AI-assisted processing, material digests into a personal knowledge base (source → digest → wiki-style notes), and related workflows.
 
 Local-first. Data stays on your Mac.

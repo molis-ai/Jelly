@@ -1,4 +1,4 @@
-// swift-tools-version: 6.3
+// swift-tools-version: 6.2
 import PackageDescription
 
 let commandLineToolsTestingLibraryPath =
@@ -18,7 +18,8 @@ let package = Package(
         .library(name: "CalendarDomain", targets: ["CalendarDomain"]),
         .library(name: "WorkspaceDomain", targets: ["WorkspaceDomain"]),
         .library(name: "CalendarPersistence", targets: ["CalendarPersistence"]),
-        .executable(name: "PersonalCalendar", targets: ["CalendarApp"])
+        .executable(name: "PersonalCalendar", targets: ["CalendarApp"]),
+        .executable(name: "jelly-mcp", targets: ["JellyMCPBridge"])
     ],
     dependencies: [
         .package(
@@ -40,12 +41,20 @@ let package = Package(
             name: "CalendarPersistence",
             dependencies: ["CalendarDomain", "WorkspaceDomain"]
         ),
+        .target(
+            name: "JellyMCP",
+            dependencies: ["CalendarDomain", "WorkspaceDomain"]
+        ),
+        .executableTarget(
+            name: "JellyMCPBridge"
+        ),
         .executableTarget(
             name: "CalendarApp",
             dependencies: [
                 "CalendarDomain",
                 "WorkspaceDomain",
                 "CalendarPersistence",
+                "JellyMCP",
                 .product(name: "WhisperKit", package: "argmax-oss-swift")
             ],
             linkerSettings: [
@@ -81,12 +90,22 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "JellyMCPTests",
+            dependencies: [
+                "JellyMCP",
+                "CalendarDomain",
+                "WorkspaceDomain",
+                .product(name: "Testing", package: "swift-testing")
+            ]
+        ),
+        .testTarget(
             name: "CalendarAppTests",
             dependencies: [
                 "CalendarApp",
                 "CalendarDomain",
                 "WorkspaceDomain",
                 "CalendarPersistence",
+                "JellyMCP",
                 .product(name: "Testing", package: "swift-testing")
             ]
         )

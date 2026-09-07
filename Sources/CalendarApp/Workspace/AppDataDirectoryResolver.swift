@@ -64,6 +64,7 @@ struct AppDataURLs: Equatable, Sendable {
     let rollbackDirectory: URL
     let automaticRecoveryDirectory: URL
     let searchIndex: URL
+    let mcpEndpoint: URL
 }
 
 enum AppDataDirectoryResolverError: Error, Equatable, Sendable {
@@ -139,7 +140,8 @@ enum AppDataDirectoryResolver {
             draftJournal: root.appendingPathComponent("calendar-v1.draft-journal.json"),
             rollbackDirectory: root.appendingPathComponent("restore-rollbacks", isDirectory: true),
             automaticRecoveryDirectory: root.appendingPathComponent("automatic-recovery", isDirectory: true),
-            searchIndex: root.appendingPathComponent("workspace-search-v1.json")
+            searchIndex: root.appendingPathComponent("workspace-search-v1.json"),
+            mcpEndpoint: root.appendingPathComponent("mcp-server.json")
         )
     }
 
