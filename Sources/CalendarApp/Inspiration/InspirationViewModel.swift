@@ -46,6 +46,7 @@ enum InspirationTextSaveState: Equatable {
     private(set) var converted: [Inspiration] = []
     private(set) var archived: [Inspiration] = []
     private(set) var selectedID: InspirationID?
+    private(set) var bodyFocusGeneration: UInt = 0
     private(set) var statusMessage: String?
 
     init(
@@ -216,6 +217,32 @@ enum InspirationTextSaveState: Equatable {
         if let id, textDrafts[id] == nil {
             textDrafts[id] = store.state.inspirations[id]?.rawText ?? ""
         }
+    }
+
+    func focusBodyEditor() {
+        guard selectedTextIsEditable else { return }
+        bodyFocusGeneration &+= 1
+    }
+
+    func displayTitle(for item: Inspiration) -> String {
+        if item.id == selectedID, item.inputKind == .text {
+            if let line = firstVisibleLine(textDrafts[item.id] ?? item.rawText ?? "") {
+                return line
+            }
+        }
+        if let title = item.resolvedMetadata?.title, !title.isEmpty { return title }
+        if let line = firstVisibleLine(item.rawText ?? "") { return line }
+        if let file = item.rawFile { return file.displayName }
+        return item.rawURL?.absoluteString ?? "灵感"
+    }
+
+    private func firstVisibleLine(_ text: String) -> String? {
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                return String(line)
+            }
+        }
+        return nil
     }
 
     func alignSelection(with visibleIDs: [InspirationID]) {

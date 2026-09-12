@@ -126,6 +126,10 @@ actor InMemoryWorkspaceRepository: WorkspaceRepository {
         workspace = .empty(calendar: initialState)
     }
 
+    init(workspace: WorkspaceState) {
+        self.workspace = workspace
+    }
+
     var persistedState: CalendarState { workspace.calendar }
 
     func load() async throws -> WorkspaceLoadResult {

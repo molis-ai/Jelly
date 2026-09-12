@@ -12,9 +12,20 @@ import WorkspaceDomain
 struct InspirationWorkspaceViewModelTests {
     @Test func editingDigestedTextSavesTheNewSourceAndStopsTheStalePipeline() async throws {
         let calendar = makeEmptyState()
+        let inspiration = Inspiration.text(
+            rawText: "原来的材料",
+            categoryID: calendar.uncategorizedID,
+            now: .distantPast
+        )
+        var workspace = WorkspaceState.empty(calendar: calendar)
+        workspace.inspirations[inspiration.id] = inspiration
+        workspace.materialDigests[inspiration.id] = try succeededDigest(
+            for: inspiration,
+            now: .distantPast
+        )
         let store = WorkspaceStore(
-            initialState: .empty(calendar: calendar),
-            repository: InMemoryWorkspaceRepository(initialState: calendar)
+            initialState: workspace,
+            repository: InMemoryWorkspaceRepository(workspace: workspace)
         )
         await store.load()
         let digestOperator = RecordingMaterialDigestOperator()
@@ -23,9 +34,7 @@ struct InspirationWorkspaceViewModelTests {
             digestOperator: digestOperator,
             textSaveDelay: .seconds(30)
         )
-        let id = try await model.capture("原来的材料")
-        let inspiration = try #require(store.state.inspirations[id])
-        try await seedSucceededDigest(for: inspiration, in: store, now: .distantPast)
+        let id = inspiration.id
         model.select(id)
 
         model.selectedTextDraft = "用户修改后的材料"
@@ -135,6 +144,58 @@ struct InspirationWorkspaceViewModelTests {
         })
     }
 
+    @Test func focusedInspirationEditorUndoDoesNotRevertCapturedInspiration() async throws {
+        _ = NSApplication.shared
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let writer = InspirationViewModel(store: store)
+        let id = try await writer.capture("原始正文")
+        let registry = EditorFocusRegistry()
+        let host = NSHostingView(rootView: InspirationSplitView(
+            store: store,
+            focusRegistry: registry,
+            newItemRouter: WorkspaceNewItemRouter()
+        ))
+        let window = NSWindow(
+            contentRect: .init(x: 0, y: 0, width: 960, height: 680),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        host.layoutSubtreeIfNeeded()
+        #expect(await waitUntil(timeoutNanoseconds: 1_000_000_000) {
+            host.layoutSubtreeIfNeeded()
+            return inspirationDescendants(of: host, as: InspirationContentTextView.self).contains {
+                $0.string == "原始正文"
+            }
+        })
+        let textView = try #require(
+            inspirationDescendants(of: host, as: InspirationContentTextView.self).first {
+                $0.string == "原始正文"
+            }
+        )
+        #expect(window.makeFirstResponder(textView))
+        let end = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: end, length: 0))
+        textView.insertText("补一句", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(textView.string == "原始正文补一句")
+        #expect(registry.availability != .noFocusedOwner)
+
+        #expect(try await CalendarUndoCommandRouter.undo(
+            store: store,
+            focusRegistry: registry
+        ) == .focusedPerformed)
+        #expect(textView.string == "原始正文")
+        #expect(store.state.inspirations[id]?.rawText == "原始正文")
+    }
+
     @Test func splitEmptyInboxUsesOnlyTheScopeSpecificEmptyState() {
         #expect(InspirationDetailEmptyStatePolicy.showsSelectionPrompt(
             visibleItemCount: 0,
@@ -150,6 +211,43 @@ struct InspirationWorkspaceViewModelTests {
         ))
         #expect(InspirationInboxScope.converted.emptyDescription.contains("待处理"))
         #expect(InspirationInboxScope.archived.emptyDescription.contains("归档"))
+    }
+
+    @Test func displayTitleFollowsTheSelectedTextDraftFirstLine() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let model = InspirationViewModel(store: store)
+        let id = try await model.capture("先记一句\n第二行")
+        model.select(id)
+
+        #expect(model.displayTitle(for: model.selected!) == "先记一句")
+        model.selectedTextDraft = "改过的标题\n第二行还在"
+        #expect(model.displayTitle(for: model.selected!) == "改过的标题")
+    }
+
+    @Test func typedTextDigestPresentationStaysHidden() async throws {
+        let calendar = makeEmptyState()
+        let store = WorkspaceStore(
+            initialState: .empty(calendar: calendar),
+            repository: InMemoryWorkspaceRepository(initialState: calendar)
+        )
+        await store.load()
+        let model = InspirationViewModel(store: store, digestOperator: RecordingMaterialDigestOperator())
+        let id = try await model.capture("自己写的一段话")
+        model.select(id)
+        #expect(model.selectedDigestPresentation.isVisible == false)
+    }
+
+    @Test func saveStatusChromeStaysQuietUntilSomethingIsHappening() {
+        #expect(InspirationSaveStatusChrome.project(state: .idle, savedVisible: false) == .hidden)
+        #expect(InspirationSaveStatusChrome.project(state: .saved, savedVisible: false) == .hidden)
+        #expect(InspirationSaveStatusChrome.project(state: .saved, savedVisible: true) == .saved)
+        #expect(InspirationSaveStatusChrome.project(state: .waiting, savedVisible: false) == .saving)
+        #expect(InspirationSaveStatusChrome.project(state: .invalid, savedVisible: false) == .invalid)
     }
 
     @Test func selectedTextInspirationCanBeEditedAndFlushedToDurableState() async throws {
@@ -233,6 +331,7 @@ struct InspirationWorkspaceViewModelTests {
         #expect(store.state.inspirations[id]?.rawText == "一段原始灵感文字")
         #expect(resolver.startedURLs.isEmpty)
         #expect(model.pending.map(\.id).contains(id))
+        #expect(model.selectedDigestPresentation.isVisible == false)
     }
 
     @Test func captureDoesNotStartMaterialDigest() async throws {
@@ -545,9 +644,6 @@ struct InspirationWorkspaceViewModelTests {
         let now = Date(timeIntervalSince1970: 1_800_310_100)
 
         let textID = try await model.capture("原始正文必须保留")
-        let text = try #require(store.state.inspirations[textID])
-        try await seedSucceededDigest(for: text, in: store, now: now)
-        model.refresh()
         model.select(textID)
         let textNoteID = try #require(try await model.convertSelectedToNote())
         let textDocument = try #require(store.state.notes[textNoteID]?.document)
@@ -555,8 +651,8 @@ struct InspirationWorkspaceViewModelTests {
             .map { $0.inlineContent.spans.map(\.text).joined() }
             .joined(separator: "\n")
         #expect(textDocument.blocks.first?.inlineContent.spans.map(\.text).joined() == "原始正文必须保留")
-        #expect(textPlain.contains("核心观点"))
-        #expect(textPlain.contains("核心论点"))
+        #expect(!textPlain.contains("核心观点"))
+        #expect(!textPlain.contains("核心论点"))
 
         let fileID = try await model.captureFile(
             FileReference(bookmarkData: Data([1, 2, 3]), displayName: "材料.txt"),
@@ -803,6 +899,40 @@ final class RecordingMaterialDigestOperator: MaterialDigestOperating {
     func stopExternalWork(inspirationID: InspirationID) async { stops.append(inspirationID) }
     func reconcileInterruptedRuns() async { reconciles += 1 }
     func progress(for inspirationID: InspirationID) -> Double? { nil }
+}
+
+private func succeededDigest(for inspiration: Inspiration, now: Date) throws -> MaterialDigest {
+    let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
+    let snapshot = try materialSnapshot(for: checksum)
+    return MaterialDigest(
+        id: MaterialDigestID(),
+        inspirationID: inspiration.id,
+        sourceChecksum: checksum,
+        currentRun: nil,
+        result: MaterialDigestResult(
+            summary: InspirationSummary(
+                thesis: "核心论点",
+                takeaways: ["观点1", "观点2", "观点3"],
+                chapters: [
+                    DigestChapter(startSeconds: 0, title: "开场", points: ["引入"]),
+                    DigestChapter(startSeconds: 8, title: "主体", points: ["展开"])
+                ],
+                quotes: [DigestQuote(speaker: nil, startSeconds: 8, text: "主体")],
+                dropped: ["片头"]
+            ),
+            provenance: DigestProvenance(
+                modelIdentifier: "api.example.com/test-model",
+                generatedAt: now,
+                inputFingerprint: checksum,
+                summaryContractVersion: "summary-contract-v1"
+            ),
+            completedAt: now
+        ),
+        lastFailure: nil,
+        preparedSnapshot: snapshot,
+        createdAt: now,
+        updatedAt: now
+    )
 }
 
 @MainActor

@@ -5,6 +5,43 @@ import WorkspaceDomain
 
 @Suite("MaterialDigestModelTests")
 struct MaterialDigestModelTests {
+    @Test func typedTextDoesNotSupportMaterialDigestWhileFilesAndURLsDo() {
+        let text = Inspiration.text(
+            rawText: "自己写的一段话",
+            categoryID: MaterialDigestFixture.uncategorizedID,
+            now: MaterialDigestFixture.now
+        )
+        #expect(text.supportsMaterialDigest == false)
+
+        let file = Inspiration(
+            id: InspirationID(),
+            inputKind: .file,
+            rawText: nil,
+            rawURL: nil,
+            rawFile: FileReference(bookmarkData: Data([1]), displayName: "材料.pdf"),
+            resolvedSourceKind: .document,
+            resolvedMetadata: nil,
+            categoryID: MaterialDigestFixture.uncategorizedID,
+            lifecycle: .active,
+            createdAt: MaterialDigestFixture.now,
+            updatedAt: MaterialDigestFixture.now
+        )
+        #expect(file.supportsMaterialDigest)
+        #expect(MaterialDigestFixture.inspiration().supportsMaterialDigest)
+    }
+
+    @Test func validatorStillAcceptsAPreviouslySavedTextDigest() throws {
+        var state = MaterialDigestFixture.workspace()
+        let text = Inspiration.text(
+            rawText: "以前提炼过的纯文字",
+            categoryID: MaterialDigestFixture.uncategorizedID,
+            now: MaterialDigestFixture.now
+        )
+        state.inspirations[text.id] = text
+        state.materialDigests[text.id] = MaterialDigestFixture.succeeded(for: text)
+        try WorkspaceValidator.validate(state)
+    }
+
     @Test func v3ResultPersistsOnlyFingerprintSummaryAndProvenance() throws {
         let state = MaterialDigestV3Fixture.workspace()
         let result = try #require(state.materialDigests[MaterialDigestV3Fixture.inspirationID]?.result)

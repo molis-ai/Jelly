@@ -153,6 +153,7 @@ struct AppShellView: View {
                     route: .inspiration,
                     content: AnyView(InspirationSplitView(
                         store: store,
+                        focusRegistry: focusRegistry,
                         newItemRouter: newItemRouter,
                         transitionCoordinator: coordinator,
                         deepLinkRouter: deepLinkRouter,

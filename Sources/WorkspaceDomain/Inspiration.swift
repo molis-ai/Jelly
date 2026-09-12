@@ -126,7 +126,7 @@ extension Inspiration {
     public var supportsMaterialDigest: Bool {
         switch inputKind {
         case .text:
-            return resolvedSourceKind == .plainText
+            return false
         case .url:
             return [.article, .socialPost, .video, .audio, .unknown]
                 .contains(resolvedSourceKind)

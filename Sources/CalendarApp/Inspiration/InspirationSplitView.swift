@@ -15,6 +15,7 @@ struct InspirationSplitView: View {
         let stateGeneration: UInt
     }
     let store: WorkspaceStore
+    let focusRegistry: EditorFocusRegistry
     @ObservedObject var newItemRouter: WorkspaceNewItemRouter
     let transitionCoordinator: WorkspaceRouteTransitionCoordinator?
     @ObservedObject var deepLinkRouter: WorkspaceDeepLinkRouter
@@ -30,6 +31,7 @@ struct InspirationSplitView: View {
 
     init(
         store: WorkspaceStore,
+        focusRegistry: EditorFocusRegistry = EditorFocusRegistry(),
         newItemRouter: WorkspaceNewItemRouter = WorkspaceNewItemRouter(),
         transitionCoordinator: WorkspaceRouteTransitionCoordinator? = nil,
         deepLinkRouter: WorkspaceDeepLinkRouter = WorkspaceDeepLinkRouter(),
@@ -38,6 +40,7 @@ struct InspirationSplitView: View {
         isDigestConfigured: @escaping @MainActor () -> Bool = { true }
     ) {
         self.store = store
+        self.focusRegistry = focusRegistry
         self.newItemRouter = newItemRouter
         self.transitionCoordinator = transitionCoordinator
         self.deepLinkRouter = deepLinkRouter
@@ -143,10 +146,14 @@ struct InspirationSplitView: View {
             captureFocused: $captureFocused,
             scope: $inboxScope,
             onSelect: { id in
+                captureFocused = false
                 model.select(id)
+                model.focusBodyEditor()
                 if NotesAdaptiveLayout.isCompact(width: availableWidth) { inboxCollapsed = true }
             },
             onCaptured: { _ in
+                captureFocused = false
+                model.focusBodyEditor()
                 if NotesAdaptiveLayout.isCompact(width: availableWidth) { inboxCollapsed = true }
             },
             onToggleInbox: { inboxCollapsed = true },
@@ -162,6 +169,7 @@ struct InspirationSplitView: View {
         InspirationDetailView(
             model: model,
             store: store,
+            focusRegistry: focusRegistry,
             showsInboxButton: showsInboxButton,
             showsSelectionPrompt: InspirationDetailEmptyStatePolicy.showsSelectionPrompt(
                 visibleItemCount: visibleInspirationCount,
@@ -227,6 +235,8 @@ struct InspirationSplitView: View {
               store.state.inspirations[id] != nil,
               deepLinkRouter.consume(request.id, target: request.target) != nil else { return }
         model.select(id)
+        captureFocused = false
+        model.focusBodyEditor()
         if NotesAdaptiveLayout.isCompact(width: availableWidth) { inboxCollapsed = true }
     }
 
@@ -437,7 +447,7 @@ struct InspirationInboxView: View {
                     onSelect(item.id)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(rowTitle(item))
+                        Text(model.displayTitle(for: item))
                             .lineLimit(1)
                             .font(.system(
                                 size: 13,
@@ -469,17 +479,10 @@ struct InspirationInboxView: View {
                 .listRowInsets(.init(top: 2, leading: 8, bottom: 2, trailing: 8))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-                .accessibilityLabel(rowTitle(item))
+                .accessibilityLabel(model.displayTitle(for: item))
                 .accessibilityAddTraits(model.selectedID == item.id ? .isSelected : [])
             }
         }
-    }
-
-    private func rowTitle(_ item: Inspiration) -> String {
-        if let title = item.resolvedMetadata?.title, !title.isEmpty { return title }
-        if let text = item.rawText, !text.isEmpty { return text }
-        if let file = item.rawFile { return file.displayName }
-        return item.rawURL?.absoluteString ?? "灵感"
     }
 
     private func rowPreview(_ item: Inspiration) -> String? {
@@ -647,6 +650,32 @@ enum InspirationInboxScope: String, CaseIterable, Identifiable {
     }
 }
 
+enum InspirationSaveStatusChrome: Equatable {
+    case hidden
+    case saving
+    case saved
+    case invalid
+    case failed
+
+    static func project(
+        state: InspirationTextSaveState,
+        savedVisible: Bool
+    ) -> Self {
+        switch state {
+        case .idle:
+            .hidden
+        case .waiting, .saving:
+            .saving
+        case .saved:
+            savedVisible ? .saved : .hidden
+        case .invalid:
+            .invalid
+        case .failed:
+            .failed
+        }
+    }
+}
+
 enum InspirationDetailEmptyStatePolicy {
     static func showsSelectionPrompt(
         visibleItemCount: Int,
@@ -665,6 +694,7 @@ enum InspirationDetailAction: String, CaseIterable {
 struct InspirationDetailView: View {
     @Bindable var model: InspirationViewModel
     let store: WorkspaceStore
+    var focusRegistry: EditorFocusRegistry
     var showsInboxButton = false
     var showsSelectionPrompt = true
     var onToggleInbox: () -> Void = {}
@@ -675,7 +705,9 @@ struct InspirationDetailView: View {
     var onChooseFileRecovery: () -> Void = {}
     @State private var pendingPermanentDelete: InspirationPermanentDeleteRequest?
     @State private var deleteStatus: String?
-    @FocusState private var contentEditorFocused: Bool
+    @State private var contentEditorFocused = false
+    @State private var editorHeight: CGFloat = 28
+    @State private var savedBadgeVisible = false
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: CalendarSemanticAppearance {
@@ -750,8 +782,29 @@ struct InspirationDetailView: View {
                         : "删除后无法恢复，并会把 \(request.preview.effects.count) 条笔记来源关系改为“原始灵感已删除”。")
                 }
             }
+            .onAppear {
+                model.focusBodyEditor()
+            }
             .onChange(of: model.selectedID) { _, _ in
                 contentEditorFocused = false
+                savedBadgeVisible = false
+                editorHeight = 28
+            }
+            .onChange(of: model.selectedTextSaveState) { _, state in
+                switch state {
+                case .saved:
+                    savedBadgeVisible = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.2))
+                        if model.selectedTextSaveState == .saved {
+                            savedBadgeVisible = false
+                        }
+                    }
+                case .idle:
+                    savedBadgeVisible = false
+                default:
+                    break
+                }
             }
             .onChange(of: contentEditorFocused) { _, isFocused in
                 guard !isFocused else { return }
@@ -856,28 +909,32 @@ struct InspirationDetailView: View {
                 }
             }
             if model.selectedTextIsEditable {
-                TextEditor(text: Binding(
-                    get: { model.selectedTextDraft },
-                    set: { model.selectedTextDraft = $0 }
-                ))
-                .font(.system(size: 18, weight: .regular))
-                .lineSpacing(6)
-                .scrollContentBackground(.hidden)
-                .focused($contentEditorFocused)
+                InspirationPlainTextEditor(
+                    text: Binding(
+                        get: { model.selectedTextDraft },
+                        set: { model.selectedTextDraft = $0 }
+                    ),
+                    textColor: theme.primaryText,
+                    focusRegistry: focusRegistry,
+                    focusGeneration: model.bodyFocusGeneration,
+                    fittedHeight: $editorHeight,
+                    onFocusChange: { contentEditorFocused = $0 }
+                )
+                .id(inspiration.id)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .frame(minHeight: 150, maxHeight: 320)
+                .frame(height: max(editorHeight, 28), alignment: .top)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(theme.elevatedSurface.opacity(contentEditorFocused ? 0.72 : 0.38))
+                        .fill(theme.elevatedSurface.opacity(contentEditorFocused ? 0.55 : 0.28))
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(
                             contentEditorFocused
-                                ? theme.controlAccent.opacity(0.72)
-                                : theme.separator.opacity(0.38),
-                            lineWidth: contentEditorFocused ? 1.5 : 0.5
+                                ? theme.controlAccent.opacity(0.45)
+                                : theme.separator.opacity(0.22),
+                            lineWidth: 1
                         )
                 }
                 .accessibilityLabel("灵感内容")
@@ -897,11 +954,13 @@ struct InspirationDetailView: View {
 
     @ViewBuilder
     private var textSaveStatus: some View {
-        switch model.selectedTextSaveState {
-        case .idle:
-            Label("可直接补写 · 自动保存", systemImage: "pencil")
-                .foregroundStyle(theme.secondaryText)
-        case .waiting, .saving:
+        switch InspirationSaveStatusChrome.project(
+            state: model.selectedTextSaveState,
+            savedVisible: savedBadgeVisible
+        ) {
+        case .hidden:
+            EmptyView()
+        case .saving:
             Label("正在保存…", systemImage: "arrow.triangle.2.circlepath")
                 .foregroundStyle(theme.secondaryText)
         case .saved:

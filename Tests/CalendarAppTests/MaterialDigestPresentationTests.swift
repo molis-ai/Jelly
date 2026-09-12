@@ -28,19 +28,21 @@ struct MaterialDigestPresentationTests {
         #expect(unknownPresentation.primaryActionTitle == "提炼这份材料")
     }
 
-    @Test func textAndFileSourcesUseTheSameManualDigestAction() {
+    @Test func typedTextWithoutAFileOrURLHidesTheDigestSection() {
         let textPresentation = MaterialDigestPresentation.project(
             inspiration: .text(
-                rawText: "一段需要整理的长材料",
+                rawText: "一段自己写的灵感",
                 categoryID: UUID(),
                 now: MaterialDigestPresentationFixture.now
             ),
             digest: nil,
             operatorAvailable: true
         )
-        #expect(textPresentation.isVisible)
-        #expect(textPresentation.primaryActionTitle == "提炼这份材料")
+        #expect(textPresentation.isVisible == false)
+        #expect(textPresentation.primaryActionTitle == nil)
+    }
 
+    @Test func fileSourcesStillUseTheManualDigestAction() {
         let filePresentation = MaterialDigestPresentation.project(
             inspiration: fileInspiration(kind: .document, displayName: "研究报告.pdf"),
             digest: nil,

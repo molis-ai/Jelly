@@ -6,7 +6,7 @@ import WorkspaceDomain
 @Suite("MaterialDigestCoordinatorTests")
 @MainActor
 struct MaterialDigestCoordinatorTests {
-    @Test func directTextSavesSnapshotBeforeSummaryWithoutCallingURLAcquirer() async throws {
+    @Test func typedTextDoesNotStartMaterialDigest() async throws {
         let calendar = makeEmptyState()
         let store = WorkspaceStore(
             initialState: .empty(calendar: calendar),
@@ -20,40 +20,32 @@ struct MaterialDigestCoordinatorTests {
         )
         _ = try await store.sendWorkspace(.createInspiration(.init(inspiration: inspiration)))
         let acquirer = FixtureMaterialAcquirer(result: .transcript(.init(segments: [])))
-        let downloader = RecordingMaterialAudioDownloader()
-        let transcriber = FakeMaterialTranscriber(requirement: .ready, transcript: .init(segments: []))
-        let summarizer = ControllableMaterialSummarizer(
-            mode: .immediate,
-            output: MaterialSummarizerOutput(
-                summary: InspirationSummary(
-                    thesis: "核心论点",
-                    takeaways: ["第一条"],
-                    chapters: [],
-                    quotes: [],
-                    dropped: []
-                ),
-                endpointHost: "api.example.com",
-                model: "fixture",
-                summaryContractVersion: MaterialDigestSummaryContract.v3
-            )
-        )
         let coordinator = MaterialDigestCoordinator(
             store: store,
             acquirer: acquirer,
-            audioDownloader: downloader,
-            transcriber: transcriber,
-            summarizer: summarizer
+            audioDownloader: RecordingMaterialAudioDownloader(),
+            transcriber: FakeMaterialTranscriber(requirement: .ready, transcript: .init(segments: [])),
+            summarizer: ControllableMaterialSummarizer(
+                mode: .immediate,
+                output: MaterialSummarizerOutput(
+                    summary: InspirationSummary(
+                        thesis: "核心论点",
+                        takeaways: ["第一条"],
+                        chapters: [],
+                        quotes: [],
+                        dropped: []
+                    ),
+                    endpointHost: "api.example.com",
+                    model: "fixture",
+                    summaryContractVersion: MaterialDigestSummaryContract.v3
+                )
+            )
         )
 
         await coordinator.start(inspirationID: inspiration.id, mode: .refreshSource)
 
-        #expect(await waitUntil { store.state.materialDigests[inspiration.id]?.result != nil })
+        #expect(store.state.materialDigests[inspiration.id] == nil)
         #expect(await acquirer.acquireCount == 0)
-        let snapshot = try #require(store.state.materialDigests[inspiration.id]?.preparedSnapshot)
-        #expect(snapshot.blocks.map(\.text) == ["第一段正文", "第二段正文"])
-        #expect(snapshot.blocks.map(\.locator) == [
-            .paragraph(index: 1), .paragraph(index: 2)
-        ])
     }
 
     @Test func localTextFileUsesBookmarkAccessAndCompletesTheSameDigestFlow() async throws {

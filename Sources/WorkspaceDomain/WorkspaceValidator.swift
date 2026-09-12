@@ -188,7 +188,7 @@ public enum WorkspaceValidator {
             guard let inspiration = state.inspirations[digest.inspirationID] else {
                 throw WorkspaceValidationError.danglingMaterialDigest(digest.inspirationID)
             }
-            guard inspiration.supportsMaterialDigest
+            guard inspiration.supportsMaterialDigest || inspiration.inputKind == .text
             else {
                 throw WorkspaceValidationError.invalidMaterialDigestInspiration(digest.inspirationID)
             }

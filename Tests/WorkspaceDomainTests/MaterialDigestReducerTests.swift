@@ -55,6 +55,32 @@ struct MaterialDigestReducerTests {
         #expect(fixture.digest.result != oldResult)
     }
 
+    @Test func typedTextInspirationCannotStartMaterialDigest() throws {
+        let fixture = MaterialDigestReducerFixture()
+        var state = fixture.workspace
+        let text = Inspiration.text(
+            id: InspirationID(UUID(uuidString: "00000000-0000-0000-0000-00000000d111")!),
+            rawText: "自己写的一段话",
+            categoryID: fixture.inspiration.categoryID,
+            now: fixture.now
+        )
+        state.inspirations[text.id] = text
+        #expect(throws: WorkspaceReducerError.invalidInspiration) {
+            try WorkspaceReducer.reduce(
+                state,
+                command: .startMaterialDigest(
+                    StartMaterialDigestPayload(
+                        inspirationID: text.id,
+                        digestID: fixture.digestID,
+                        runID: fixture.runID,
+                        expectedSourceChecksum: WorkspaceChecksum.inspirationSourceChecksum(text)
+                    )
+                ),
+                now: fixture.now
+            )
+        }
+    }
+
     @Test func startCreatesFetchingRunForSupportedURLInspiration() throws {
         let fixture = MaterialDigestReducerFixture()
         let started = try fixture.reduce(.startMaterialDigest(fixture.startPayload))
