@@ -706,7 +706,7 @@ struct InspirationDetailView: View {
     @State private var pendingPermanentDelete: InspirationPermanentDeleteRequest?
     @State private var deleteStatus: String?
     @State private var contentEditorFocused = false
-    @State private var editorHeight: CGFloat = 28
+    @State private var editorHeight: CGFloat = 36
     @State private var savedBadgeVisible = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -788,7 +788,7 @@ struct InspirationDetailView: View {
             .onChange(of: model.selectedID) { _, _ in
                 contentEditorFocused = false
                 savedBadgeVisible = false
-                editorHeight = 28
+                editorHeight = 36
             }
             .onChange(of: model.selectedTextSaveState) { _, state in
                 switch state {
@@ -921,9 +921,9 @@ struct InspirationDetailView: View {
                     onFocusChange: { contentEditorFocused = $0 }
                 )
                 .id(inspiration.id)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(height: max(editorHeight, 28), alignment: .top)
+                .frame(height: max(editorHeight, 36), alignment: .top)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(theme.elevatedSurface.opacity(contentEditorFocused ? 0.55 : 0.28))

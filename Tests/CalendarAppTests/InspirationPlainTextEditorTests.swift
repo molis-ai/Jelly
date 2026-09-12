@@ -200,6 +200,23 @@ struct InspirationPlainTextEditorTests {
         #expect(harness.fittedHeight > oneLine)
     }
 
+    @Test func fittingHeightClearsDescendersOnAn18PointLine() {
+        let textView = InspirationContentTextView()
+        textView.font = NSFont.systemFont(ofSize: 18, weight: .regular)
+        textView.defaultParagraphStyle = {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 6
+            return paragraph
+        }()
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.string = "toolify, watcha 这类产品也要考虑上"
+        textView.setFrameSize(NSSize(width: 520, height: 20))
+        let font = NSFont.systemFont(ofSize: 18, weight: .regular)
+        let glyphHeight = ceil(font.ascender - font.descender)
+        let height = InspirationContentTextView.fittingHeight(for: textView)
+        #expect(height >= glyphHeight + 8)
+    }
+
     @Test func pasteInsertsPlainTextFromRichPasteboard() async throws {
         _ = NSApplication.shared
         let harness = InspirationEditorHarness(text: "开头")

@@ -50,7 +50,7 @@ struct InspirationPlainTextEditor: NSViewRepresentable {
         textView.isHorizontallyResizable = false
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.textContainerInset = .zero
+        textView.textContainerInset = NSSize(width: 0, height: 4)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(
@@ -279,18 +279,19 @@ final class InspirationContentTextView: NSTextView {
 
     static func fittingHeight(for textView: NSTextView) -> CGFloat {
         let font = textView.font ?? NSFont.systemFont(ofSize: 18, weight: .regular)
-        let minimum = ceil(font.boundingRectForFont.height + 6)
-        let breathingRoom: CGFloat = 10
+        let glyphHeight = ceil(font.ascender - font.descender)
+        let lineSpacing = (textView.defaultParagraphStyle?.lineSpacing ?? 6)
+        let inset = textView.textContainerInset
+        let minimum = ceil(glyphHeight + lineSpacing + inset.height * 2)
         let width = textView.bounds.width
         guard width > 1, let container = textView.textContainer, let layout = textView.layoutManager else {
-            return minimum + breathingRoom
+            return minimum
         }
         container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        let inset = textView.textContainerInset
         let height = ceil(used.height + inset.height * 2)
-        return max(height, minimum) + breathingRoom
+        return max(height, minimum)
     }
 
     override func paste(_ sender: Any?) {
