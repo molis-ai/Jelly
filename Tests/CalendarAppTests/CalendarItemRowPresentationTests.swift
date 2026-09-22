@@ -20,7 +20,7 @@ struct CalendarItemRowPresentationTests {
         #expect(dayDrawer.showsDeleteAction == true)
     }
 
-    @Test func compactTimedRowKeepsFullStartTimeAndTitleWithoutCategoryLabel() throws {
+    @Test func narrowTimedRowDropsTheClockWhileAWiderRowKeepsTheFullRange() throws {
         let range = try LocalTimeRange(
             start: .init(hour: 9, minute: 0)!,
             end: .init(hour: 10, minute: 0)!
@@ -33,7 +33,8 @@ struct CalendarItemRowPresentationTests {
             title: "产品同步会"
         )
         #expect(compact.categoryName == nil)
-        #expect(compact.timeText == "09:00–10:00")
+        #expect(compact.timeText == nil)
+        #expect(compact.accessibilityLabel == "工作, 09:00, 产品同步会")
         #expect(compact.title == "产品同步会")
         #expect(compact.layout.titleMinimumWidth == 20)
         #expect(compact.layout.timeLayoutPriority > compact.layout.titleLayoutPriority)
@@ -50,6 +51,32 @@ struct CalendarItemRowPresentationTests {
         #expect(regular.layout.textFontSize == 12)
     }
 
+    /// The clock needs its own advance width plus the badge reserve plus a
+    /// readable title remainder; one point below that the title takes it all.
+    @Test func clockYieldsToTheTitleOnlyBelowItsReadableWidth() throws {
+        let range = try LocalTimeRange(
+            start: .init(hour: 9, minute: 0)!,
+            end: .init(hour: 10, minute: 0)!
+        )
+
+        let tooNarrow = CalendarItemRowPresentation.make(
+            availableContentWidth: 134,
+            categoryName: "工作",
+            timeRange: range,
+            title: "产品同步会"
+        )
+        let wideEnough = CalendarItemRowPresentation.make(
+            availableContentWidth: 135,
+            categoryName: "工作",
+            timeRange: range,
+            title: "产品同步会"
+        )
+
+        #expect(tooNarrow.timeText == nil)
+        #expect(wideEnough.timeText == "09:00–10:00")
+        #expect(tooNarrow.accessibilityLabel == wideEnough.accessibilityLabel)
+    }
+
     @Test func categoryNameIsNeverShownEvenForLongCategoryLabels() throws {
         let range = try LocalTimeRange(
             start: .init(hour: 9, minute: 0)!,
@@ -57,7 +84,7 @@ struct CalendarItemRowPresentationTests {
         )
 
         let compact = CalendarItemRowPresentation.make(
-            availableContentWidth: 112,
+            availableContentWidth: 140,
             categoryName: "重点客户项目",
             timeRange: range,
             title: "需要被合理省略的长标题"
@@ -68,7 +95,7 @@ struct CalendarItemRowPresentationTests {
         #expect(compact.title == "需要被合理省略的长标题")
     }
 
-    @Test func minimumWindowContentBoundaryKeepsTimeAndTitle() throws {
+    @Test func minimumWindowContentBoundaryKeepsTheTitleAndHidesTheClock() throws {
         let range = try LocalTimeRange(
             start: .init(hour: 9, minute: 0)!,
             end: .init(hour: 10, minute: 0)!
@@ -82,7 +109,8 @@ struct CalendarItemRowPresentationTests {
         )
 
         #expect(boundary.categoryName == nil)
-        #expect(boundary.timeText == "09:00–10:00")
+        #expect(boundary.timeText == nil)
+        #expect(boundary.accessibilityLabel == "工作, 09:00, 产品同步会")
         #expect(boundary.title == "产品同步会")
         #expect(boundary.layout.titleMinimumWidth == 20)
         #expect(boundary.layout.timeLayoutPriority > boundary.layout.titleLayoutPriority)
