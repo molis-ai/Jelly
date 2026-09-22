@@ -717,7 +717,6 @@ struct CategoryManagerView: View {
         Task {
             do {
                 let presentation: WorkspaceMutationPresentation
-                let intendedName = model.draftName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let category = editingCategory, !isCreating {
                     presentation = try await model.update(category)
                 } else {
@@ -728,10 +727,7 @@ struct CategoryManagerView: View {
                     return
                 }
                 attemptedSave = false
-                if isCreating,
-                   let created = orderedCategories.first(where: { $0.name == intendedName }) {
-                    select(created)
-                }
+                close()
             } catch {
                 localError = message(for: error)
             }
