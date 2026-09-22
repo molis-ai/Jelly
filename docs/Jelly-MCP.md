@@ -13,9 +13,7 @@ HTTP 客户端 ─────────────────────�
 
 - **HTTP 端点**：`POST http://127.0.0.1:<端口>/mcp`，JSON-RPC 2.0，仅支持 `initialize` / `tools/list` / `tools/call` / `ping`。
 - **stdio 桥**：`/Applications/Jelly.app/Contents/MacOS/jelly-mcp`，把 stdio 客户端的每行 JSON-RPC 原样转发到上面的 HTTP 端点；Jelly 没在运行时会尝试用 `open -b com.oreal.personalcalendar` 自动拉起。
-- **安全**：端点只绑定 127.0.0.1（不进本机网络，不触发防火墙/隐私提示），每次启动生成随机令牌。端口和令牌写入数据目录的 `mcp-server.json`（权限 600）：
-  - 日常版：`~/Library/Application Support/PersonalCalendar/mcp-server.json`
-  - 预览版：`~/Library/Application Support/PersonalCalendarPreview/mcp-server.json`
+- **安全**：端点只绑定 127.0.0.1（不进本机网络，不触发防火墙/隐私提示），每次启动生成随机令牌。端口和令牌写入数据目录的 `~/Library/Application Support/PersonalCalendar/mcp-server.json`（权限 600）。
 - **撤销**：MCP 的每次修改都进 App 的 ⌘Z 撤销栈，也可以在会话里直接调用 `jelly_undo`。
 - **开关**：Jelly 设置 → MCP 服务器，可随时关闭；关闭后 endpoint 文件会被删除。
 

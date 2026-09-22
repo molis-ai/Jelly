@@ -24,14 +24,11 @@ struct AppEnvironment {
     }
 
     static func live(
-        profile: AppDataProfile? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         defaultApplicationSupportURL: URL? = nil
     ) throws -> AppEnvironment {
-        let resolvedProfile = try profile ?? AppDataProfile.bundled()
         let dataURLs = try AppDataDirectoryResolver.resolve(
-            profile: resolvedProfile,
             environment: environment,
             fileManager: fileManager,
             defaultApplicationSupportURL: defaultApplicationSupportURL
@@ -95,14 +92,12 @@ struct AppEnvironment {
     }
 
     static func loadLive(
-        profile: AppDataProfile? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default,
         defaultApplicationSupportURL: URL? = nil
     ) -> Result<AppEnvironment, Error> {
         Result {
             try live(
-                profile: profile,
                 environment: environment,
                 fileManager: fileManager,
                 defaultApplicationSupportURL: defaultApplicationSupportURL

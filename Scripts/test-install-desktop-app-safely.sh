@@ -6,8 +6,8 @@ PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd -P)
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/jelly-safe-install-test.XXXXXX")
 TEST_HOME="$TEMP_ROOT/home"
 SOURCE_APP="$TEMP_ROOT/source/Jelly.app"
-DEST_APP="$TEST_HOME/Desktop/Jelly.app"
-APP_BACKUPS="$TEST_HOME/Desktop/Jelly-app-backups"
+DEST_APP="$TEST_HOME/Applications/Jelly.app"
+APP_BACKUPS="$TEST_HOME/Applications/Jelly-backups"
 DATA_DIR="$TEST_HOME/Library/Application Support/PersonalCalendar"
 DATA_BACKUPS="$TEST_HOME/Library/Application Support/Jelly-data-backups"
 FAKE_BIN="$TEMP_ROOT/fake-bin"
@@ -61,7 +61,7 @@ fi
 exec /usr/bin/stat "$@"' > "$DEVICE_BIN/stat"
 chmod +x "$DEVICE_BIN/stat"
 DATA_BEFORE=$(shasum -a 256 "$DATA_DIR/calendar-v1.json" | awk '{print $1}')
-APP_BACKUPS_PHYSICAL="$(cd "$TEST_HOME/Desktop" && pwd -P)/Jelly-app-backups"
+APP_BACKUPS_PHYSICAL="$(cd "$TEST_HOME/Applications" && pwd -P)/Jelly-backups"
 
 set +e
 HOME="$TEST_HOME" PATH="$FAKE_BIN:$PATH" zsh "$PROJECT_DIR/Scripts/install-desktop-app-safely.sh" \
@@ -123,7 +123,7 @@ HOME="$TEST_HOME" PATH="$FAKE_BIN:$PATH" zsh "$PROJECT_DIR/Scripts/install-deskt
   "$SOURCE_APP" >/dev/null
 
 codesign --verify --deep --strict "$DEST_APP"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :JellyDataProfile' "$DEST_APP/Contents/Info.plist")" == "daily" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST_APP/Contents/Info.plist")" == "com.oreal.personalcalendar" ]]
 [[ "$(shasum -a 256 "$DATA_DIR/calendar-v1.json" | awk '{print $1}')" == "$DATA_BEFORE" ]]
 APP_BACKUP=$(find "$APP_BACKUPS" -mindepth 1 -maxdepth 1 -type d -print)
 [[ -f "$APP_BACKUP/Contents/old-app.txt" ]]
@@ -135,26 +135,25 @@ for data_backup in "$DATA_BACKUPS"/PersonalCalendar-before-install-*; do
 done
 [[ "$DATA_BACKUP_COUNT" -eq 2 ]]
 
-PREVIEW_SOURCE="$TEMP_ROOT/source/Jelly Preview.app"
-ditto --norsrc "$SOURCE_APP" "$PREVIEW_SOURCE"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.oreal.personalcalendar.preview' "$PREVIEW_SOURCE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set :JellyDataProfile preview' "$PREVIEW_SOURCE/Contents/Info.plist"
-codesign --force --deep --sign - "$PREVIEW_SOURCE" >/dev/null
+FOREIGN_SOURCE="$TEMP_ROOT/source/Other.app"
+ditto --norsrc "$SOURCE_APP" "$FOREIGN_SOURCE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.example.not-jelly' "$FOREIGN_SOURCE/Contents/Info.plist"
+codesign --force --deep --sign - "$FOREIGN_SOURCE" >/dev/null
 APP_BACKUP_COUNT=$(find "$APP_BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')
 
 set +e
 HOME="$TEST_HOME" PATH="$FAKE_BIN:$PATH" zsh "$PROJECT_DIR/Scripts/install-desktop-app-safely.sh" \
-  "$PREVIEW_SOURCE" >/dev/null 2>&1
-PREVIEW_STATUS=$?
+  "$FOREIGN_SOURCE" >/dev/null 2>&1
+FOREIGN_STATUS=$?
 HOME="$TEST_HOME" PATH="$FAKE_BIN:$PATH" zsh "$PROJECT_DIR/Scripts/install-desktop-app-safely.sh" \
   "$DEST_APP" >/dev/null 2>&1
 INSTALLED_SOURCE_STATUS=$?
 set -e
 
-[[ "$PREVIEW_STATUS" -eq 2 ]]
+[[ "$FOREIGN_STATUS" -eq 2 ]]
 [[ "$INSTALLED_SOURCE_STATUS" -eq 2 ]]
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :JellyDataProfile' "$DEST_APP/Contents/Info.plist")" == "daily" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$DEST_APP/Contents/Info.plist")" == "com.oreal.personalcalendar" ]]
 [[ "$(find "$APP_BACKUPS" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')" == "$APP_BACKUP_COUNT" ]]
 [[ "$(shasum -a 256 "$DATA_DIR/calendar-v1.json" | awk '{print $1}')" == "$DATA_BEFORE" ]]
 
-echo "Safe daily install and data backup passed."
+echo "Safe install and data backup passed."

@@ -11,7 +11,7 @@ import Foundation
 // Endpoint discovery order:
 //   1. JELLY_MCP_URL (+ optional JELLY_MCP_TOKEN)
 //   2. JELLY_MCP_PORT (implies 127.0.0.1, token from JELLY_MCP_TOKEN)
-//   3. `mcp-server.json` inside the Jelly data directory (daily, then Preview),
+//   3. `mcp-server.json` inside the Jelly data directory,
 //      override the directory with JELLY_MCP_DATA_DIR.
 //
 // When the app is not reachable, the bridge tries `open -b` once to launch
@@ -214,16 +214,15 @@ final class JellyMCPBridge: @unchecked Sendable {
         }
 
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let profileDirectories = [
-            support?.appendingPathComponent("PersonalCalendar", isDirectory: true),
-            support?.appendingPathComponent("PersonalCalendarPreview", isDirectory: true)
+        let defaultDirectories = [
+            support?.appendingPathComponent("PersonalCalendar", isDirectory: true)
         ].compactMap { $0 }
         let directories: [URL]
         if let override = environment["JELLY_MCP_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             directories = [URL(fileURLWithPath: override, isDirectory: true)]
         } else {
-            directories = profileDirectories
+            directories = defaultDirectories
         }
 
         for directory in directories {
@@ -234,7 +233,7 @@ final class JellyMCPBridge: @unchecked Sendable {
                 continue
             }
             // Only auto-launch on connection failure when the endpoint file came
-            // from a well-known profile directory, not an arbitrary path.
+            // from Jelly's own data directory, not an arbitrary path.
             let knownProfile = environment["JELLY_MCP_DATA_DIR"] == nil
             let token = (object["token"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 ?? environment["JELLY_MCP_TOKEN"]

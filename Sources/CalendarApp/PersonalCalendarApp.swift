@@ -54,12 +54,8 @@ struct PersonalCalendarApp: App {
         CalendarAppearancePreference(rawValue: appearancePreferenceRaw) ?? .light
     }
 
-    private var appDisplayName: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Jelly"
-    }
-
     var body: some Scene {
-        Window(appDisplayName, id: "main-calendar") {
+        Window("Jelly", id: "main-calendar") {
             Group {
                 if let environment {
                     AppShellView(

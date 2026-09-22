@@ -11,7 +11,6 @@ struct AppEnvironmentWorkspaceCutoverTests {
             .appendingPathComponent("jelly-7-environment-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let environment = try AppEnvironment.live(
-            profile: .daily,
             environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path]
         )
 
@@ -31,9 +30,9 @@ struct AppEnvironmentWorkspaceCutoverTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("jelly-v3-environment-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let environment = try AppEnvironment.live(environment: [
-            "JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path
-        ])
+        let environment = try AppEnvironment.live(
+            environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path]
+        )
         #expect(environment.materialDigestOperator != nil)
         #expect(MaterialDigestSummaryContract.current == "summary-contract-v3")
         #expect(environment.materialDigestOperator is MaterialDigestCoordinator)
@@ -45,7 +44,6 @@ struct AppEnvironmentWorkspaceCutoverTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let environment = try AppEnvironment.live(
-            profile: .daily,
             environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path]
         )
 
@@ -55,19 +53,17 @@ struct AppEnvironmentWorkspaceCutoverTests {
         #expect(environment.store.calendarState.uncategorizedID != UUID())
     }
 
-    @Test func previewEnvironmentComposesOnlyFromThePreviewDefaultDirectory() throws {
+    @Test func liveEnvironmentDefaultsToThePersonalCalendarDirectory() throws {
         let support = FileManager.default.temporaryDirectory
-            .appendingPathComponent("jelly-preview-environment-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("jelly-default-environment-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: support) }
 
         let environment = try AppEnvironment.live(
-            profile: .preview,
             environment: [:],
             defaultApplicationSupportURL: support
         )
 
-        #expect(environment.dataURLs.root == support.appendingPathComponent("PersonalCalendarPreview", isDirectory: true))
-        #expect(FileManager.default.fileExists(atPath: support.appendingPathComponent("PersonalCalendar").path) == false)
+        #expect(environment.dataURLs.root == support.appendingPathComponent("PersonalCalendar", isDirectory: true))
     }
 
     @Test func startupFailureIsReturnedForPresentationInsteadOfTerminatingTheProcess() throws {
@@ -77,7 +73,6 @@ struct AppEnvironmentWorkspaceCutoverTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let result = AppEnvironment.loadLive(
-            profile: .daily,
             environment: ["JELLY_ACCEPTANCE_DATA_DIRECTORY": root.path]
         )
         guard case .failure = result else {
