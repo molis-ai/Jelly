@@ -75,6 +75,8 @@ Sources/CalendarApp/Inspiration/DigestCredentialStore.swift
 Sources/CalendarApp/Inspiration/OpenAICompatibleMaterialSummarizer.swift
 Sources/CalendarApp/Inspiration/HierarchicalMaterialSummarizer.swift
 Sources/CalendarApp/Inspiration/WhisperKitMaterialTranscriber.swift
+Sources/CalendarApp/Inspiration/TranscriptionRouting.swift
+Sources/CalendarApp/Inspiration/SenseVoiceMaterialTranscriber.swift
 
 # Optional existing helpers; add to the active list when their UI uses them.
 # Sources/CalendarApp/Workspace/EditorFocusRegistry.swift

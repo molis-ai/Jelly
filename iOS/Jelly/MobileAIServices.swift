@@ -39,7 +39,11 @@ final class MobileAIServices {
             store: store,
             acquirer: RoutedMaterialAcquirer(client: client),
             audioDownloader: TemporaryMaterialAudioDownloader(client: client),
-            transcriber: WhisperKitMaterialTranscriber(modelDirectory: modelDirectory),
+            transcriber: RoutingMaterialTranscriber(
+                settings: TranscriptionSettingsReader(settings: settings, credentials: credentials),
+                whisper: WhisperKitMaterialTranscriber(modelDirectory: modelDirectory),
+                whisperInstalled: false
+            ),
             summarizer: HierarchicalMaterialSummarizer(
                 base: OpenAICompatibleMaterialSummarizer(settings: settings, credentials: credentials)
             )

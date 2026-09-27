@@ -86,6 +86,7 @@
 				FF7D43BFF401C986AE2D1901 /* WorkspaceDomain in Frameworks */,
 				213C2803ABFDF9A2837E30CF /* CalendarPersistence in Frameworks */,
 				DD1A5D95CDCD00D831358A62 /* WhisperKit in Frameworks */,
+				E33E33E33E33E33E33E33E33 /* FluidAudio in Frameworks */,
 				CD87AF2C652B9FB1E067B8D1 /* JellyMCP in Frameworks */,
 			);
 			isa = "PBXFrameworksBuildPhase";
@@ -233,6 +234,8 @@
 				B6DC73F4AA6A17EF76760754 /* OpenAICompatibleMaterialSummarizer.swift */,
 				B1A548410A8C6033BEE9F7BA /* HierarchicalMaterialSummarizer.swift */,
 				3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */,
+				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
+				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
 				45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */,
 				CED66C183BD51136C31E1B92 /* MCPServiceController.swift */,
 				AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */,
@@ -384,6 +387,20 @@
 			fileRef = 318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */;
 			isa = "PBXBuildFile";
 		};
+		C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "SenseVoiceMaterialTranscriber.swift";
+			path = "../Sources/CalendarApp/Inspiration/SenseVoiceMaterialTranscriber.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "TranscriptionRouting.swift";
+			path = "../Sources/CalendarApp/Inspiration/TranscriptionRouting.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
 		3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */ = {
 			isa = "PBXFileReference";
 			lastKnownFileType = "sourcecode.swift";
@@ -408,6 +425,14 @@
 			name = "MaterialDigestProtocols.swift";
 			path = "../Sources/CalendarApp/Inspiration/MaterialDigestProtocols.swift";
 			sourceTree = "SOURCE_ROOT";
+		};
+		D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */ = {
+			fileRef = C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */;
+			isa = "PBXBuildFile";
+		};
+		B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */ = {
+			fileRef = A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */;
+			isa = "PBXBuildFile";
 		};
 		44DDA86BFAB476361B0A35FA /* WhisperKitMaterialTranscriber.swift in Sources */ = {
 			fileRef = 3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */;
@@ -646,6 +671,8 @@
 				E7957B2FA3163042DEEA827A /* OpenAICompatibleMaterialSummarizer.swift in Sources */,
 				2A5D3F1F8B88BCCC76183062 /* HierarchicalMaterialSummarizer.swift in Sources */,
 				44DDA86BFAB476361B0A35FA /* WhisperKitMaterialTranscriber.swift in Sources */,
+				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
+				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
 				81C103D9F8CDF7CFDD03E63F /* BackupRecoveryPolicy.swift in Sources */,
 				8775F1452BBF0661F6829CAF /* MCPServiceController.swift in Sources */,
 				0C9AE807C47162C66A986724 /* JellyMCPCalGateway.swift in Sources */,
@@ -812,6 +839,14 @@
 				version = "1.0.0";
 			};
 		};
+		A55A55A55A55A55A55A55A55 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = "XCRemoteSwiftPackageReference";
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = "revision";
+				revision = "20d4f0bd46d11d7f50a6eb4f7835cfdbd2b4ba14";
+			};
+		};
 		9B130398A98BC5FFDE92026B /* MaterialSourceProviders.swift */ = {
 			isa = "PBXFileReference";
 			lastKnownFileType = "sourcecode.swift";
@@ -872,6 +907,7 @@
 			packageReferences = (
 				8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */,
 				98A9062820F43E54B3575B7D /* XCRemoteSwiftPackageReference */,
+				A55A55A55A55A55A55A55A55 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = "77";
 			productRefGroup = CE0BEBC9894205B593DB3224 /* Products */;
@@ -1080,6 +1116,7 @@
 				97E43DF45F2D26271CA46463 /* WorkspaceDomain */,
 				23146E689EEF514BBD2D9055 /* CalendarPersistence */,
 				C8167D61EA905BEE96FFD067 /* WhisperKit */,
+				F44F44F44F44F44F44F44F44 /* FluidAudio */,
 				635A6C6F26990D7D55FBDF05 /* JellyMCP */,
 			);
 			productName = "Jelly";
@@ -1096,6 +1133,11 @@
 			isa = "XCSwiftPackageProductDependency";
 			package = 98A9062820F43E54B3575B7D /* XCRemoteSwiftPackageReference */;
 			productName = "WhisperKit";
+		};
+		F44F44F44F44F44F44F44F44 /* FluidAudio */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = A55A55A55A55A55A55A55A55 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = "FluidAudio";
 		};
 		CC5119DF6A9A143DC1569BF9 /* MaterialSourceResolver.swift in Sources */ = {
 			fileRef = 041C156C63E8E8FE12FEC041 /* MaterialSourceResolver.swift */;
@@ -1157,6 +1199,10 @@
 		DD1A5D95CDCD00D831358A62 /* WhisperKit in Frameworks */ = {
 			isa = "PBXBuildFile";
 			productRef = C8167D61EA905BEE96FFD067 /* WhisperKit */;
+		};
+		E33E33E33E33E33E33E33E33 /* FluidAudio in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = F44F44F44F44F44F44F44F44 /* FluidAudio */;
 		};
 		DD5835D801C293D1D7E66F5A /* XiaohongshuPageParser.swift in Sources */ = {
 			fileRef = B3F801CD1DCCFF46AF040BD2 /* XiaohongshuPageParser.swift */;

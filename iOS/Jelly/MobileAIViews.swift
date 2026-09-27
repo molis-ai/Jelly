@@ -11,6 +11,7 @@ struct MobileAISettingsView: View {
     @State private var secret = ""
     @State private var message: String?
     @State private var confirmsDelete = false
+    @State private var allowCloud = false
 
     var body: some View {
         NavigationStack {
@@ -45,8 +46,9 @@ struct MobileAISettingsView: View {
                         Text(MobileDecompositionCopy.manual(reason))
                     }
                 }
-                Section("本地音频识别") {
-                    Text("首次遇到需要转录的材料时，会显示识别模型的大小并请求确认。只有点按“下载并继续”后才会下载。")
+                Section("音频转写") {
+                    Toggle("允许把音频上传到 MiniMax 转写", isOn: $allowCloud)
+                    Text("系统语音可用时优先用系统。否则首次转写会下载约 250 MB 的 SenseVoice。手机不下载 Whisper。只有打开这个开关才会上传音频。")
                         .foregroundStyle(.secondary)
                 }
                 if let message { Section { Text(message).accessibilityLabel(message) } }
@@ -58,6 +60,7 @@ struct MobileAISettingsView: View {
                 endpoint = services.settings.endpoint
                 model = services.settings.model
                 secret = ""
+                allowCloud = services.settings.allowCloudTranscription
             }
             .confirmationDialog("删除保存的 API 密钥？", isPresented: $confirmsDelete, titleVisibility: .visible) {
                 Button("删除密钥", role: .destructive) {
@@ -75,6 +78,7 @@ struct MobileAISettingsView: View {
     private func save() {
         do {
             try services.save(endpoint: endpoint, model: model, newSecret: secret)
+            services.settings.setAllowCloudTranscription(allowCloud)
             secret = ""
             endpoint = services.settings.endpoint
             model = services.settings.model
