@@ -34,7 +34,7 @@ struct LocalMaterialFileAccess: MaterialFileBookmarking, MaterialFileAccessing, 
                 do {
                     url = try URL(
                         resolvingBookmarkData: data,
-                        options: [.withSecurityScope, .withoutUI],
+                        options: Self.resolutionOptions,
                         relativeTo: nil,
                         bookmarkDataIsStale: &stale
                     )
@@ -59,12 +59,28 @@ struct LocalMaterialFileAccess: MaterialFileBookmarking, MaterialFileAccessing, 
         self.stop = stop
     }
 
+    private static var resolutionOptions: URL.BookmarkResolutionOptions {
+        #if os(iOS)
+        return [.withoutUI]
+        #else
+        return [.withSecurityScope, .withoutUI]
+        #endif
+    }
+
+    private static var creationOptions: URL.BookmarkCreationOptions {
+        #if os(iOS)
+        return [.minimalBookmark]
+        #else
+        return [.withSecurityScope]
+        #endif
+    }
+
     func makeReference(for url: URL) throws -> FileReference {
         guard url.isFileURL else { throw LocalMaterialFileAccessError.invalidBookmark }
         let data: Data
         do {
             data = try url.bookmarkData(
-                options: [.withSecurityScope],
+                options: Self.creationOptions,
                 includingResourceValuesForKeys: [.contentTypeKey, .fileSizeKey],
                 relativeTo: nil
             )

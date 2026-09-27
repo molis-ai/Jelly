@@ -970,28 +970,53 @@ enum DraftRecoveryAction: Equatable, Sendable {
                 let persisted = state.notes[record.entry.noteID]
                 if let persisted,
                    Self.hasSameRecoverableContent(record.entry.noteSnapshot, persisted) {
-                    let token = DraftRecoveryToken(
-                        identityAndGeneration: .init(
-                            identity: record.identity,
-                            draftGeneration: record.entry.draftGeneration
-                        ),
-                        noteSnapshotChecksum: record.entry.noteSnapshotChecksum,
-                        journalChecksum: record.entry.journalChecksum
+                    // Loaded state may be stale or retained after an unreadable
+                    // main file. Verify the current persisted snapshot before
+                    // discarding this exact Journal token; this receipt does
+                    // not acknowledge the draft's possibly different revision.
+                    let context = PersistableDraftContext(
+                        noteID: persisted.id, editSessionID: record.entry.editSessionID,
+                        draftGeneration: record.entry.draftGeneration,
+                        noteSnapshotChecksum: try WorkspaceChecksum.noteSnapshotChecksum(persisted),
+                        persistedNoteRevision: persisted.revision
                     )
-                    let resolution = await DraftJournalCoordinator.discardRecovery(token, journal: journal)
-                    if case .cleanupPending = resolution {
-                        parkJournalCleanup(
-                            resolution.journalStatus,
-                            receipt: nil,
-                            terminalPhase: terminalPhaseWhenClean,
-                            requiresStartupRescan: true
+                    switch try await repository.verifyPersistedDraft(context) {
+                    case let .verified(receipt) where
+                        receipt.noteID == context.noteID
+                            && receipt.editSessionID == context.editSessionID
+                            && receipt.draftGeneration == context.draftGeneration
+                            && receipt.noteSnapshotChecksum == context.noteSnapshotChecksum
+                            && receipt.persistedNoteRevision == context.persistedNoteRevision:
+                        let token = DraftRecoveryToken(
+                            identityAndGeneration: .init(
+                                identity: record.identity,
+                                draftGeneration: record.entry.draftGeneration
+                            ),
+                            noteSnapshotChecksum: record.entry.noteSnapshotChecksum,
+                            journalChecksum: record.entry.journalChecksum
                         )
+                        let resolution = await DraftJournalCoordinator.discardRecovery(token, journal: journal)
+                        if case .cleanupPending = resolution {
+                            parkJournalCleanup(
+                                resolution.journalStatus,
+                                receipt: nil,
+                                terminalPhase: terminalPhaseWhenClean,
+                                requiresStartupRescan: true
+                            )
+                            return
+                        }
+                        await recoverJournalAtStartup(terminalPhaseWhenClean: terminalPhaseWhenClean)
+                        return
+                    case .notPersisted:
+                        break
+                    case .sourceChanged:
+                        phase = .externalSourceChanged(.externalBytesChanged)
+                        return
+                    case .unreadableUnknown, .verified:
+                        phase = .unreadablePrimaryLoadFailed
                         return
                     }
-                    await recoverJournalAtStartup(terminalPhaseWhenClean: terminalPhaseWhenClean)
-                    return
-                }
-                if let persisted,
+                } else if let persisted,
                    (try WorkspaceChecksum.noteSnapshotChecksum(persisted)) == record.entry.noteSnapshotChecksum {
                     let context = PersistableDraftContext(
                         noteID: persisted.id, editSessionID: record.entry.editSessionID,
@@ -1973,7 +1998,7 @@ enum DraftRecoveryAction: Equatable, Sendable {
 
         let links = candidate.taskBlockLinks.filter { $0.noteID == restored.id }
         for link in links {
-            guard let item = candidate.calendar.items[link.calendarItemID] else {
+            guard var item = candidate.calendar.items[link.calendarItemID] else {
                 if entersRelationshipRepairOnFailure { enterDraftRecoveryRelationshipRepair() }
                 throw WorkspaceStoreError.frozen
             }
@@ -1984,6 +2009,16 @@ enum DraftRecoveryAction: Equatable, Sendable {
                 continue
             }
             restored.document.blocks[index].taskState?.completedAt = item.completedAt
+            // Restoring a reviewed draft is the same title ownership rule as
+            // an ordinary note edit. Completion remains calendar-authoritative.
+            let restoredTitle = TaskBlockCalendarTitle.normalized(
+                restored.document.blocks[index].inlineContent.spans.map(\.text).joined()
+            )
+            if item.title != restoredTitle {
+                item.title = restoredTitle
+                item.updatedAt = restored.updatedAt
+                candidate.calendar.items[item.id] = item
+            }
         }
         candidate.notes[restored.id] = restored
         do {

@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import Foundation
 import JellyMCP
 import Observation
@@ -39,7 +41,11 @@ final class MCPServiceController {
 
     var isEnabled: Bool {
         get {
+            #if os(iOS)
+            return defaults.bool(forKey: Self.enabledKey)
+            #else
             defaults.object(forKey: Self.enabledKey) == nil ? true : defaults.bool(forKey: Self.enabledKey)
+            #endif
         }
         set {
             defaults.set(newValue, forKey: Self.enabledKey)
@@ -146,6 +152,7 @@ final class MCPServiceController {
     }
 
     private func observeTermination() {
+        #if canImport(AppKit)
         guard terminationObserver == nil else { return }
         terminationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -156,6 +163,7 @@ final class MCPServiceController {
                 self?.stop()
             }
         }
+        #endif
     }
 
     // MARK: Helpers

@@ -1,0 +1,1257 @@
+// !$*UTF8*$!
+{
+	archiveVersion = "1";
+	classes = {
+	};
+	objectVersion = "77";
+	objects = {
+        A10000000000000000000001 /* JellyUITests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A10000000000000000000002;
+            buildPhases = (A10000000000000000000003, A10000000000000000000004, A10000000000000000000005);
+            buildRules = ();
+            dependencies = (A10000000000000000000006);
+            fileSystemSynchronizedGroups = (A10000000000000000000008);
+            name = JellyUITests;
+            productName = JellyUITests;
+            productReference = A10000000000000000000009;
+            productType = "com.apple.product-type.bundle.ui-testing";
+        };
+        A10000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (A1000000000000000000000A, A1000000000000000000000B); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+        A10000000000000000000003 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+        A10000000000000000000004 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+        A10000000000000000000005 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+        A10000000000000000000006 = {isa = PBXTargetDependency; target = C532CA2101CF12A36197DCEC; targetProxy = A10000000000000000000007;};
+        A10000000000000000000007 = {isa = PBXContainerItemProxy; containerPortal = 9EA1C679714760780E04859B; proxyType = 1; remoteGlobalIDString = C532CA2101CF12A36197DCEC; remoteInfo = Jelly;};
+        A10000000000000000000008 /* JellyUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = JellyUITests; sourceTree = "<group>";};
+        A10000000000000000000009 /* JellyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = JellyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR;};
+        A1000000000000000000000A = {isa = XCBuildConfiguration; name = Debug; buildSettings = {
+            GENERATE_INFOPLIST_FILE = YES;
+            PRODUCT_BUNDLE_IDENTIFIER = com.oreal.jelly.ios.uitests;
+            PRODUCT_NAME = "$(TARGET_NAME)";
+            SWIFT_VERSION = 6.0;
+            IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+            TARGETED_DEVICE_FAMILY = "1,2";
+            TEST_TARGET_NAME = Jelly;
+            CODE_SIGN_STYLE = Automatic;
+        };};
+        A1000000000000000000000B = {isa = XCBuildConfiguration; name = Release; buildSettings = {
+            GENERATE_INFOPLIST_FILE = YES;
+            PRODUCT_BUNDLE_IDENTIFIER = com.oreal.jelly.ios.uitests;
+            PRODUCT_NAME = "$(TARGET_NAME)";
+            SWIFT_VERSION = 6.0;
+            IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+            TARGETED_DEVICE_FAMILY = "1,2";
+            TEST_TARGET_NAME = Jelly;
+            CODE_SIGN_STYLE = Automatic;
+        };};
+
+		041C156C63E8E8FE12FEC041 /* MaterialSourceResolver.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MaterialSourceResolver.swift";
+			path = "../Sources/CalendarApp/Inspiration/MaterialSourceResolver.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		0505285DD4C413CD978EC6EF /* MaterialDigestProtocols.swift in Sources */ = {
+			fileRef = 44A75F67EC27487EBFD17D05 /* MaterialDigestProtocols.swift */;
+			isa = "PBXBuildFile";
+		};
+		074316C8985695862599AB22 /* SourceKindClassifier.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "SourceKindClassifier.swift";
+			path = "../Sources/CalendarApp/Inspiration/SourceKindClassifier.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		08291ABF7E98DF53D2B70E25 /* ProgressSummaryEngine.swift in Sources */ = {
+			fileRef = DEC44F49DA42BE2BDD2AAF54 /* ProgressSummaryEngine.swift */;
+			isa = "PBXBuildFile";
+		};
+		09553DB814454520653284F8 /* WorkspaceDeepLinkRouter.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceDeepLinkRouter.swift";
+			path = "../Sources/CalendarApp/AppShell/WorkspaceDeepLinkRouter.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		0C9AE807C47162C66A986724 /* JellyMCPCalGateway.swift in Sources */ = {
+			fileRef = AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */;
+			isa = "PBXBuildFile";
+		};
+		0D2EBEC124CD4DC5BD4B06DD /* FrameworksBuildPhase */ = {
+			buildActionMask = "2147483647";
+			files = (
+				236BA63FCF3C11EA99385DDB /* CalendarDomain in Frameworks */,
+				FF7D43BFF401C986AE2D1901 /* WorkspaceDomain in Frameworks */,
+				213C2803ABFDF9A2837E30CF /* CalendarPersistence in Frameworks */,
+				DD1A5D95CDCD00D831358A62 /* WhisperKit in Frameworks */,
+				CD87AF2C652B9FB1E067B8D1 /* JellyMCP in Frameworks */,
+			);
+			isa = "PBXFrameworksBuildPhase";
+			runOnlyForDeploymentPostprocessing = "0";
+		};
+		10B32F8005523B5B6C477F6D /* CalendarDomain */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = 8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */;
+			productName = "CalendarDomain";
+		};
+		1157142C9A9325B7F89725C7 /* AppleFoundationModelsDecompositionPlanner.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "AppleFoundationModelsDecompositionPlanner.swift";
+			path = "../Sources/CalendarApp/Decomposition/AppleFoundationModelsDecompositionPlanner.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		12E889163EE0D9C0CB69BBE0 /* NotesBrowserLocation.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "NotesBrowserLocation.swift";
+			path = "../Sources/CalendarApp/Notes/NotesBrowserLocation.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		13526CA087EAEF1F2FA53C30 /* WorkspaceTransactionQueue.swift in Sources */ = {
+			fileRef = 35811606228F9E1935BAFEB2 /* WorkspaceTransactionQueue.swift */;
+			isa = "PBXBuildFile";
+		};
+		142D5BDADA3739782ACDF3C0 /* CalendarPrimaryViewMode.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CalendarPrimaryViewMode.swift";
+			path = "../Sources/CalendarApp/DesignSystem/CalendarPrimaryViewMode.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		15A9618E65EC01CB791DF076 /* WorkspaceSearchIndex.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceSearchIndex.swift";
+			path = "../Sources/CalendarApp/Search/WorkspaceSearchIndex.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		175787F4FE9CDCC22504A2A9 /* InspirationViewModel.swift in Sources */ = {
+			fileRef = AA7921261968BB7244D1357C /* InspirationViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		180DBC8057945DA6DB6748C7 /* Release */ = {
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = "NO";
+				CLANG_ENABLE_MODULES = "YES";
+				CLANG_ENABLE_OBJC_ARC = "YES";
+				CLANG_WARN_DOCUMENTATION_COMMENTS = "YES";
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = "YES";
+				COPY_PHASE_STRIP = "NO";
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = "NO";
+				ENABLE_STRICT_OBJC_MSGSEND = "YES";
+				GCC_C_LANGUAGE_STANDARD = "gnu17";
+				GCC_NO_COMMON_BLOCKS = "YES";
+				GCC_WARN_64_TO_32_BIT_CONVERSION = "YES";
+				GCC_WARN_UNDECLARED_SELECTOR = "YES";
+				GCC_WARN_UNINITIALIZED_AUTOS = "YES_AGGRESSIVE";
+				GCC_WARN_UNUSED_FUNCTION = "YES";
+				GCC_WARN_UNUSED_VARIABLE = "YES";
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				SDKROOT = "iphoneos";
+				SWIFT_COMPILATION_MODE = "wholemodule";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = "complete";
+				SWIFT_VERSION = "6.0";
+				VALIDATE_PRODUCT = "YES";
+			};
+			isa = "XCBuildConfiguration";
+			name = "Release";
+		};
+		18CC6CA115B8DAB5D325E0BF /* CalendarNoteIntegrationModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CalendarNoteIntegrationModel.swift";
+			path = "../Sources/CalendarApp/Calendar/CalendarNoteIntegrationModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		1942AC14F4D2217FCE914A6D /* Shared Sources */ = {
+			children = (
+				DF0761013A0B009EEA9DA863 /* WorkspaceStore.swift */,
+				35811606228F9E1935BAFEB2 /* WorkspaceTransactionQueue.swift */,
+				AC59EF8D88DEA17F281832B6 /* WorkspaceUndoRecord.swift */,
+				6125B0AE565982F48CF93BDA /* DraftJournalCoordinator.swift */,
+				2A54A6F5D3C447AB76F983F0 /* WorkspaceMutationOutcomePresenter.swift */,
+				15A9618E65EC01CB791DF076 /* WorkspaceSearchIndex.swift */,
+				8F6F28F142A0E1827721E038 /* NoteAutosaveCoordinator.swift */,
+				826F4C8736C8810422B33B19 /* NotesViewModel.swift */,
+				12E889163EE0D9C0CB69BBE0 /* NotesBrowserLocation.swift */,
+				5B0B545A9CD996A0FE74521A /* NoteCalendarArrangementProjection.swift */,
+				09553DB814454520653284F8 /* WorkspaceDeepLinkRouter.swift */,
+				AE4D0EB99EEDA379406FFA8F /* WorkspaceRoute.swift */,
+				29D2A763760C964F6A2D460A /* WorkspaceCreationFeedback.swift */,
+				D257B542628898212CD02C6F /* TaskBlockCalendarIntegration.swift */,
+				4DBEA243E2D15B2A47876D0C /* BlockEditorSelection.swift */,
+				325F1A7DDB21B04728764147 /* BlockInputReducer.swift */,
+				4B01FF34F4E248DB70B0970E /* BlockPasteParser.swift */,
+				ECDA94CF2959836F5ADA7B6E /* ItemDraft.swift */,
+				ACCE2E370F56EA6B02AE2F03 /* ItemEditorConfiguration.swift */,
+				279B0FAC14FBC8E83C1A3F32 /* ItemEditorViewModel.swift */,
+				B21BB7890487F530852AF36F /* ItemActions.swift */,
+				18CC6CA115B8DAB5D325E0BF /* CalendarNoteIntegrationModel.swift */,
+				56E01BFE7541C5506EE768DD /* MonthViewModel.swift */,
+				7DC2794FD67B075861EEB858 /* WeekStreamModel.swift */,
+				79008CAEBE2335F7F5B67FDE /* WeekViewModel.swift */,
+				922B5A10219D1C056EE671AF /* WeekTimeGridMetrics.swift */,
+				CD536F0B310FE4EC20B17B1E /* DayDrawerViewModel.swift */,
+				142D5BDADA3739782ACDF3C0 /* CalendarPrimaryViewMode.swift */,
+				FC3B2510068CE881F3A98D3E /* CalendarTheme.swift */,
+				46E6731419BE0FCF250B637A /* CategoryPalette.swift */,
+				9F74D5071BCDD272F53CFC0A /* CategoryManagerViewModel.swift */,
+				AB66468C37C4FA90BD7D4FCE /* ProgressSummaryModels.swift */,
+				DEC44F49DA42BE2BDD2AAF54 /* ProgressSummaryEngine.swift */,
+				B3DFAE2778C07379D68E128E /* DecompositionModels.swift */,
+				95C0C91911D6B3B5688EEF7F /* DecompositionPlanning.swift */,
+				AD9EDE9742DED25FB9E81D97 /* DecompositionPromptBuilder.swift */,
+				82A2BA937541CB738A26CC2E /* DecompositionSourceCapture.swift */,
+				E8846744C1B087EFB60CD96C /* DecompositionPlanBuilder.swift */,
+				BDDEAA7D8E286E1F24FA1CC0 /* CalendarProposalEngine.swift */,
+				8C354D3ACB3E74051228A290 /* DecompositionWorkbenchModel.swift */,
+				2F7846E0B969A6917DE610D6 /* LiveDecompositionPlanner.swift */,
+				1157142C9A9325B7F89725C7 /* AppleFoundationModelsDecompositionPlanner.swift */,
+				AA7921261968BB7244D1357C /* InspirationViewModel.swift */,
+				86E238C73D797230B62428F9 /* MaterialDigestPresentation.swift */,
+				318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */,
+				44A75F67EC27487EBFD17D05 /* MaterialDigestProtocols.swift */,
+				041C156C63E8E8FE12FEC041 /* MaterialSourceResolver.swift */,
+				9B130398A98BC5FFDE92026B /* MaterialSourceProviders.swift */,
+				074316C8985695862599AB22 /* SourceKindClassifier.swift */,
+				F1EDA395A3B63B24C70B300C /* URLMetadataResolver.swift */,
+				5B344C753F5F4579A2E95D19 /* TextMaterialExtractor.swift */,
+				3C2700A200BBC6DE189D9055 /* HTMLMaterialExtractor.swift */,
+				32A51153A9E2BEAA8047AFF6 /* ImageMaterialExtractor.swift */,
+				8FBABDB9C67D61BFFE999218 /* MediaMaterialExtractor.swift */,
+				3644FFA6821758A564351674 /* PDFMaterialExtractor.swift */,
+				7406D4C30A546AFDEE909B1D /* LocalMaterialFileAccess.swift */,
+				B3F801CD1DCCFF46AF040BD2 /* XiaohongshuPageParser.swift */,
+				A3529288FAE589C358FCCC2B /* XiaohongshuMaterialAcquirer.swift */,
+				97BA6D0A857B472A300AF456 /* DigestSettingsStore.swift */,
+				D7E4A9F831A7AA5C8CF58667 /* DigestCredentialStore.swift */,
+				B6DC73F4AA6A17EF76760754 /* OpenAICompatibleMaterialSummarizer.swift */,
+				B1A548410A8C6033BEE9F7BA /* HierarchicalMaterialSummarizer.swift */,
+				3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */,
+				45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */,
+				CED66C183BD51136C31E1B92 /* MCPServiceController.swift */,
+				AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */,
+			);
+			isa = "PBXGroup";
+			name = "Shared Sources";
+			sourceTree = "<group>";
+		};
+		1CBD404C40B8D29E2A223BEE /* PBXGroup */ = {
+			children = (
+				BFABE535A45F4AE6A63E1D74 /* Jelly */,
+				A10000000000000000000008 /* JellyUITests */,
+				3940E9D4FF6D3CE896B30AE1 /* Assets.xcassets */,
+				458C42A1F33A4E74F699A4CA /* Info.plist */,
+				C6A29849533529B9BB068B4A /* README.md */,
+				74599DC3595B5CC5CE172A1D /* shared-sources.txt */,
+				1942AC14F4D2217FCE914A6D /* Shared Sources */,
+				CE0BEBC9894205B593DB3224 /* Products */,
+			);
+			isa = "PBXGroup";
+			sourceTree = "<group>";
+		};
+		213C2803ABFDF9A2837E30CF /* CalendarPersistence in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = 23146E689EEF514BBD2D9055 /* CalendarPersistence */;
+		};
+		23146E689EEF514BBD2D9055 /* CalendarPersistence */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = 8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */;
+			productName = "CalendarPersistence";
+		};
+		236BA63FCF3C11EA99385DDB /* CalendarDomain in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = 10B32F8005523B5B6C477F6D /* CalendarDomain */;
+		};
+		25A1564DC9F8CA4E89F40752 /* CalendarTheme.swift in Sources */ = {
+			fileRef = FC3B2510068CE881F3A98D3E /* CalendarTheme.swift */;
+			isa = "PBXBuildFile";
+		};
+		26EF8491E1060701CD507FCE /* CategoryManagerViewModel.swift in Sources */ = {
+			fileRef = 9F74D5071BCDD272F53CFC0A /* CategoryManagerViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		2770DCB416C17BA51BF402FA /* LiveDecompositionPlanner.swift in Sources */ = {
+			fileRef = 2F7846E0B969A6917DE610D6 /* LiveDecompositionPlanner.swift */;
+			isa = "PBXBuildFile";
+		};
+		279B0FAC14FBC8E83C1A3F32 /* ItemEditorViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ItemEditorViewModel.swift";
+			path = "../Sources/CalendarApp/Editing/ItemEditorViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		28D7A84FB95BECCB69F55A39 /* Assets.xcassets in Sources */ = {
+			fileRef = 3940E9D4FF6D3CE896B30AE1 /* Assets.xcassets */;
+			isa = "PBXBuildFile";
+		};
+		29D2A763760C964F6A2D460A /* WorkspaceCreationFeedback.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceCreationFeedback.swift";
+			path = "../Sources/CalendarApp/AppShell/WorkspaceCreationFeedback.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		2A54A6F5D3C447AB76F983F0 /* WorkspaceMutationOutcomePresenter.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceMutationOutcomePresenter.swift";
+			path = "../Sources/CalendarApp/Workspace/WorkspaceMutationOutcomePresenter.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		2A5D3F1F8B88BCCC76183062 /* HierarchicalMaterialSummarizer.swift in Sources */ = {
+			fileRef = B1A548410A8C6033BEE9F7BA /* HierarchicalMaterialSummarizer.swift */;
+			isa = "PBXBuildFile";
+		};
+		2F7846E0B969A6917DE610D6 /* LiveDecompositionPlanner.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "LiveDecompositionPlanner.swift";
+			path = "../Sources/CalendarApp/Decomposition/LiveDecompositionPlanner.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MaterialDigestCoordinator.swift";
+			path = "../Sources/CalendarApp/Inspiration/MaterialDigestCoordinator.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		325F1A7DDB21B04728764147 /* BlockInputReducer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "BlockInputReducer.swift";
+			path = "../Sources/CalendarApp/Notes/BlockEditor/BlockInputReducer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		32A51153A9E2BEAA8047AFF6 /* ImageMaterialExtractor.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ImageMaterialExtractor.swift";
+			path = "../Sources/CalendarApp/Inspiration/ImageMaterialExtractor.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		3366EA4B963E3EFFA63889EA /* ResourcesBuildPhase */ = {
+			buildActionMask = "2147483647";
+			files = (
+				28D7A84FB95BECCB69F55A39 /* Assets.xcassets in Sources */,
+			);
+			isa = "PBXResourcesBuildPhase";
+			runOnlyForDeploymentPostprocessing = "0";
+		};
+		35811606228F9E1935BAFEB2 /* WorkspaceTransactionQueue.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceTransactionQueue.swift";
+			path = "../Sources/CalendarApp/Workspace/WorkspaceTransactionQueue.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		3644FFA6821758A564351674 /* PDFMaterialExtractor.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "PDFMaterialExtractor.swift";
+			path = "../Sources/CalendarApp/Inspiration/PDFMaterialExtractor.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		373ED032742699E683E7FA91 /* NoteAutosaveCoordinator.swift in Sources */ = {
+			fileRef = 8F6F28F142A0E1827721E038 /* NoteAutosaveCoordinator.swift */;
+			isa = "PBXBuildFile";
+		};
+		3940E9D4FF6D3CE896B30AE1 /* Assets.xcassets */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "folder.assetcatalog";
+			path = "Assets.xcassets";
+			sourceTree = "<group>";
+		};
+		3A49F7E14CB7029573B9C29C /* WorkspaceMutationOutcomePresenter.swift in Sources */ = {
+			fileRef = 2A54A6F5D3C447AB76F983F0 /* WorkspaceMutationOutcomePresenter.swift */;
+			isa = "PBXBuildFile";
+		};
+		3C2700A200BBC6DE189D9055 /* HTMLMaterialExtractor.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "HTMLMaterialExtractor.swift";
+			path = "../Sources/CalendarApp/Inspiration/HTMLMaterialExtractor.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		3C46E95F2D843D7E0909815A /* MaterialDigestCoordinator.swift in Sources */ = {
+			fileRef = 318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */;
+			isa = "PBXBuildFile";
+		};
+		3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WhisperKitMaterialTranscriber.swift";
+			path = "../Sources/CalendarApp/Inspiration/WhisperKitMaterialTranscriber.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		40A8A4D6F084D522226E6380 /* Jelly.app */ = {
+			explicitFileType = "wrapper.application";
+			includeInIndex = "0";
+			isa = "PBXFileReference";
+			path = "Jelly.app";
+			sourceTree = "BUILT_PRODUCTS_DIR";
+		};
+		41D5E73B79134FA7B326FF8E /* WeekTimeGridMetrics.swift in Sources */ = {
+			fileRef = 922B5A10219D1C056EE671AF /* WeekTimeGridMetrics.swift */;
+			isa = "PBXBuildFile";
+		};
+		44A75F67EC27487EBFD17D05 /* MaterialDigestProtocols.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MaterialDigestProtocols.swift";
+			path = "../Sources/CalendarApp/Inspiration/MaterialDigestProtocols.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		44DDA86BFAB476361B0A35FA /* WhisperKitMaterialTranscriber.swift in Sources */ = {
+			fileRef = 3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */;
+			isa = "PBXBuildFile";
+		};
+		458C42A1F33A4E74F699A4CA /* Info.plist */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "text.plist.xml";
+			path = "Info.plist";
+			sourceTree = "<group>";
+		};
+		45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "BackupRecoveryPolicy.swift";
+			path = "../Sources/CalendarApp/Backup/BackupRecoveryPolicy.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		467B267058A71C21F7FEA87E /* HTMLMaterialExtractor.swift in Sources */ = {
+			fileRef = 3C2700A200BBC6DE189D9055 /* HTMLMaterialExtractor.swift */;
+			isa = "PBXBuildFile";
+		};
+		46E6731419BE0FCF250B637A /* CategoryPalette.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CategoryPalette.swift";
+			path = "../Sources/CalendarApp/Categories/CategoryPalette.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		47967D7477E5063EE76D6172 /* DigestCredentialStore.swift in Sources */ = {
+			fileRef = D7E4A9F831A7AA5C8CF58667 /* DigestCredentialStore.swift */;
+			isa = "PBXBuildFile";
+		};
+		4A9CA6CE01A40A060A26ACED /* WorkspaceStore.swift in Sources */ = {
+			fileRef = DF0761013A0B009EEA9DA863 /* WorkspaceStore.swift */;
+			isa = "PBXBuildFile";
+		};
+		4B01FF34F4E248DB70B0970E /* BlockPasteParser.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "BlockPasteParser.swift";
+			path = "../Sources/CalendarApp/Notes/BlockEditor/BlockPasteParser.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		4DBEA243E2D15B2A47876D0C /* BlockEditorSelection.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "BlockEditorSelection.swift";
+			path = "../Sources/CalendarApp/Notes/BlockEditor/BlockEditorSelection.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		4FC5ACAB236B962EA293E4F4 /* DraftJournalCoordinator.swift in Sources */ = {
+			fileRef = 6125B0AE565982F48CF93BDA /* DraftJournalCoordinator.swift */;
+			isa = "PBXBuildFile";
+		};
+		4FE42848422C6CF78EB023A2 /* ItemEditorConfiguration.swift in Sources */ = {
+			fileRef = ACCE2E370F56EA6B02AE2F03 /* ItemEditorConfiguration.swift */;
+			isa = "PBXBuildFile";
+		};
+		50132F8AF4524EAC04ADB395 /* CategoryPalette.swift in Sources */ = {
+			fileRef = 46E6731419BE0FCF250B637A /* CategoryPalette.swift */;
+			isa = "PBXBuildFile";
+		};
+		52E72A23309D2AD9A928EF20 /* MaterialSourceProviders.swift in Sources */ = {
+			fileRef = 9B130398A98BC5FFDE92026B /* MaterialSourceProviders.swift */;
+			isa = "PBXBuildFile";
+		};
+		54A2BB9940F8AFDD5DDE0065 /* DayDrawerViewModel.swift in Sources */ = {
+			fileRef = CD536F0B310FE4EC20B17B1E /* DayDrawerViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		56E01BFE7541C5506EE768DD /* MonthViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MonthViewModel.swift";
+			path = "../Sources/CalendarApp/Month/MonthViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		582C658308BE328D7B9D170C /* BlockInputReducer.swift in Sources */ = {
+			fileRef = 325F1A7DDB21B04728764147 /* BlockInputReducer.swift */;
+			isa = "PBXBuildFile";
+		};
+		5A41A4909E372637311B0DFE /* LocalMaterialFileAccess.swift in Sources */ = {
+			fileRef = 7406D4C30A546AFDEE909B1D /* LocalMaterialFileAccess.swift */;
+			isa = "PBXBuildFile";
+		};
+		5AA56DB889628E2127B4E7CE /* DecompositionPlanning.swift in Sources */ = {
+			fileRef = 95C0C91911D6B3B5688EEF7F /* DecompositionPlanning.swift */;
+			isa = "PBXBuildFile";
+		};
+		5B0B545A9CD996A0FE74521A /* NoteCalendarArrangementProjection.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "NoteCalendarArrangementProjection.swift";
+			path = "../Sources/CalendarApp/Notes/NoteCalendarArrangementProjection.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		5B344C753F5F4579A2E95D19 /* TextMaterialExtractor.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "TextMaterialExtractor.swift";
+			path = "../Sources/CalendarApp/Inspiration/TextMaterialExtractor.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		5DB5FDF47F56674309062488 /* WeekViewModel.swift in Sources */ = {
+			fileRef = 79008CAEBE2335F7F5B67FDE /* WeekViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		6125B0AE565982F48CF93BDA /* DraftJournalCoordinator.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DraftJournalCoordinator.swift";
+			path = "../Sources/CalendarApp/Workspace/DraftJournalCoordinator.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		635A6C6F26990D7D55FBDF05 /* JellyMCP */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = 8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */;
+			productName = "JellyMCP";
+		};
+		64E0A7A8BB53A9F13DDD9578 /* DecompositionPlanBuilder.swift in Sources */ = {
+			fileRef = E8846744C1B087EFB60CD96C /* DecompositionPlanBuilder.swift */;
+			isa = "PBXBuildFile";
+		};
+		6A67D2F1E164496C3605AACF /* XCConfigurationList */ = {
+			buildConfigurations = (
+				8855D4213B6E832297D73276 /* Debug */,
+				180DBC8057945DA6DB6748C7 /* Release */,
+			);
+			defaultConfigurationIsVisible = "0";
+			defaultConfigurationName = "Release";
+			isa = "XCConfigurationList";
+		};
+		6DE91EC8AB437A3A4E5D9BF0 /* NotesViewModel.swift in Sources */ = {
+			fileRef = 826F4C8736C8810422B33B19 /* NotesViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		7406D4C30A546AFDEE909B1D /* LocalMaterialFileAccess.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "LocalMaterialFileAccess.swift";
+			path = "../Sources/CalendarApp/Inspiration/LocalMaterialFileAccess.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		74599DC3595B5CC5CE172A1D /* shared-sources.txt */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "text";
+			path = "shared-sources.txt";
+			sourceTree = "<group>";
+		};
+		7858B125ED4D36F477DA495A /* ItemDraft.swift in Sources */ = {
+			fileRef = ECDA94CF2959836F5ADA7B6E /* ItemDraft.swift */;
+			isa = "PBXBuildFile";
+		};
+		79008CAEBE2335F7F5B67FDE /* WeekViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WeekViewModel.swift";
+			path = "../Sources/CalendarApp/Week/WeekViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		7B0D95080E16ACCDD2CE3AB5 /* SourceKindClassifier.swift in Sources */ = {
+			fileRef = 074316C8985695862599AB22 /* SourceKindClassifier.swift */;
+			isa = "PBXBuildFile";
+		};
+		7DC2794FD67B075861EEB858 /* WeekStreamModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WeekStreamModel.swift";
+			path = "../Sources/CalendarApp/Month/WeekStreamModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		8114F46E1A46A18E7B57661D /* SourcesBuildPhase */ = {
+			buildActionMask = "2147483647";
+			files = (
+				4A9CA6CE01A40A060A26ACED /* WorkspaceStore.swift in Sources */,
+				13526CA087EAEF1F2FA53C30 /* WorkspaceTransactionQueue.swift in Sources */,
+				DD15616A0A43B218FBFA6889 /* WorkspaceUndoRecord.swift in Sources */,
+				4FC5ACAB236B962EA293E4F4 /* DraftJournalCoordinator.swift in Sources */,
+				3A49F7E14CB7029573B9C29C /* WorkspaceMutationOutcomePresenter.swift in Sources */,
+				BB57AE3A575A5DCFFF39EF2F /* WorkspaceSearchIndex.swift in Sources */,
+				373ED032742699E683E7FA91 /* NoteAutosaveCoordinator.swift in Sources */,
+				6DE91EC8AB437A3A4E5D9BF0 /* NotesViewModel.swift in Sources */,
+				C2EE8389EC280EEE679B2586 /* NotesBrowserLocation.swift in Sources */,
+				BF9253DF40D9F5FCCC272D34 /* NoteCalendarArrangementProjection.swift in Sources */,
+				CD2CC5DEEF7A39074813DC93 /* WorkspaceDeepLinkRouter.swift in Sources */,
+				977C0DAAD7286A08C45F05F7 /* WorkspaceRoute.swift in Sources */,
+				E90EF373B6C4B4682910A28A /* WorkspaceCreationFeedback.swift in Sources */,
+				8AA2C0D3B29E4BDFEF601EC9 /* TaskBlockCalendarIntegration.swift in Sources */,
+				EBA611486CBC939799066451 /* BlockEditorSelection.swift in Sources */,
+				582C658308BE328D7B9D170C /* BlockInputReducer.swift in Sources */,
+				9C18A38A0E9395B5C7799AC9 /* BlockPasteParser.swift in Sources */,
+				7858B125ED4D36F477DA495A /* ItemDraft.swift in Sources */,
+				4FE42848422C6CF78EB023A2 /* ItemEditorConfiguration.swift in Sources */,
+				E7A565F854E17129E0401E86 /* ItemEditorViewModel.swift in Sources */,
+				82F7012E3F40ADFD345A2C33 /* ItemActions.swift in Sources */,
+				F88CAE5B7BAE562792C254D5 /* CalendarNoteIntegrationModel.swift in Sources */,
+				C10496FCD9408BCEF97F70AF /* MonthViewModel.swift in Sources */,
+				D7223AE1DB77E53EC7EAA37B /* WeekStreamModel.swift in Sources */,
+				5DB5FDF47F56674309062488 /* WeekViewModel.swift in Sources */,
+				41D5E73B79134FA7B326FF8E /* WeekTimeGridMetrics.swift in Sources */,
+				54A2BB9940F8AFDD5DDE0065 /* DayDrawerViewModel.swift in Sources */,
+				F3410279FDDC61CB1169A423 /* CalendarPrimaryViewMode.swift in Sources */,
+				25A1564DC9F8CA4E89F40752 /* CalendarTheme.swift in Sources */,
+				50132F8AF4524EAC04ADB395 /* CategoryPalette.swift in Sources */,
+				26EF8491E1060701CD507FCE /* CategoryManagerViewModel.swift in Sources */,
+				83344C948247900879F13DA8 /* ProgressSummaryModels.swift in Sources */,
+				08291ABF7E98DF53D2B70E25 /* ProgressSummaryEngine.swift in Sources */,
+				A1E0E49A886A369A4B3F7C00 /* DecompositionModels.swift in Sources */,
+				5AA56DB889628E2127B4E7CE /* DecompositionPlanning.swift in Sources */,
+				FFCAA3D5BA8F684549626AF3 /* DecompositionPromptBuilder.swift in Sources */,
+				B147C7DB6ED2B8A6A38D18E9 /* DecompositionSourceCapture.swift in Sources */,
+				64E0A7A8BB53A9F13DDD9578 /* DecompositionPlanBuilder.swift in Sources */,
+				AE58B7071597E71985DF634A /* CalendarProposalEngine.swift in Sources */,
+				973AF335558DF32E93722950 /* DecompositionWorkbenchModel.swift in Sources */,
+				2770DCB416C17BA51BF402FA /* LiveDecompositionPlanner.swift in Sources */,
+				EF576647950C20FD5366BE02 /* AppleFoundationModelsDecompositionPlanner.swift in Sources */,
+				175787F4FE9CDCC22504A2A9 /* InspirationViewModel.swift in Sources */,
+				88A464091C51B66B937538BB /* MaterialDigestPresentation.swift in Sources */,
+				3C46E95F2D843D7E0909815A /* MaterialDigestCoordinator.swift in Sources */,
+				0505285DD4C413CD978EC6EF /* MaterialDigestProtocols.swift in Sources */,
+				CC5119DF6A9A143DC1569BF9 /* MaterialSourceResolver.swift in Sources */,
+				52E72A23309D2AD9A928EF20 /* MaterialSourceProviders.swift in Sources */,
+				7B0D95080E16ACCDD2CE3AB5 /* SourceKindClassifier.swift in Sources */,
+				C1649DC57CEF1950A5E8CD1A /* URLMetadataResolver.swift in Sources */,
+				8976EB79328A80DDE2F0720F /* TextMaterialExtractor.swift in Sources */,
+				467B267058A71C21F7FEA87E /* HTMLMaterialExtractor.swift in Sources */,
+				AF40132DE7A2C5CD41A1B887 /* ImageMaterialExtractor.swift in Sources */,
+				FEAB322757F700121F540BCD /* MediaMaterialExtractor.swift in Sources */,
+				F61AE329EEC47327C892BD48 /* PDFMaterialExtractor.swift in Sources */,
+				5A41A4909E372637311B0DFE /* LocalMaterialFileAccess.swift in Sources */,
+				DD5835D801C293D1D7E66F5A /* XiaohongshuPageParser.swift in Sources */,
+				FE25A1C69651179862041B65 /* XiaohongshuMaterialAcquirer.swift in Sources */,
+				BD338AFB84986A917E8ACD20 /* DigestSettingsStore.swift in Sources */,
+				47967D7477E5063EE76D6172 /* DigestCredentialStore.swift in Sources */,
+				E7957B2FA3163042DEEA827A /* OpenAICompatibleMaterialSummarizer.swift in Sources */,
+				2A5D3F1F8B88BCCC76183062 /* HierarchicalMaterialSummarizer.swift in Sources */,
+				44DDA86BFAB476361B0A35FA /* WhisperKitMaterialTranscriber.swift in Sources */,
+				81C103D9F8CDF7CFDD03E63F /* BackupRecoveryPolicy.swift in Sources */,
+				8775F1452BBF0661F6829CAF /* MCPServiceController.swift in Sources */,
+				0C9AE807C47162C66A986724 /* JellyMCPCalGateway.swift in Sources */,
+			);
+			isa = "PBXSourcesBuildPhase";
+			runOnlyForDeploymentPostprocessing = "0";
+		};
+		81C103D9F8CDF7CFDD03E63F /* BackupRecoveryPolicy.swift in Sources */ = {
+			fileRef = 45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */;
+			isa = "PBXBuildFile";
+		};
+		826F4C8736C8810422B33B19 /* NotesViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "NotesViewModel.swift";
+			path = "../Sources/CalendarApp/Notes/NotesViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		82A2BA937541CB738A26CC2E /* DecompositionSourceCapture.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionSourceCapture.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionSourceCapture.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		82F7012E3F40ADFD345A2C33 /* ItemActions.swift in Sources */ = {
+			fileRef = B21BB7890487F530852AF36F /* ItemActions.swift */;
+			isa = "PBXBuildFile";
+		};
+		83344C948247900879F13DA8 /* ProgressSummaryModels.swift in Sources */ = {
+			fileRef = AB66468C37C4FA90BD7D4FCE /* ProgressSummaryModels.swift */;
+			isa = "PBXBuildFile";
+		};
+		86E238C73D797230B62428F9 /* MaterialDigestPresentation.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MaterialDigestPresentation.swift";
+			path = "../Sources/CalendarApp/Inspiration/MaterialDigestPresentation.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		8775F1452BBF0661F6829CAF /* MCPServiceController.swift in Sources */ = {
+			fileRef = CED66C183BD51136C31E1B92 /* MCPServiceController.swift */;
+			isa = "PBXBuildFile";
+		};
+		8855D4213B6E832297D73276 /* Debug */ = {
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = "NO";
+				CLANG_ENABLE_MODULES = "YES";
+				CLANG_ENABLE_OBJC_ARC = "YES";
+				CLANG_WARN_DOCUMENTATION_COMMENTS = "YES";
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = "YES";
+				COPY_PHASE_STRIP = "NO";
+				DEBUG_INFORMATION_FORMAT = "dwarf";
+				ENABLE_STRICT_OBJC_MSGSEND = "YES";
+				ENABLE_TESTABILITY = "YES";
+				GCC_C_LANGUAGE_STANDARD = "gnu17";
+				GCC_NO_COMMON_BLOCKS = "YES";
+				GCC_OPTIMIZATION_LEVEL = "0";
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = "YES";
+				GCC_WARN_UNDECLARED_SELECTOR = "YES";
+				GCC_WARN_UNINITIALIZED_AUTOS = "YES_AGGRESSIVE";
+				GCC_WARN_UNUSED_FUNCTION = "YES";
+				GCC_WARN_UNUSED_VARIABLE = "YES";
+				IPHONEOS_DEPLOYMENT_TARGET = "17.0";
+				ONLY_ACTIVE_ARCH = "YES";
+				SDKROOT = "iphoneos";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = "complete";
+				SWIFT_VERSION = "6.0";
+			};
+			isa = "XCBuildConfiguration";
+			name = "Debug";
+		};
+		88A464091C51B66B937538BB /* MaterialDigestPresentation.swift in Sources */ = {
+			fileRef = 86E238C73D797230B62428F9 /* MaterialDigestPresentation.swift */;
+			isa = "PBXBuildFile";
+		};
+		8976EB79328A80DDE2F0720F /* TextMaterialExtractor.swift in Sources */ = {
+			fileRef = 5B344C753F5F4579A2E95D19 /* TextMaterialExtractor.swift */;
+			isa = "PBXBuildFile";
+		};
+		8AA2C0D3B29E4BDFEF601EC9 /* TaskBlockCalendarIntegration.swift in Sources */ = {
+			fileRef = D257B542628898212CD02C6F /* TaskBlockCalendarIntegration.swift */;
+			isa = "PBXBuildFile";
+		};
+		8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */ = {
+			isa = "XCLocalSwiftPackageReference";
+			relativePath = "..";
+		};
+		8C354D3ACB3E74051228A290 /* DecompositionWorkbenchModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionWorkbenchModel.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionWorkbenchModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		8F6F28F142A0E1827721E038 /* NoteAutosaveCoordinator.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "NoteAutosaveCoordinator.swift";
+			path = "../Sources/CalendarApp/Notes/NoteAutosaveCoordinator.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		8FBABDB9C67D61BFFE999218 /* MediaMaterialExtractor.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MediaMaterialExtractor.swift";
+			path = "../Sources/CalendarApp/Inspiration/MediaMaterialExtractor.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		910BBBC6F55F0FC4B3E5252B /* XCConfigurationList */ = {
+			buildConfigurations = (
+				9BE577A0AD82C13FF2F73DFD /* Debug */,
+				B34D540F922C1CCF10ED19A1 /* Release */,
+			);
+			defaultConfigurationIsVisible = "0";
+			defaultConfigurationName = "Release";
+			isa = "XCConfigurationList";
+		};
+		922B5A10219D1C056EE671AF /* WeekTimeGridMetrics.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WeekTimeGridMetrics.swift";
+			path = "../Sources/CalendarApp/Week/WeekTimeGridMetrics.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		95C0C91911D6B3B5688EEF7F /* DecompositionPlanning.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionPlanning.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionPlanning.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		973AF335558DF32E93722950 /* DecompositionWorkbenchModel.swift in Sources */ = {
+			fileRef = 8C354D3ACB3E74051228A290 /* DecompositionWorkbenchModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		977C0DAAD7286A08C45F05F7 /* WorkspaceRoute.swift in Sources */ = {
+			fileRef = AE4D0EB99EEDA379406FFA8F /* WorkspaceRoute.swift */;
+			isa = "PBXBuildFile";
+		};
+		97BA6D0A857B472A300AF456 /* DigestSettingsStore.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DigestSettingsStore.swift";
+			path = "../Sources/CalendarApp/Inspiration/DigestSettingsStore.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		97E43DF45F2D26271CA46463 /* WorkspaceDomain */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = 8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */;
+			productName = "WorkspaceDomain";
+		};
+		98A9062820F43E54B3575B7D /* XCRemoteSwiftPackageReference */ = {
+			isa = "XCRemoteSwiftPackageReference";
+			repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git";
+			requirement = {
+				kind = "exactVersion";
+				version = "1.0.0";
+			};
+		};
+		9B130398A98BC5FFDE92026B /* MaterialSourceProviders.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MaterialSourceProviders.swift";
+			path = "../Sources/CalendarApp/Inspiration/MaterialSourceProviders.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		9BE577A0AD82C13FF2F73DFD /* Debug */ = {
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor";
+				CODE_SIGN_STYLE = "Automatic";
+				CURRENT_PROJECT_VERSION = "1";
+				ENABLE_PREVIEWS = "YES";
+				GENERATE_INFOPLIST_FILE = "NO";
+				INFOPLIST_FILE = "Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = "0.1.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.oreal.jelly.ios";
+				PRODUCT_NAME = "Jelly";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = "NO";
+				SWIFT_EMIT_LOC_STRINGS = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			isa = "XCBuildConfiguration";
+			name = "Debug";
+		};
+		9C18A38A0E9395B5C7799AC9 /* BlockPasteParser.swift in Sources */ = {
+			fileRef = 4B01FF34F4E248DB70B0970E /* BlockPasteParser.swift */;
+			isa = "PBXBuildFile";
+		};
+		9EA1C679714760780E04859B /* PBXProject */ = {
+			attributes = {
+				BuildIndependentTargetsInParallel = "YES";
+				LastSwiftUpdateCheck = "2600";
+				LastUpgradeCheck = "2600";
+				TargetAttributes = {
+					C532CA2101CF12A36197DCEC /* Jelly */ = {
+						CreatedOnToolsVersion = "26.0";
+					};
+				};
+			};
+			buildConfigurationList = 6A67D2F1E164496C3605AACF /* XCConfigurationList */;
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = "0";
+			isa = "PBXProject";
+			knownRegions = (
+				"zh-Hans",
+				"en",
+				"Base",
+			);
+			mainGroup = 1CBD404C40B8D29E2A223BEE /* PBXGroup */;
+			minimizedProjectReferenceProxies = "1";
+			packageReferences = (
+				8C21A74935665F6B18480302 /* XCLocalSwiftPackageReference */,
+				98A9062820F43E54B3575B7D /* XCRemoteSwiftPackageReference */,
+			);
+			preferredProjectObjectVersion = "77";
+			productRefGroup = CE0BEBC9894205B593DB3224 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000000000000000000001 /* JellyUITests */,
+				C532CA2101CF12A36197DCEC /* Jelly */,
+			);
+		};
+		9F74D5071BCDD272F53CFC0A /* CategoryManagerViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CategoryManagerViewModel.swift";
+			path = "../Sources/CalendarApp/Categories/CategoryManagerViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		A1E0E49A886A369A4B3F7C00 /* DecompositionModels.swift in Sources */ = {
+			fileRef = B3DFAE2778C07379D68E128E /* DecompositionModels.swift */;
+			isa = "PBXBuildFile";
+		};
+		A3529288FAE589C358FCCC2B /* XiaohongshuMaterialAcquirer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "XiaohongshuMaterialAcquirer.swift";
+			path = "../Sources/CalendarApp/Inspiration/XiaohongshuMaterialAcquirer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AA7921261968BB7244D1357C /* InspirationViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "InspirationViewModel.swift";
+			path = "../Sources/CalendarApp/Inspiration/InspirationViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AB66468C37C4FA90BD7D4FCE /* ProgressSummaryModels.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ProgressSummaryModels.swift";
+			path = "../Sources/CalendarApp/Progress/ProgressSummaryModels.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AC59EF8D88DEA17F281832B6 /* WorkspaceUndoRecord.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceUndoRecord.swift";
+			path = "../Sources/CalendarApp/Workspace/WorkspaceUndoRecord.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		ACCE2E370F56EA6B02AE2F03 /* ItemEditorConfiguration.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ItemEditorConfiguration.swift";
+			path = "../Sources/CalendarApp/Editing/ItemEditorConfiguration.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AD9EDE9742DED25FB9E81D97 /* DecompositionPromptBuilder.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionPromptBuilder.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionPromptBuilder.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AE4D0EB99EEDA379406FFA8F /* WorkspaceRoute.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceRoute.swift";
+			path = "../Sources/CalendarApp/AppShell/WorkspaceRoute.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AE58B7071597E71985DF634A /* CalendarProposalEngine.swift in Sources */ = {
+			fileRef = BDDEAA7D8E286E1F24FA1CC0 /* CalendarProposalEngine.swift */;
+			isa = "PBXBuildFile";
+		};
+		AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "JellyMCPCalGateway.swift";
+			path = "../Sources/CalendarApp/MCP/JellyMCPCalGateway.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		AF40132DE7A2C5CD41A1B887 /* ImageMaterialExtractor.swift in Sources */ = {
+			fileRef = 32A51153A9E2BEAA8047AFF6 /* ImageMaterialExtractor.swift */;
+			isa = "PBXBuildFile";
+		};
+		B147C7DB6ED2B8A6A38D18E9 /* DecompositionSourceCapture.swift in Sources */ = {
+			fileRef = 82A2BA937541CB738A26CC2E /* DecompositionSourceCapture.swift */;
+			isa = "PBXBuildFile";
+		};
+		B1A548410A8C6033BEE9F7BA /* HierarchicalMaterialSummarizer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "HierarchicalMaterialSummarizer.swift";
+			path = "../Sources/CalendarApp/Inspiration/HierarchicalMaterialSummarizer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		B21BB7890487F530852AF36F /* ItemActions.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ItemActions.swift";
+			path = "../Sources/CalendarApp/Editing/ItemActions.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		B34D540F922C1CCF10ED19A1 /* Release */ = {
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "AccentColor";
+				CODE_SIGN_STYLE = "Automatic";
+				CURRENT_PROJECT_VERSION = "1";
+				GENERATE_INFOPLIST_FILE = "NO";
+				INFOPLIST_FILE = "Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = "0.1.0";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.oreal.jelly.ios";
+				PRODUCT_NAME = "Jelly";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = "NO";
+				SWIFT_EMIT_LOC_STRINGS = "YES";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			isa = "XCBuildConfiguration";
+			name = "Release";
+		};
+		B3DFAE2778C07379D68E128E /* DecompositionModels.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionModels.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionModels.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		B3F801CD1DCCFF46AF040BD2 /* XiaohongshuPageParser.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "XiaohongshuPageParser.swift";
+			path = "../Sources/CalendarApp/Inspiration/XiaohongshuPageParser.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		B6DC73F4AA6A17EF76760754 /* OpenAICompatibleMaterialSummarizer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "OpenAICompatibleMaterialSummarizer.swift";
+			path = "../Sources/CalendarApp/Inspiration/OpenAICompatibleMaterialSummarizer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		BB57AE3A575A5DCFFF39EF2F /* WorkspaceSearchIndex.swift in Sources */ = {
+			fileRef = 15A9618E65EC01CB791DF076 /* WorkspaceSearchIndex.swift */;
+			isa = "PBXBuildFile";
+		};
+		BD338AFB84986A917E8ACD20 /* DigestSettingsStore.swift in Sources */ = {
+			fileRef = 97BA6D0A857B472A300AF456 /* DigestSettingsStore.swift */;
+			isa = "PBXBuildFile";
+		};
+		BDDEAA7D8E286E1F24FA1CC0 /* CalendarProposalEngine.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CalendarProposalEngine.swift";
+			path = "../Sources/CalendarApp/Decomposition/CalendarProposalEngine.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		BF9253DF40D9F5FCCC272D34 /* NoteCalendarArrangementProjection.swift in Sources */ = {
+			fileRef = 5B0B545A9CD996A0FE74521A /* NoteCalendarArrangementProjection.swift */;
+			isa = "PBXBuildFile";
+		};
+		BFABE535A45F4AE6A63E1D74 /* Jelly */ = {
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			isa = "PBXFileSystemSynchronizedRootGroup";
+			path = "Jelly";
+			sourceTree = "<group>";
+		};
+		C10496FCD9408BCEF97F70AF /* MonthViewModel.swift in Sources */ = {
+			fileRef = 56E01BFE7541C5506EE768DD /* MonthViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		C1649DC57CEF1950A5E8CD1A /* URLMetadataResolver.swift in Sources */ = {
+			fileRef = F1EDA395A3B63B24C70B300C /* URLMetadataResolver.swift */;
+			isa = "PBXBuildFile";
+		};
+		C2EE8389EC280EEE679B2586 /* NotesBrowserLocation.swift in Sources */ = {
+			fileRef = 12E889163EE0D9C0CB69BBE0 /* NotesBrowserLocation.swift */;
+			isa = "PBXBuildFile";
+		};
+		C532CA2101CF12A36197DCEC /* Jelly */ = {
+			buildConfigurationList = 910BBBC6F55F0FC4B3E5252B /* XCConfigurationList */;
+			buildPhases = (
+				8114F46E1A46A18E7B57661D /* SourcesBuildPhase */,
+				0D2EBEC124CD4DC5BD4B06DD /* FrameworksBuildPhase */,
+				3366EA4B963E3EFFA63889EA /* ResourcesBuildPhase */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				BFABE535A45F4AE6A63E1D74 /* Jelly */,
+			);
+			isa = "PBXNativeTarget";
+			name = "Jelly";
+			packageProductDependencies = (
+				10B32F8005523B5B6C477F6D /* CalendarDomain */,
+				97E43DF45F2D26271CA46463 /* WorkspaceDomain */,
+				23146E689EEF514BBD2D9055 /* CalendarPersistence */,
+				C8167D61EA905BEE96FFD067 /* WhisperKit */,
+				635A6C6F26990D7D55FBDF05 /* JellyMCP */,
+			);
+			productName = "Jelly";
+			productReference = 40A8A4D6F084D522226E6380 /* Jelly.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C6A29849533529B9BB068B4A /* README.md */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "net.daringfireball.markdown";
+			path = "README.md";
+			sourceTree = "<group>";
+		};
+		C8167D61EA905BEE96FFD067 /* WhisperKit */ = {
+			isa = "XCSwiftPackageProductDependency";
+			package = 98A9062820F43E54B3575B7D /* XCRemoteSwiftPackageReference */;
+			productName = "WhisperKit";
+		};
+		CC5119DF6A9A143DC1569BF9 /* MaterialSourceResolver.swift in Sources */ = {
+			fileRef = 041C156C63E8E8FE12FEC041 /* MaterialSourceResolver.swift */;
+			isa = "PBXBuildFile";
+		};
+		CD2CC5DEEF7A39074813DC93 /* WorkspaceDeepLinkRouter.swift in Sources */ = {
+			fileRef = 09553DB814454520653284F8 /* WorkspaceDeepLinkRouter.swift */;
+			isa = "PBXBuildFile";
+		};
+		CD536F0B310FE4EC20B17B1E /* DayDrawerViewModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DayDrawerViewModel.swift";
+			path = "../Sources/CalendarApp/DayDrawer/DayDrawerViewModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		CD87AF2C652B9FB1E067B8D1 /* JellyMCP in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = 635A6C6F26990D7D55FBDF05 /* JellyMCP */;
+		};
+		CE0BEBC9894205B593DB3224 /* Products */ = {
+			children = (
+				40A8A4D6F084D522226E6380 /* Jelly.app */,
+				A10000000000000000000009 /* JellyUITests.xctest */,
+			);
+			isa = "PBXGroup";
+			name = "Products";
+			sourceTree = "<group>";
+		};
+		CED66C183BD51136C31E1B92 /* MCPServiceController.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "MCPServiceController.swift";
+			path = "../Sources/CalendarApp/MCP/MCPServiceController.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		D257B542628898212CD02C6F /* TaskBlockCalendarIntegration.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "TaskBlockCalendarIntegration.swift";
+			path = "../Sources/CalendarApp/Notes/TaskBlockCalendarIntegration.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		D7223AE1DB77E53EC7EAA37B /* WeekStreamModel.swift in Sources */ = {
+			fileRef = 7DC2794FD67B075861EEB858 /* WeekStreamModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		D7E4A9F831A7AA5C8CF58667 /* DigestCredentialStore.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DigestCredentialStore.swift";
+			path = "../Sources/CalendarApp/Inspiration/DigestCredentialStore.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		DD15616A0A43B218FBFA6889 /* WorkspaceUndoRecord.swift in Sources */ = {
+			fileRef = AC59EF8D88DEA17F281832B6 /* WorkspaceUndoRecord.swift */;
+			isa = "PBXBuildFile";
+		};
+		DD1A5D95CDCD00D831358A62 /* WhisperKit in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = C8167D61EA905BEE96FFD067 /* WhisperKit */;
+		};
+		DD5835D801C293D1D7E66F5A /* XiaohongshuPageParser.swift in Sources */ = {
+			fileRef = B3F801CD1DCCFF46AF040BD2 /* XiaohongshuPageParser.swift */;
+			isa = "PBXBuildFile";
+		};
+		DEC44F49DA42BE2BDD2AAF54 /* ProgressSummaryEngine.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ProgressSummaryEngine.swift";
+			path = "../Sources/CalendarApp/Progress/ProgressSummaryEngine.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		DF0761013A0B009EEA9DA863 /* WorkspaceStore.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceStore.swift";
+			path = "../Sources/CalendarApp/Workspace/WorkspaceStore.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		E7957B2FA3163042DEEA827A /* OpenAICompatibleMaterialSummarizer.swift in Sources */ = {
+			fileRef = B6DC73F4AA6A17EF76760754 /* OpenAICompatibleMaterialSummarizer.swift */;
+			isa = "PBXBuildFile";
+		};
+		E7A565F854E17129E0401E86 /* ItemEditorViewModel.swift in Sources */ = {
+			fileRef = 279B0FAC14FBC8E83C1A3F32 /* ItemEditorViewModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		E8846744C1B087EFB60CD96C /* DecompositionPlanBuilder.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DecompositionPlanBuilder.swift";
+			path = "../Sources/CalendarApp/Decomposition/DecompositionPlanBuilder.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		E90EF373B6C4B4682910A28A /* WorkspaceCreationFeedback.swift in Sources */ = {
+			fileRef = 29D2A763760C964F6A2D460A /* WorkspaceCreationFeedback.swift */;
+			isa = "PBXBuildFile";
+		};
+		EBA611486CBC939799066451 /* BlockEditorSelection.swift in Sources */ = {
+			fileRef = 4DBEA243E2D15B2A47876D0C /* BlockEditorSelection.swift */;
+			isa = "PBXBuildFile";
+		};
+		ECDA94CF2959836F5ADA7B6E /* ItemDraft.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "ItemDraft.swift";
+			path = "../Sources/CalendarApp/Editing/ItemDraft.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		EF576647950C20FD5366BE02 /* AppleFoundationModelsDecompositionPlanner.swift in Sources */ = {
+			fileRef = 1157142C9A9325B7F89725C7 /* AppleFoundationModelsDecompositionPlanner.swift */;
+			isa = "PBXBuildFile";
+		};
+		F1EDA395A3B63B24C70B300C /* URLMetadataResolver.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "URLMetadataResolver.swift";
+			path = "../Sources/CalendarApp/Inspiration/URLMetadataResolver.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		F3410279FDDC61CB1169A423 /* CalendarPrimaryViewMode.swift in Sources */ = {
+			fileRef = 142D5BDADA3739782ACDF3C0 /* CalendarPrimaryViewMode.swift */;
+			isa = "PBXBuildFile";
+		};
+		F61AE329EEC47327C892BD48 /* PDFMaterialExtractor.swift in Sources */ = {
+			fileRef = 3644FFA6821758A564351674 /* PDFMaterialExtractor.swift */;
+			isa = "PBXBuildFile";
+		};
+		F88CAE5B7BAE562792C254D5 /* CalendarNoteIntegrationModel.swift in Sources */ = {
+			fileRef = 18CC6CA115B8DAB5D325E0BF /* CalendarNoteIntegrationModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		FC3B2510068CE881F3A98D3E /* CalendarTheme.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "CalendarTheme.swift";
+			path = "../Sources/CalendarApp/DesignSystem/CalendarTheme.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		FE25A1C69651179862041B65 /* XiaohongshuMaterialAcquirer.swift in Sources */ = {
+			fileRef = A3529288FAE589C358FCCC2B /* XiaohongshuMaterialAcquirer.swift */;
+			isa = "PBXBuildFile";
+		};
+		FEAB322757F700121F540BCD /* MediaMaterialExtractor.swift in Sources */ = {
+			fileRef = 8FBABDB9C67D61BFFE999218 /* MediaMaterialExtractor.swift */;
+			isa = "PBXBuildFile";
+		};
+		FF7D43BFF401C986AE2D1901 /* WorkspaceDomain in Frameworks */ = {
+			isa = "PBXBuildFile";
+			productRef = 97E43DF45F2D26271CA46463 /* WorkspaceDomain */;
+		};
+		FFCAA3D5BA8F684549626AF3 /* DecompositionPromptBuilder.swift in Sources */ = {
+			fileRef = AD9EDE9742DED25FB9E81D97 /* DecompositionPromptBuilder.swift */;
+			isa = "PBXBuildFile";
+		};
+	};
+	rootObject = 9EA1C679714760780E04859B /* PBXProject */;
+}
