@@ -53,15 +53,21 @@ enum DigestSettingsDefaults {
 final class DigestSettingsStore {
     static let endpointKey = "digest.endpoint.v1"
     static let modelKey = "digest.model.v1"
+    static let allowCloudTranscriptionKey = "digest.transcription.allowCloud.v1"
+    static let allowLocalWhisperKey = "digest.transcription.allowWhisper.v1"
 
     private let defaults: UserDefaults
     private(set) var endpoint: String
     private(set) var model: String
+    private(set) var allowCloudTranscription: Bool
+    private(set) var allowLocalWhisper: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         endpoint = defaults.string(forKey: Self.endpointKey) ?? ""
         model = defaults.string(forKey: Self.modelKey) ?? ""
+        allowCloudTranscription = defaults.bool(forKey: Self.allowCloudTranscriptionKey)
+        allowLocalWhisper = defaults.bool(forKey: Self.allowLocalWhisperKey)
     }
 
     @discardableResult
@@ -74,5 +80,15 @@ final class DigestSettingsStore {
         endpoint = normalizedEndpoint
         model = normalizedModel
         return true
+    }
+
+    func setAllowCloudTranscription(_ allowed: Bool) {
+        defaults.set(allowed, forKey: Self.allowCloudTranscriptionKey)
+        allowCloudTranscription = allowed
+    }
+
+    func setAllowLocalWhisper(_ allowed: Bool) {
+        defaults.set(allowed, forKey: Self.allowLocalWhisperKey)
+        allowLocalWhisper = allowed
     }
 }

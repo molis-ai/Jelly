@@ -61,7 +61,13 @@ struct AppEnvironment {
             store: store,
             acquirer: RoutedMaterialAcquirer(client: httpClient),
             audioDownloader: TemporaryMaterialAudioDownloader(client: httpClient),
-            transcriber: WhisperKitMaterialTranscriber(modelDirectory: whisperDirectory),
+            transcriber: RoutingMaterialTranscriber(
+                settings: TranscriptionSettingsReader(
+                    settings: digestSettingsStore,
+                    credentials: digestCredentialStore
+                ),
+                whisper: WhisperKitMaterialTranscriber(modelDirectory: whisperDirectory)
+            ),
             summarizer: HierarchicalMaterialSummarizer(
                 base: OpenAICompatibleMaterialSummarizer(
                     settings: digestSettingsStore,

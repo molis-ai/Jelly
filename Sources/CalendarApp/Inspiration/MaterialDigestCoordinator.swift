@@ -866,7 +866,9 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         case .modelDownloadFailed:
             (.modelDownloadFailed, "模型下载失败，可以稍后重试。")
         case .transcriptionFailed:
-            (.transcriptionFailed, "本机识别失败，原始材料仍然保留。")
+            (.transcriptionFailed, "转写失败，原始材料仍然保留。")
+        case .transcriptionUnavailable:
+            (.transcriptionFailed, "没有可用的转写。可使用系统语音、下载 SenseVoice，或允许把音频上传到 MiniMax。原始材料仍然保留。")
         case .modelNotConfigured:
             (.modelNotConfigured, "尚未配置摘要模型，请先在设置中填写。")
         case .authenticationFailed:

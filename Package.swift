@@ -29,6 +29,10 @@ let package = Package(
         .package(
             url: "https://github.com/argmaxinc/argmax-oss-swift.git",
             exact: "1.0.0"
+        ),
+        .package(
+            url: "https://github.com/FluidInference/FluidAudio.git",
+            revision: "20d4f0bd46d11d7f50a6eb4f7835cfdbd2b4ba14"
         )
     ],
     targets: [
@@ -55,13 +59,15 @@ let package = Package(
                 "WorkspaceDomain",
                 "CalendarPersistence",
                 "JellyMCP",
-                .product(name: "WhisperKit", package: "argmax-oss-swift")
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
+                .product(name: "FluidAudio", package: "FluidAudio")
             ],
             linkerSettings: [
                 .linkedFramework("Security"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Vision"),
-                .linkedFramework("PDFKit")
+                .linkedFramework("PDFKit"),
+                .linkedFramework("Speech")
             ]
         ),
         .testTarget(
