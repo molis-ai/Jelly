@@ -871,6 +871,8 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             (.transcriptionFailed, "没有可用的转写。可使用系统语音、下载 SenseVoice，或允许把音频上传到 MiniMax。原始材料仍然保留。")
         case .modelNotConfigured:
             (.modelNotConfigured, "尚未配置摘要模型，请先在设置中填写。")
+        case .localRuntimeUnavailable:
+            (.modelNotConfigured, "没有找到本机的 Codex 或 Claude。摘要已停止，没有改用云端。")
         case .authenticationFailed:
             (.authenticationFailed, "摘要接口拒绝了密钥，请在设置中检查后重试。")
         case .accessDenied:

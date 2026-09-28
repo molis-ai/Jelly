@@ -45,7 +45,11 @@ final class MobileAIServices {
                 whisperInstalled: false
             ),
             summarizer: HierarchicalMaterialSummarizer(
-                base: OpenAICompatibleMaterialSummarizer(settings: settings, credentials: credentials)
+                base: RoutingMaterialSummarizer(
+                    settings: settings,
+                    http: OpenAICompatibleMaterialSummarizer(settings: settings, credentials: credentials),
+                    local: LocalRuntimeMaterialSummarizer(settings: settings)
+                )
             )
         )
     }
@@ -57,7 +61,12 @@ final class MobileAIServices {
         )
     }
 
-    func save(endpoint: String, model: String, newSecret: String) throws {
+    func save(
+        endpoint: String,
+        model: String,
+        newSecret: String,
+        service: DigestSummaryService
+    ) throws {
         guard DigestSettingsNormalization.endpoint(endpoint) != nil,
               DigestSettingsNormalization.model(model) != nil else {
             throw MobileAIConfigurationError.invalidSettings
@@ -68,6 +77,8 @@ final class MobileAIServices {
         guard settings.save(endpoint: endpoint, model: model) else {
             throw MobileAIConfigurationError.invalidSettings
         }
+        settings.setSummarySource(.service)
+        settings.setSummaryService(service)
         refreshConfiguration()
     }
 

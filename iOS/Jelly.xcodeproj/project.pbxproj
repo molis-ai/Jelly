@@ -236,6 +236,7 @@
 				3CD9C43E8F1E6A697C3A74B3 /* WhisperKitMaterialTranscriber.swift */,
 				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
 				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
+				E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */,
 				45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */,
 				CED66C183BD51136C31E1B92 /* MCPServiceController.swift */,
 				AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */,
@@ -385,6 +386,17 @@
 		};
 		3C46E95F2D843D7E0909815A /* MaterialDigestCoordinator.swift in Sources */ = {
 			fileRef = 318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */;
+			isa = "PBXBuildFile";
+		};
+		E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "RoutingMaterialSummarizer.swift";
+			path = "../Sources/CalendarApp/Inspiration/RoutingMaterialSummarizer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */ = {
+			fileRef = E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */;
 			isa = "PBXBuildFile";
 		};
 		C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */ = {
@@ -673,6 +685,7 @@
 				44DDA86BFAB476361B0A35FA /* WhisperKitMaterialTranscriber.swift in Sources */,
 				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
 				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
+				F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */,
 				81C103D9F8CDF7CFDD03E63F /* BackupRecoveryPolicy.swift in Sources */,
 				8775F1452BBF0661F6829CAF /* MCPServiceController.swift in Sources */,
 				0C9AE807C47162C66A986724 /* JellyMCPCalGateway.swift in Sources */,

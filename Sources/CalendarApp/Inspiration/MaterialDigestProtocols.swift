@@ -236,6 +236,7 @@ enum MaterialDigestPipelineError: Error, Equatable, Sendable {
     case transcriptionFailed
     case transcriptionUnavailable
     case modelNotConfigured
+    case localRuntimeUnavailable
     case authenticationFailed
     case accessDenied
     case summarizationFailed

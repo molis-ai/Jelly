@@ -272,7 +272,7 @@ final class TranscriptionSettingsReader: @unchecked Sendable {
 
     func snapshot() -> TranscriptionSettingsSnapshot {
         TranscriptionSettingsSnapshot(
-            allowCloud: settings.allowCloudTranscription,
+            allowCloud: settings.cloudSpeechUploadEnabled,
             allowWhisper: settings.allowLocalWhisper,
             endpoint: settings.endpoint,
             secret: try? credentials.load()

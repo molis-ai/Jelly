@@ -6,6 +6,7 @@ import WorkspaceDomain
 struct MobileAISettingsView: View {
     let services: MobileAIServices
     @Environment(\.dismiss) private var dismiss
+    @State private var service = DigestSummaryService.minimax.rawValue
     @State private var endpoint = ""
     @State private var model = ""
     @State private var secret = ""
@@ -13,13 +14,36 @@ struct MobileAISettingsView: View {
     @State private var confirmsDelete = false
     @State private var allowCloud = false
 
+    private var selectedService: DigestSummaryService {
+        DigestSummaryService(rawValue: service) ?? .minimax
+    }
+
+    private var serviceSelection: Binding<String> {
+        Binding(
+            get: { service },
+            set: { newValue in
+                service = newValue
+                guard let next = DigestSummaryService(rawValue: newValue), next != .custom else { return }
+                endpoint = next.defaultEndpoint ?? ""
+                model = next.defaultModel ?? ""
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("HTTPS 接口地址，例如 https://…/v1", text: $endpoint)
-                        .textContentType(.URL)
-                        .autocorrectionDisabled()
+                    Picker("服务", selection: serviceSelection) {
+                        ForEach(DigestSummaryService.allCases) { item in
+                            Text(item.title).tag(item.rawValue)
+                        }
+                    }
+                    if selectedService == .custom {
+                        TextField("HTTPS 接口地址", text: $endpoint)
+                            .textContentType(.URL)
+                            .autocorrectionDisabled()
+                    }
                     TextField("模型名称", text: $model).autocorrectionDisabled()
                     SecureField(services.hasSavedCredential ? "输入新密钥以替换" : "API 密钥", text: $secret)
                         .autocorrectionDisabled()
@@ -32,7 +56,7 @@ struct MobileAISettingsView: View {
                         Button("删除密钥", role: .destructive) { confirmsDelete = true }
                     }
                 } header: {
-                    Text("材料提炼")
+                    Text("摘要")
                 } footer: {
                     Text("点按提炼后，提取的文字会发送到这个接口。密钥保存在系统钥匙串；留空不会清除已有密钥。保存设置不会发送测试请求。")
                 }
@@ -47,8 +71,10 @@ struct MobileAISettingsView: View {
                     }
                 }
                 Section("音频转写") {
-                    Toggle("允许把音频上传到 MiniMax 转写", isOn: $allowCloud)
-                    Text("系统语音可用时优先用系统。否则首次转写会下载约 250 MB 的 SenseVoice。手机不下载 Whisper。只有打开这个开关才会上传音频。")
+                    if selectedService.allowsSpeechUpload {
+                        Toggle("允许把音频上传到 MiniMax 转写", isOn: $allowCloud)
+                    }
+                    Text("系统语音可用时优先用系统。否则首次转写会下载约 250 MB 的 SenseVoice。手机不下载 Whisper。只有摘要服务是 MiniMax 且打开开关时才会上传音频。")
                         .foregroundStyle(.secondary)
                 }
                 if let message { Section { Text(message).accessibilityLabel(message) } }
@@ -57,8 +83,15 @@ struct MobileAISettingsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .onAppear {
                 services.refreshConfiguration()
+                service = services.settings.summaryService.rawValue
                 endpoint = services.settings.endpoint
                 model = services.settings.model
+                if endpoint.isEmpty, let preset = selectedService.defaultEndpoint {
+                    endpoint = preset
+                }
+                if model.isEmpty, let preset = selectedService.defaultModel {
+                    model = preset
+                }
                 secret = ""
                 allowCloud = services.settings.allowCloudTranscription
             }
@@ -76,8 +109,16 @@ struct MobileAISettingsView: View {
     }
 
     private func save() {
+        let resolvedEndpoint = selectedService == .custom
+            ? endpoint
+            : (selectedService.defaultEndpoint ?? endpoint)
         do {
-            try services.save(endpoint: endpoint, model: model, newSecret: secret)
+            try services.save(
+                endpoint: resolvedEndpoint,
+                model: model,
+                newSecret: secret,
+                service: selectedService
+            )
             services.settings.setAllowCloudTranscription(allowCloud)
             secret = ""
             endpoint = services.settings.endpoint

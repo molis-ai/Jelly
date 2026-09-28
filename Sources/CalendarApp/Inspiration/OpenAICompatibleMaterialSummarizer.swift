@@ -98,10 +98,6 @@ final class OpenAICompatibleMaterialSummarizer: MaterialSummarizing, @unchecked 
         source: MaterialSource
     ) async throws -> MaterialSummarizerOutput {
         try Self.validateSnapshot(snapshot)
-        let transcript = snapshot.timestampedTranscript
-        let transcriptEnd = transcript.segments.isEmpty
-            ? 0
-            : try Self.validateTranscript(transcript)
         guard let endpoint = DigestSettingsNormalization.endpoint(settings.endpoint),
               let model = DigestSettingsNormalization.model(settings.model),
               let secret = try credentials.load(),
@@ -155,37 +151,13 @@ final class OpenAICompatibleMaterialSummarizer: MaterialSummarizing, @unchecked 
             throw MaterialDigestPipelineError.summarizationFailed
         }
         try Self.throwForStatus(http.statusCode, data: data)
-        do {
-            let decoded = try Self.decodeSummary(from: data)
-            let summary = Self.grounded(
-                Self.normalized(
-                    decoded,
-                    transcript: transcript,
-                    maximumSourceTime: transcriptEnd
-                ),
-                against: snapshot
-            )
-            try Self.rejectUnmappedLegacyTimestamps(summary, against: snapshot)
-            try MaterialDigestEvidence.validateNewSummary(summary, against: snapshot)
-            try Self.validateV3Limits(summary)
-            return MaterialSummarizerOutput(
-                summary: summary,
-                endpointHost: host,
-                model: model,
-                summaryContractVersion: Self.contractVersion
-            )
-        } catch MaterialDigestEvidenceError.invalidSummary {
-            if !transcript.segments.isEmpty,
-               MaterialTranscriptSemantics.isShortAndSparse(transcript) {
-                throw MaterialDigestPipelineError.insufficientContent
-            }
-            throw MaterialDigestPipelineError.invalidSummary
-        } catch MaterialDigestPipelineError.invalidSummary
-            where !transcript.segments.isEmpty
-                && MaterialTranscriptSemantics.isShortAndSparse(transcript)
-        {
-            throw MaterialDigestPipelineError.insufficientContent
-        }
+        return try Self.finish(
+            modelText: try Self.modelText(fromChatResponse: data),
+            snapshot: snapshot,
+            source: source,
+            endpointHost: host,
+            model: model
+        )
     }
 
     func summarize(
@@ -221,7 +193,45 @@ final class OpenAICompatibleMaterialSummarizer: MaterialSummarizing, @unchecked 
         return text.contains("json_schema") || text.contains("response_format")
     }
 
-    private static func decodeSummary(from data: Data) throws -> InspirationSummary {
+    static func finish(
+        modelText: String,
+        snapshot: MaterialSnapshot,
+        source _: MaterialSource,
+        endpointHost: String,
+        model: String
+    ) throws -> MaterialSummarizerOutput {
+        let transcript = snapshot.timestampedTranscript
+        let transcriptEnd = transcript.segments.isEmpty ? 0 : try validateTranscript(transcript)
+        do {
+            let decoded = try summary(fromModelText: modelText)
+            let summary = grounded(
+                normalized(decoded, transcript: transcript, maximumSourceTime: transcriptEnd),
+                against: snapshot
+            )
+            try rejectUnmappedLegacyTimestamps(summary, against: snapshot)
+            try MaterialDigestEvidence.validateNewSummary(summary, against: snapshot)
+            try validateV3Limits(summary)
+            return MaterialSummarizerOutput(
+                summary: summary,
+                endpointHost: endpointHost,
+                model: model,
+                summaryContractVersion: contractVersion
+            )
+        } catch MaterialDigestEvidenceError.invalidSummary {
+            if !transcript.segments.isEmpty,
+               MaterialTranscriptSemantics.isShortAndSparse(transcript) {
+                throw MaterialDigestPipelineError.insufficientContent
+            }
+            throw MaterialDigestPipelineError.invalidSummary
+        } catch MaterialDigestPipelineError.invalidSummary
+            where !transcript.segments.isEmpty
+                && MaterialTranscriptSemantics.isShortAndSparse(transcript)
+        {
+            throw MaterialDigestPipelineError.insufficientContent
+        }
+    }
+
+    private static func modelText(fromChatResponse data: Data) throws -> String {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let choices = object?["choices"] as? [[String: Any]]
         guard let message = choices?.first?["message"] as? [String: Any] else {
@@ -233,7 +243,11 @@ final class OpenAICompatibleMaterialSummarizer: MaterialSummarizing, @unchecked 
         guard let content = message["content"] as? String else {
             throw MaterialDigestPipelineError.invalidSummary
         }
-        let jsonText = unwrapJSON(content)
+        return content
+    }
+
+    static func summary(fromModelText raw: String) throws -> InspirationSummary {
+        let jsonText = unwrapJSON(raw)
         guard let jsonData = jsonText.data(using: .utf8) else {
             throw MaterialDigestPipelineError.invalidSummary
         }
@@ -242,6 +256,11 @@ final class OpenAICompatibleMaterialSummarizer: MaterialSummarizing, @unchecked 
         } catch {
             throw MaterialDigestPipelineError.invalidSummary
         }
+    }
+
+    static func instruction(snapshot: MaterialSnapshot, source: MaterialSource) throws -> String {
+        try validateSnapshot(snapshot)
+        return systemPrompt(for: source) + "\n\n" + userPrompt(for: snapshot, source: source)
     }
 
     private static func unwrapJSON(_ raw: String) -> String {

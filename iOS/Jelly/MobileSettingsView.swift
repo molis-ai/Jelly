@@ -19,7 +19,7 @@ struct MobileSettingsView: View {
             Form {
                 Section("工作空间") {
                     NavigationLink("分类管理") { MobileCategoriesView(workspace: workspace) }
-                    Button("材料提炼与模型") { showingAI = true }
+                    Button("摘要") { showingAI = true }
                     Picker("外观", selection: $appearance) {
                         Text("跟随系统").tag("system")
                         Text("浅色").tag("light")
