@@ -139,16 +139,16 @@ struct PersonalCalendarApp: App {
                         credentials: environment.digestCredentialStore
                     )
                     .tabItem {
-                        Label("材料提炼", systemImage: "wand.and.stars")
+                        Label("摘要", systemImage: "wand.and.stars")
                     }
                     MCPServerSettingsView(controller: environment.mcpController)
                         .tabItem {
                             Label("MCP 服务器", systemImage: "server.rack")
                         }
                 }
-                .frame(minWidth: 520, minHeight: 320)
+                .frame(minWidth: 560, minHeight: 560)
             } else {
-                Text("无法打开材料提炼设置。")
+                Text("无法打开摘要设置。")
                     .frame(minWidth: 360, minHeight: 180)
             }
         }

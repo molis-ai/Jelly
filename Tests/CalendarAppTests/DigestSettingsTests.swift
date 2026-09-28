@@ -129,4 +129,43 @@ struct DigestSettingsTests {
         #expect(store.save(endpoint: "http://insecure.example.com", model: "gpt-test") == false)
         #expect(store.endpoint == "https://api.example.com/v1")
     }
+
+    @Test func presetServiceAndLocalRuntimeStaySeparateFromTheSpeechUploadSwitch() {
+        let suite = "jelly-digest-summary-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let store = DigestSettingsStore(defaults: defaults)
+
+        #expect(store.summarySource == .service)
+        #expect(store.summaryService == .minimax)
+        #expect(store.cloudSpeechUploadEnabled == false)
+
+        store.setSummaryService(.deepseek)
+        store.setAllowCloudTranscription(true)
+        #expect(store.save(endpoint: "https://api.deepseek.com", model: "deepseek-chat"))
+        #expect(store.cloudSpeechUploadEnabled == false)
+
+        store.setSummaryService(.minimax)
+        #expect(store.cloudSpeechUploadEnabled)
+
+        store.setSummarySource(.localRuntime)
+        store.setLocalRuntime(.claude)
+        #expect(store.cloudSpeechUploadEnabled == false)
+
+        let reloaded = DigestSettingsStore(defaults: defaults)
+        #expect(reloaded.summarySource == .localRuntime)
+        #expect(reloaded.localRuntime == .claude)
+        #expect(reloaded.summaryService == .minimax)
+    }
+
+    @Test func existingMiniMaxEndpointIsRecognizedWhenTheServiceWasNeverSaved() {
+        let suite = "jelly-digest-infer-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defaults.set("https://api.minimaxi.com/v1", forKey: DigestSettingsStore.endpointKey)
+        defaults.set("MiniMax-M3", forKey: DigestSettingsStore.modelKey)
+        let store = DigestSettingsStore(defaults: defaults)
+        #expect(store.summaryService == .minimax)
+        #expect(store.summarySource == .service)
+    }
 }

@@ -69,9 +69,13 @@ struct AppEnvironment {
                 whisper: WhisperKitMaterialTranscriber(modelDirectory: whisperDirectory)
             ),
             summarizer: HierarchicalMaterialSummarizer(
-                base: OpenAICompatibleMaterialSummarizer(
+                base: RoutingMaterialSummarizer(
                     settings: digestSettingsStore,
-                    credentials: digestCredentialStore
+                    http: OpenAICompatibleMaterialSummarizer(
+                        settings: digestSettingsStore,
+                        credentials: digestCredentialStore
+                    ),
+                    local: LocalRuntimeMaterialSummarizer(settings: digestSettingsStore)
                 )
             )
         )

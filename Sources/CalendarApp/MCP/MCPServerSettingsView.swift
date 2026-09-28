@@ -2,7 +2,12 @@ import SwiftUI
 
 struct MCPServerSettingsView: View {
     let controller: MCPServiceController?
+    @Environment(\.colorScheme) private var colorScheme
     @State private var revealToken = false
+
+    private var theme: CalendarSemanticAppearance {
+        CalendarTheme.appearance(for: colorScheme)
+    }
 
     private var enabledBinding: Binding<Bool> {
         Binding(
@@ -17,80 +22,101 @@ struct MCPServerSettingsView: View {
                 content(controller: controller)
             } else {
                 Text("MCP 服务器在此配置下不可用。")
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 480, minHeight: 280)
+                    .font(.system(size: 13))
+                    .foregroundStyle(theme.secondaryText)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(theme.canvas)
+                    .toolbarBackground(theme.canvas, for: .windowToolbar)
             }
         }
     }
 
     @ViewBuilder
     private func content(controller: MCPServiceController) -> some View {
-        Form {
-            Section("MCP 服务器") {
+        JellySettingsPage {
+            JellySettingsCard {
+                Text("MCP 服务器")
+                    .font(.system(size: 13, weight: .semibold))
                 Toggle("随 Jelly 启动", isOn: enabledBinding)
+                    .font(.system(size: 13))
+                    .toggleStyle(.switch)
                 if controller.isRunning {
-                    Label("运行中 · 127.0.0.1:\(controller.port?.description ?? "-")", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    Text("运行中 · 127.0.0.1:\(controller.port?.description ?? "-")")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
                     tokenRow(controller: controller)
-                    Text("端点只监听本机回环地址，令牌写在数据目录的 mcp-server.json（仅当前用户可读）。通过 MCP 做的修改与在 App 内操作完全一致，可用 App 内的 ⌘Z 撤销。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("端点只监听本机回环地址，令牌写在数据目录的 mcp-server.json。通过 MCP 做的修改与在 App 内操作完全一致，可用 ⌘Z 撤销。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Label("已停止", systemImage: "stop.circle")
-                        .foregroundStyle(.secondary)
+                    Text("已停止")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
                 }
                 if let error = controller.lastError, !error.isEmpty {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.error)
                 }
             }
-
             if controller.isRunning {
-                Section("接入 Claude Code（HTTP 直连）") {
-                    commandRow(text: controller.claudeCodeCommand, label: "Claude Code 命令")
+                JellySettingsCard {
+                    Text("Claude Code")
+                        .font(.system(size: 13, weight: .semibold))
+                    commandRow(text: controller.claudeCodeCommand)
                 }
-                Section("接入 Claude Desktop（stdio 桥）") {
-                    Text("把下面这段加进 Claude Desktop 的 claude_desktop_config.json（jelly-mcp 随 Jelly.app 一起安装）：")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    commandRow(text: controller.desktopJSONConfig, label: "JSON 配置")
+                JellySettingsCard {
+                    Text("Claude Desktop")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("把下面这段加进 claude_desktop_config.json。jelly-mcp 随 Jelly.app 一起安装。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    commandRow(text: controller.desktopJSONConfig)
                 }
             }
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 480, minHeight: 280)
+        .frame(minWidth: 560, minHeight: 420)
     }
 
     @ViewBuilder
     private func tokenRow(controller: MCPServiceController) -> some View {
-        HStack {
+        HStack(spacing: 10) {
             Text(revealToken ? (controller.token ?? "") : "••••••••••••••••••••••••")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(theme.primaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer()
-            Button(revealToken ? "隐藏" : "显示") {
-                revealToken.toggle()
-            }
-            Button("复制令牌") {
-                copy(controller.token ?? "")
-            }
+            Spacer(minLength: 8)
+            textButton(revealToken ? "隐藏" : "显示") { revealToken.toggle() }
+            textButton("复制") { copy(controller.token ?? "") }
         }
     }
 
     @ViewBuilder
-    private func commandRow(text: String?, label: String) -> some View {
-        HStack(alignment: .top) {
+    private func commandRow(text: String?) -> some View {
+        HStack(alignment: .top, spacing: 10) {
             Text(text ?? "")
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(theme.primaryText)
                 .lineLimit(4)
                 .textSelection(.enabled)
-            Spacer()
-            Button("复制") {
-                copy(text ?? "")
-            }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            textButton("复制") { copy(text ?? "") }
         }
+        .padding(10)
+        .background(
+            theme.canvas,
+            in: RoundedRectangle(cornerRadius: CalendarTheme.cornerRadius, style: .continuous)
+        )
+    }
+
+    private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(theme.controlAccent)
     }
 
     private func copy(_ value: String) {
