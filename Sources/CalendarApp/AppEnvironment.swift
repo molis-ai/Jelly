@@ -139,6 +139,7 @@ struct AppEnvironment {
     func startBackgroundServices() {
         let root = dataURLs.root
         quickCapture.diagnostics = { AcceptanceDiagnostics.record($0, root: root) }
+        reminderSync.diagnostics = { AcceptanceDiagnostics.record($0, root: root) }
         quickCapture.start()
         reminderSync.start()
         workspaceSync.start()

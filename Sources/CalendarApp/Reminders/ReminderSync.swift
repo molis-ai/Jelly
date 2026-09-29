@@ -167,6 +167,7 @@ final class ReminderSyncService {
     private var pendingSync: Task<Void, Never>?
     private var observer: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
+    var diagnostics: (String) -> Void = { _ in }
 
     private(set) var lastOutcome: ReminderSyncOutcome?
     private(set) var lastSyncedAt: Date?
@@ -193,6 +194,17 @@ final class ReminderSyncService {
     /// review reminder rolls forward even when nothing is edited.
     func start() {
         guard observer == nil else { return }
+        if settings.isEnabled, gateway.authorization == .notDetermined {
+            // Turned on before (e.g. a reinstall reset privacy): ask again.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if await self.gateway.requestAccess() {
+                    await self.syncNow()
+                } else {
+                    self.lastError = "没有获得提醒事项权限。可在系统设置 › 隐私与安全性 › 提醒事项 里允许 Jelly。"
+                }
+            }
+        }
         observer = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let store = self?.store else { return }
@@ -226,9 +238,23 @@ final class ReminderSyncService {
         return lastError == nil
     }
 
+    /// Turning it off takes back the open reminders Jelly wrote; ones the
+    /// user already completed stay as history.
     func disable() async {
         settings.isEnabled = false
         pendingSync?.cancel()
+        guard gateway.authorization == .authorized else { return }
+        let mapping = loadMapping()
+        var removed = 0
+        for entry in mapping.entries.values where gateway.state(of: entry.identifier) == .open {
+            if (try? gateway.delete(entry.identifier)) != nil { removed += 1 }
+        }
+        try? gateway.commit()
+        try? saveMapping(ReminderSyncMapping())
+        lastOutcome = ReminderSyncOutcome(removed: removed)
+        lastSyncedAt = clock()
+        lastError = nil
+        diagnostics("reminders disabled; removed \(removed)")
     }
 
     /// Coalesces bursts of edits into one write a moment later.
@@ -246,6 +272,7 @@ final class ReminderSyncService {
         guard settings.isEnabled else { return }
         guard gateway.authorization == .authorized else {
             lastError = "没有提醒事项权限，同步已暂停。"
+            diagnostics("reminders sync skipped: authorization \(gateway.authorization)")
             return
         }
         isSyncing = true
@@ -295,8 +322,10 @@ final class ReminderSyncService {
             lastOutcome = outcome
             lastSyncedAt = now
             lastError = nil
+            diagnostics("reminders synced: \(outcome.summary); mapped \(mapping.entries.count)")
         } catch {
             lastError = "写入提醒事项失败，下次改动时会再试。"
+            diagnostics("reminders sync failed: \(error)")
         }
     }
 

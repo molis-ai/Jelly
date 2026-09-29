@@ -25,7 +25,7 @@ struct ReminderSettingsView: View {
                 .font(.system(size: 13))
                 .toggleStyle(.switch)
                 .disabled(working)
-                caption("只写标了提醒的一次性事项，放在“提醒事项”里名为 Jelly 的列表。这个列表在 iCloud 账户下时，iPhone 和 Apple Watch 会一起响。Jelly 只写不读：你在手机上勾掉或删掉的提醒不会被写回，除非之后在 Jelly 里又改了这件事。")
+                caption("只写标了提醒的一次性事项，放在“提醒事项”里名为 Jelly 的列表。这个列表在 iCloud 账户下时，iPhone 和 Apple Watch 会一起响。Jelly 只写不读：你在手机上勾掉或删掉的提醒不会被写回，除非之后在 Jelly 里又改了这件事。关掉时会移除 Jelly 写进去、还没完成的提醒。")
                 statusLine
                 if enabled {
                     Button("立即同步") { Task { await service.syncNow() } }

@@ -181,4 +181,39 @@ struct ReminderSyncServiceTests {
         #expect(await service.enable())
         #expect(gateway.openTitles == ["回顾 1 条旧灵感"])
     }
+
+    @Test func turningOffTakesBackOpenRemindersButKeepsCompletedOnes() async throws {
+        let (settings, mappingURL, cleanup) = try environment()
+        defer { cleanup() }
+        settings.reviewEnabled = false
+        let (store, _) = try await makeReadyStore(initialState: makeEmptyState())
+        let gateway = FakeReminderGateway()
+        let service = ReminderSyncService(store: store, gateway: gateway, mappingURL: mappingURL, settings: settings)
+        let categoryID = store.calendarState.uncategorizedID
+        _ = try await store.sendWorkspace(.calendar(.createItem(try item("开会", reminder: .beforeStart(minutes: 5), categoryID: categoryID))))
+        _ = try await store.sendWorkspace(.calendar(.createItem(try item("交房租", reminder: .beforeStart(minutes: 0), categoryID: categoryID))))
+        #expect(await service.enable())
+        let paid = try #require(gateway.reminders.first { $0.value.request.title == "交房租" }?.key)
+        gateway.reminders[paid]?.completed = true
+
+        await service.disable()
+        #expect(!settings.isEnabled)
+        #expect(gateway.openTitles.isEmpty)
+        #expect(gateway.reminders.keys.sorted() == [paid])
+        #expect(service.lastOutcome?.removed == 1)
+    }
+
+    @Test func previouslyEnabledSyncAsksForPermissionAgainOnStart() async throws {
+        let (settings, mappingURL, cleanup) = try environment()
+        defer { cleanup() }
+        settings.isEnabled = true
+        settings.reviewEnabled = false
+        let (store, _) = try await makeReadyStore(initialState: makeEmptyState())
+        _ = try await store.sendWorkspace(.calendar(.createItem(try item("开会", reminder: .beforeStart(minutes: 5), categoryID: store.calendarState.uncategorizedID))))
+        let gateway = FakeReminderGateway()
+        let service = ReminderSyncService(store: store, gateway: gateway, mappingURL: mappingURL, settings: settings)
+        service.start()
+        #expect(await eventually { gateway.openTitles == ["开会"] })
+        #expect(gateway.authorization == .authorized)
+    }
 }
