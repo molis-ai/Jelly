@@ -2,7 +2,7 @@
 
 Local-first personal productivity app for macOS, with a native iOS app in development.
 
-**Now:** calendar with natural-language quick add (“明天下午 3 点开会”), an undated list, and item reminders delivered through Apple Reminders; structured Block notes and calendar–note relations; a raw-first inspiration inbox with system-wide capture (⌃⌥J panel, Services menu, menu bar, Siri / Shortcuts on iOS), AI expansion, a daily review, and one-step “turn into a to-do”; material digests (web, 公众号, PDF, images, 小红书, B 站, podcasts) with “my view” prompts and cross-material synthesis.
+**Now:** calendar with natural-language quick add (“明天下午 3 点开会”), an undated list, and item reminders delivered through Apple Reminders; structured Block notes that link to each other (type `[[` or `【【`, with backlinks) and calendar–note relations; a raw-first inspiration inbox with system-wide capture (⌃⌥J panel, Services menu, menu bar, Siri / Shortcuts on iOS), AI expansion, a daily review, and one-step “turn into a to-do”; material digests (web, 公众号, PDF, images, 小红书, B 站, podcasts) with “my view” prompts and cross-material synthesis.
 **AI:** expansion, decomposition, digests and synthesis all use the model chosen in Settings › 摘要 — a cloud preset with your own key, or the logged-in Codex / Claude CLI on the Mac.
 **Also built in:** a built-in MCP server that exposes calendar/schedule operations to AI clients over loopback HTTP (plus a bundled `jelly-mcp` stdio bridge) — see [docs/Jelly-MCP.md](docs/Jelly-MCP.md).
 
@@ -44,7 +44,7 @@ Open `iOS/Jelly.xcodeproj`, select the `Jelly-iOS` scheme and an iPhone simulato
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/build-ios.sh
 ```
 
-Output: `dist/ios/Debug-iphonesimulator/Jelly.app`. Device signing is configured separately in Xcode. See the [iOS guide](iOS/README.md) for UI tests and the [validation record](docs/ios/验证记录.md) for evidence and remaining gaps.
+Output: `dist/ios/Debug-iphonesimulator/Jelly.app`. Device signing is configured separately in Xcode. Without an iOS SDK, `Scripts/test-ios-catalyst.sh` typechecks every iOS source for iOS 17 through Mac Catalyst. See the [iOS guide](iOS/README.md) for UI tests and the [validation record](docs/ios/验证记录.md) for evidence and remaining gaps.
 
 ## Data and installing a new build
 

@@ -12,7 +12,7 @@
 
 2026-09-27 已安装 Xcode 27.0（27A266a）及 iOS 27.0 Simulator（24A434）；用户处理许可后，真实 Debug 模拟器构建通过。产物包含 arm64 与 x86_64，已安装到 iPhone 17 并显示日历首屏与事项表单。最终测试产物为 arm64；真机签名、全功能操作与用户验收仍未完成。
 
-共享源码、移动服务和移动 AI 视图已使用本机 macOS SDK 做实际 Swift 类型检查；持久化闭环由 `Scripts/test-ios-shared.sh` 验证。这些检查不覆盖 iOS SDK API、iOS 布局或触摸交互。
+共享源码、移动服务和移动 AI 视图已使用本机 macOS SDK 做实际 Swift 类型检查；持久化闭环由 `Scripts/test-ios-shared.sh` 验证。`Scripts/test-ios-catalyst.sh` 在没有 iOS SDK 的机器上把整套 iOS 源码（含 UIKit 界面）当作 Mac Catalyst、按 iOS 17 做类型检查，能查出 iOS 专有的可用性错误；WhisperKit / SenseVoice 转写用替身跳过。这些检查都不覆盖 iOS 布局或触摸交互。
 
 ## 在 Xcode 运行
 
@@ -47,7 +47,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/build-ios.sh
 - **分享表单**：在“快捷指令”里新建一个快捷指令，打开“在共享表单中显示”，输入类型选文本、URL、图像，然后加一步“收进 Jelly 灵感”（图片用“把文件收进 Jelly”）。之后在任何 App 里点分享就能看到它。
 - **提醒**：事项表单里的“提醒”到点由这台 iPhone 发本地通知；Mac 上标的提醒通过系统“提醒事项”的 Jelly 列表经 iCloud 送达。
 - **同步**：设置 › 同步，选 iCloud Drive 里的“Jelly 同步”文件夹（Mac 默认就用它）。规则见 [docs/sync.md](../docs/sync.md)。
-- 这些都只做过 macOS SDK 下的类型检查（`Scripts/test-ios-shared.sh`），**还没有在模拟器或真机上运行过**。
+- **笔记互链**：键盘上方工具栏“笔记”按标题搜一篇插入链接；点链接（归档笔记里）或长按链接选“打开笔记”跳过去；笔记详情里有“反向链接”一节。
+- 这些都只做过类型检查（`Scripts/test-ios-shared.sh`、`Scripts/test-ios-catalyst.sh`），**还没有在模拟器或真机上运行过**。
 
 ## 工程约定与验收
 

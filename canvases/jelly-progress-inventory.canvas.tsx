@@ -44,7 +44,7 @@ const loops: Loop[] = [
       { name: "无日期清单", status: "done", note: "日历工具栏“清单”打开“以后再说”：加一件没定日期的事，写了日期会直接进日历；一键安排到今天 / 明天" },
       { name: "手机提醒", status: "done", note: "一次性和重复事项都能设提醒。Mac 写进 iCloud 账户下“提醒事项”的 Jelly 列表，2026-09-29 实测按时响；iPhone App 另发本地通知（未在真机运行）" },
       { name: "完成与顺延", status: "skip", note: "你按天记录就够，不需要“完成”；现有勾选保持不动" },
-      { name: "手机上看 / 记", status: "partial", note: "iOS App 已合入 main 分支线，能同步、能从 Siri / 分享表单收下；本机没有 Xcode，只做了 macOS SDK 类型检查，没在模拟器或真机跑" },
+      { name: "手机上看 / 记", status: "partial", note: "iOS App 已合入 main 分支线，能同步、能从 Siri / 分享表单收下；本机没有 Xcode，整套 iOS 源码按 iOS 17 做了类型检查（Mac Catalyst），没在模拟器或真机跑" },
     ],
   },
   {
@@ -66,7 +66,7 @@ const loops: Loop[] = [
     steps: [
       { name: "丢进材料", status: "done", note: "网页 / PDF、截图 OCR、小红书、B 站、播客；公众号改为专门抽取 #js_content，两篇真实文章抽出 2398 / 6203 字正文" },
       { name: "AI 消化", status: "done", note: "摘要、延展、拆开并安排、追问与综合都读同一套设置：云端预设 + Key，或本机已登录的 Codex / Claude；本机 claude 未登录时会明确提示" },
-      { name: "关联管理", status: "partial", note: "灵感可转笔记或直接变待办，笔记有单层分类；笔记之间仍不能互链，没有反向链接" },
+      { name: "关联管理", status: "done", note: "笔记里打 [[（中文输入法下【【也行）或点格式栏“[[笔记]]”，按标题选一篇链上，没有就当场新建；点链接跳过去；被链接的笔记顶部有“反向链接 · N”，列出是哪篇、哪一段。iPhone：工具栏“笔记”插入，点或长按链接打开，详情页有反向链接区" },
       { name: "知识图谱", status: "missing", note: "没有（不在这次清单里）" },
       { name: "形成观点", status: "done", note: "提炼完成后有“我的看法”，可让模型追问；两份以上已提炼材料可生成综合笔记（共同指向、分歧、待追问题、立场草稿）" },
     ],
@@ -218,7 +218,7 @@ export default function JellyProgressInventory() {
             “当前必须”和“可以延后”都已做进代码并验收；手机提醒已由你确认按时响。剩下两件只有你能做的。
           </Text>
           <Text tone="secondary" style={{ lineHeight: 1.6 }}>
-            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步。还需要你：装上 0.4.0；在装了 Xcode 的机器上跑一次 iOS App。
+            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步；笔记之间能用 [[ 互链，并看到谁链到了自己。还需要你：装上 0.4.0；在装了 Xcode 的机器上跑一次 iOS App。
           </Text>
         </Stack>
       </div>
@@ -355,7 +355,8 @@ export default function JellyProgressInventory() {
           rows={[
             ["自动化测试", "领域、日历、持久化、MCP 四个目标 533 个用例全部通过。App 目标单进程会中途退出（main 上同样），改用 Scripts/test-app-suites.sh 逐套件运行并与 main 对照：本分支 115 个套件 109 通过，main 103 个套件 96 通过；本分支的失败项在 main 上同样失败或单独重跑通过，两个会让进程退出的套件两边相同"],
             ["真实授权：手机提醒", "2026-09-29 你在系统弹窗允许后，测试版写入 3 条到 iCloud 账户下的 Jelly 列表（读回核对到期与闹钟），02:37 的验收提醒按时响；随后收回 3 条"],
-            ["iOS 代码", "Scripts/test-ios-shared.sh：78 个共享源码 + 意图、提醒、同步、清单视图在 macOS SDK 下类型检查，移动端持久化冒烟通过；未在 iOS SDK 构建"],
+            ["iOS 代码", "Scripts/test-ios-shared.sh：78 个共享源码 + 意图、提醒、同步、清单视图在 macOS SDK 下类型检查，移动端持久化冒烟通过。新增 Scripts/test-ios-catalyst.sh：以 Mac Catalyst 对 96 个 iOS 源码（含 UIKit 界面）按 iOS 17 类型检查，查出并修了两处真机会编译失败的地方（同步设置用了 iOS 没有的主目录接口；“把文件收进 Jelly”的参数写法要 iOS 18）。仍未在 iOS SDK 构建"],
+            ["笔记互链", "链接就是正文里指向 jelly://note/<id> 的普通链接：改标题不断、随同步和 Markdown 导出走，不加新存储字段；反向链接每次从正文算出。NoteLinkIndexTests 5 个 + NoteLinkEditorTests 14 个（[[ 与【【触发、方向键 / 回车 / Esc、当场新建、新建期间改了字不会被覆盖、真实编辑器接到仓库）；离屏渲染菜单、反向链接、编辑器（浅 / 深色）"],
             ["真实打包：服务菜单 → 延展", "dist/Jelly.app 0.4.0 在隔离数据下，经 NSPerformService 收下一句话，本机 Codex 写回 1 句补充 + 3 个方向（local/codex）"],
             ["真实打包：同步", "两个隔离实例共用一个文件夹：空白一方收到 7 条灵感、事项（含提前 10 分钟提醒）、2 条无日期事项；“未分类”收敛到同一个 id"],
             ["真实联网：公众号", "两篇公开文章抽出 2398 / 6203 字正文，带公众号名与发布日期"],
