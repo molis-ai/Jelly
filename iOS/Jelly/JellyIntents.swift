@@ -41,7 +41,11 @@ struct CaptureMaterialIntent: AppIntent {
     static let description = IntentDescription("截图、图片、PDF、音频或视频作为材料收进 Jelly 灵感，之后可以提炼。")
     static let openAppWhenRun = false
 
-    @Parameter(title: "文件", supportedContentTypes: [.image, .pdf, .audio, .movie, .plainText, .html])
+    // `supportedContentTypes:` needs iOS 18; identifiers work from iOS 16.
+    @Parameter(
+        title: "文件",
+        supportedTypeIdentifiers: ["public.image", "com.adobe.pdf", "public.audio", "public.movie", "public.plain-text", "public.html"]
+    )
     var file: IntentFile
 
     @MainActor

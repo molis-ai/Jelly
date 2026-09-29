@@ -26,7 +26,7 @@ enum SyncFolderLocation: Codable, Equatable, Sendable {
         switch self {
         case let .path(path):
             return path.replacingOccurrences(
-                of: FileManager.default.homeDirectoryForCurrentUser.path + "/Library/Mobile Documents/com~apple~CloudDocs",
+                of: NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs",
                 with: "iCloud Drive"
             )
         case let .bookmark(data):
