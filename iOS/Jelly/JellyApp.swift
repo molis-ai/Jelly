@@ -43,6 +43,7 @@ struct MobileRootView: View {
     @State private var changingTab = false
     @State private var showingSettings = false
     @State private var showingSearch = false
+    @State private var reminders = MobileReminderScheduler()
 
     var body: some View {
         TabView(selection: Binding(get: { selectedTab }, set: { next in
@@ -70,7 +71,14 @@ struct MobileRootView: View {
             .tabItem { Label("灵感", systemImage: "lightbulb") }.tag(2)
         }
         .tint(CalendarTheme.appearance(for: colorScheme).controlAccent)
+        .onChange(of: workspace.store.statePublicationGeneration) { _, _ in
+            guard workspace.isReady else { return }
+            Task { await reminders.sync(state: workspace.state) }
+        }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .active, workspace.isReady {
+                Task { await reminders.sync(state: workspace.state) }
+            }
             if phase == .active, workspace.isReady { workspace.mcp.startIfNeeded() }
             else if phase == .background {
                 workspace.mcp.stop()

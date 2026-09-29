@@ -157,6 +157,10 @@ struct PersonalCalendarApp: App {
                         .tabItem {
                             Label("随手记", systemImage: "lightbulb")
                         }
+                    ReminderSettingsView(service: environment.reminderSync)
+                        .tabItem {
+                            Label("提醒", systemImage: "bell")
+                        }
                     MCPServerSettingsView(controller: environment.mcpController)
                         .tabItem {
                             Label("MCP 服务器", systemImage: "server.rack")

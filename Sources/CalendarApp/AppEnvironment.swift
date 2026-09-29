@@ -21,6 +21,7 @@ struct AppEnvironment {
     let inspirationFollowUp: InspirationFollowUpService
     let captureService: InspirationCaptureService
     let quickCapture: QuickCaptureCoordinator
+    let reminderSync: ReminderSyncService
     /// Nil only when MCP is explicitly disabled for this run (acceptance tests).
     let mcpController: MCPServiceController?
 
@@ -116,6 +117,12 @@ struct AppEnvironment {
                 captureService: captureService,
                 settings: QuickCaptureSettings(defaults: digestSettingsStore.defaultsForCompanionSettings)
             ),
+            reminderSync: ReminderSyncService(
+                store: store,
+                gateway: EventKitReminderGateway(),
+                mappingURL: dataURLs.root.appendingPathComponent("reminder-sync.json"),
+                settings: ReminderSyncSettings(defaults: digestSettingsStore.defaultsForCompanionSettings)
+            ),
             mcpController: mcpController
         )
     }
@@ -124,6 +131,7 @@ struct AppEnvironment {
     /// whether or not the main window is open. Safe to call repeatedly.
     func startBackgroundServices() {
         quickCapture.start()
+        reminderSync.start()
     }
 
     static func loadLive(

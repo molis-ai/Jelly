@@ -136,6 +136,7 @@ enum MobileItemEditing {
         try field(\.categoryID, "分类")
         try field(\.priority, "优先级")
         try field(\.isPinned, "置顶状态")
+        try field(\.reminder, "提醒")
         if !sameSchedule(baseline, edited) {
             guard sameSchedule(latest, baseline) || sameSchedule(latest, edited) else { throw MobileItemEditingError.conflict("日期与时间") }
             result.startDate = edited.startDate; result.endDate = edited.endDate

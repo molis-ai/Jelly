@@ -266,6 +266,10 @@ struct QuickCreatePopover: View {
 
             scheduleBlock
 
+            if !model.draft.repeatsWeekly {
+                EditorReminderPicker(reminder: $model.draft.reminder, usesTime: model.draft.usesTime)
+            }
+
             EditorMoreDetailsDisclosure(isExpanded: $showMoreDetails) {
                 VStack(alignment: .leading, spacing: EditorFormStyle.contentSpacing) {
                     EditorRecurrenceModePicker(mode: recurrenceModeBinding)

@@ -338,6 +338,23 @@ struct MobileItemEditor: View {
                         DatePicker("结束时间", selection: timeBinding(\.endTime), displayedComponents: .hourAndMinute)
                     }
                 }
+                if !model.draft.repeatsWeekly {
+                    Section {
+                        Picker("提醒", selection: $model.draft.reminder) {
+                            Text("不提醒").tag(ItemReminder?.none)
+                            ForEach(MobileReminderOptions.options(usesTime: model.draft.usesTime), id: \.self) { option in
+                                Text(option.title).tag(Optional(option))
+                            }
+                        }
+                        .onChange(of: model.draft.usesTime) { _, _ in
+                            model.draft.reminder = model.draft.reminder.map {
+                                MobileReminderOptions.adapted($0, usesTime: model.draft.usesTime)
+                            }
+                        }
+                    } footer: {
+                        Text("到点时这台 iPhone 会通知你。Mac 上标的提醒通过“提醒事项”的 Jelly 列表送达。")
+                    }
+                }
                 if canEditRecurrence {
                     Section("重复") {
                         Picker("重复规则", selection: $model.draft.recurrenceMode) {

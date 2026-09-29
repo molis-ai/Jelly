@@ -49,6 +49,7 @@ module_maps += sorted((root / ".build/artifacts").glob("**/macos-*/Headers/*/mod
 for module_map in module_maps:
     common += ["-Xcc", f"-fmodule-map-file={module_map}", "-Xcc", f"-I{module_map.parent}"]
 typecheck_sources = sources + [root / "iOS/Jelly/MobileAIViews.swift", root / "iOS/Jelly/MobileMonthStream.swift"]
+typecheck_sources += [root / "iOS/Jelly/MobileReminders.swift"]
 subprocess.run(common + ["-typecheck"] + [str(path) for path in typecheck_sources], check=True, cwd=root)
 
 link_list = bin_path / "PersonalCalendar.product/Objects.LinkFileList"
