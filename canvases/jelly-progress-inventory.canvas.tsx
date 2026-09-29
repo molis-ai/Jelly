@@ -42,7 +42,7 @@ const loops: Loop[] = [
       { name: "看日程", status: "done", note: "月 / 周 / 日期抽屉、拖拽、分类颜色、置顶、优先级、复制到当天、撤销、⌘K 全局查找" },
       { name: "快速记一条", status: "done", note: "标题里直接写“明天下午 3 点开会”“周五 15:00-16:30”“今晚8点提醒我…”，保存前预览识别结果，可点“按原样”" },
       { name: "无日期清单", status: "done", note: "日历工具栏“清单”打开“以后再说”：加一件没定日期的事，写了日期会直接进日历；一键安排到今天 / 明天" },
-      { name: "手机提醒", status: "partial", note: "事项可设提醒，Mac 写进“提醒事项”的 Jelly 列表经 iCloud 响；iPhone 发本地通知。真实写入需要你在系统弹窗里允许，还没实测" },
+      { name: "手机提醒", status: "done", note: "一次性和重复事项都能设提醒。Mac 写进 iCloud 账户下“提醒事项”的 Jelly 列表，2026-09-29 实测按时响；iPhone App 另发本地通知（未在真机运行）" },
       { name: "完成与顺延", status: "skip", note: "你按天记录就够，不需要“完成”；现有勾选保持不动" },
       { name: "手机上看 / 记", status: "partial", note: "iOS App 已合入 main 分支线，能同步、能从 Siri / 分享表单收下；本机没有 Xcode，只做了 macOS SDK 类型检查，没在模拟器或真机跑" },
     ],
@@ -215,10 +215,10 @@ export default function JellyProgressInventory() {
       <div style={{ padding: "16px 18px", borderRadius: 8, background: theme.fill.tertiary }}>
         <Stack gap={8}>
           <Text weight="semibold" style={{ fontSize: 16, lineHeight: 1.55 }}>
-            “当前必须”和“可以延后”都已做进代码。剩下的是三件只有你能做的验收。
+            “当前必须”和“可以延后”都已做进代码并验收；手机提醒已由你确认按时响。剩下两件只有你能做的。
           </Text>
           <Text tone="secondary" style={{ lineHeight: 1.6 }}>
-            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步。还需要你：装上 0.4.0；在设置 › 提醒里允许一次“提醒事项”权限，看手机是否响；在真机或模拟器上跑一次 iOS App。
+            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步。还需要你：装上 0.4.0；在装了 Xcode 的机器上跑一次 iOS App。
           </Text>
         </Stack>
       </div>
@@ -275,7 +275,7 @@ export default function JellyProgressInventory() {
         <Stack gap={4}>
           <H2>盘点清单的完成情况</H2>
           <Text size="small" tone="tertiary">
-            “当前必须”与“可以延后”全部实现；“应当收起”的三项这次没有动，另加一条待你决定的。
+            “当前必须”与“可以延后”全部实现并验收；“应当收起”的三项这次没有动，与 Todo 的关系你已决定。
           </Text>
         </Stack>
         <Grid columns={3} gap={28}>
@@ -287,7 +287,7 @@ export default function JellyProgressInventory() {
               { name: "手机上把东西丢进来", why: "App Intents + App Shortcuts，文字、链接、文件（macOS SDK 类型检查，未在 iOS 运行）" },
               { name: "回头看", why: "按最早优先逐条三选一，每日提示，可选 21:00 提醒（单测 + 离屏渲染）" },
               { name: "灵感延展", why: "补一句 + 2–3 个方向，采纳 / 忽略 / 变成待办（单测；真实打包用本机 Codex 生成）" },
-              { name: "手机提醒", why: "Mac 写提醒事项 Jelly 列表，iPhone 本地通知（假网关单测；系统权限需你本人允许后实测）" },
+              { name: "手机提醒", why: "含重复事项；Mac 写 iCloud 的 Jelly 列表，iPhone 本地通知（单测；真实授权后写入 3 条，验收提醒按时响，已收回）" },
             ]}
           />
           <GapColumn
@@ -318,7 +318,7 @@ export default function JellyProgressInventory() {
                 name: "把 Whisper 当默认转写",
                 why: "默认已是系统语音，然后 SenseVoice。Whisper 只在 Mac 上单独打开",
               },
-              { name: "无日期清单与 Todo 插件重叠", why: "Molis Work 里的 Todo 计划做唯一正式待办；Jelly 这份清单是否保留，由你决定" },
+              { name: "无日期清单与 Todo 插件", why: "已决定（2026-09-29）：Jelly 保留自己的任务和无日期清单，与 Todo 各自独立，不做迁移" },
             ]}
           />
         </Grid>
@@ -326,7 +326,7 @@ export default function JellyProgressInventory() {
           <Stack gap={4}>
             <Text weight="semibold">还需要你本人做的</Text>
             <Text size="small" tone="secondary" style={{ lineHeight: 1.6 }}>
-              1. 用 Scripts/install-desktop-app-safely.sh 装上 dist/Jelly.app（0.4.0，会先备份应用和数据）。2. 设置 › 提醒 打开，系统弹窗点允许，给明天的事项设个提前 5 分钟，看 iPhone 是否响。3. 在装了 Xcode 的机器上跑 Scripts/build-ios.sh 和 test-ios-ui.sh，并在快捷指令里把“收进 Jelly 灵感”放进分享表单试一次。4. 两端设置 › 同步 选同一个 iCloud Drive 文件夹。
+              1. 用 Scripts/install-desktop-app-safely.sh 装上 dist/Jelly.app（0.4.0，会先备份应用和数据），在设置 › 提醒 打开手机提醒（这台 Mac 已授权过测试版，同一应用标识）。2. 在装了 Xcode 的机器上跑 Scripts/build-ios.sh 和 test-ios-ui.sh，并在快捷指令里把“收进 Jelly 灵感”放进分享表单试一次。3. 两端设置 › 同步 选同一个 iCloud Drive 文件夹。
             </Text>
           </Stack>
         </div>
@@ -340,7 +340,7 @@ export default function JellyProgressInventory() {
             headers={["问题", "你的回答", "现在的状态"]}
             rows={[
               ["58 条事项为什么没勾过完成", "不需要“完成”，按天记录就够", "完成统计仍应收起，这次没改"],
-              ["在滴答里依赖提醒吗", "依赖，主要靠手机", "已做：Mac 经提醒事项 + iCloud，iPhone 本地通知；等你允许权限后实测"],
+              ["在滴答里依赖提醒吗", "依赖，主要靠手机", "已做并实测：Mac 经 iCloud 提醒事项按时响；重复事项也支持；iPhone App 另有本地通知"],
               ["灵感在哪儿冒出来", "手机和 Mac 差不多一半一半，也想用语音", "Mac 快捷键 / 服务 / 菜单栏；iPhone Siri 口述、分享表单；两端可同步"],
               ["最常收藏哪几类", "小红书、公众号、播客、B 站、网页、截图都有", "公众号补上专门抽取；手机截图可直接当材料收下"],
               ["AI 用哪家", "用户自选，自带 Key", "预设 + Key 或本机 Codex / Claude；延展、拆解、观点、综合都已迁过来"],
@@ -353,7 +353,8 @@ export default function JellyProgressInventory() {
         <Table
           headers={["结论", "依据"]}
           rows={[
-            ["自动化测试", "领域、日历、持久化、MCP 四个测试目标 533 个用例全部通过。App 目标一次跑不完（main 上同样中途退出），分批对照 main：失败项与 main 相同（深色外观、性能门槛、2 条摘要测试、2 条依赖 1 秒时序的偶发界面测试）。新增 69 个用例（其中 5 个用环境变量开启的实测与验收工具）全部通过"],
+            ["自动化测试", "领域、日历、持久化、MCP 四个目标 533 个用例全部通过。App 目标单进程会中途退出（main 上同样），改用 Scripts/test-app-suites.sh 逐套件运行并与 main 对照：本分支 115 个套件 109 通过，main 103 个套件 96 通过；本分支的失败项在 main 上同样失败或单独重跑通过，两个会让进程退出的套件两边相同"],
+            ["真实授权：手机提醒", "2026-09-29 你在系统弹窗允许后，测试版写入 3 条到 iCloud 账户下的 Jelly 列表（读回核对到期与闹钟），02:37 的验收提醒按时响；随后收回 3 条"],
             ["iOS 代码", "Scripts/test-ios-shared.sh：78 个共享源码 + 意图、提醒、同步、清单视图在 macOS SDK 下类型检查，移动端持久化冒烟通过；未在 iOS SDK 构建"],
             ["真实打包：服务菜单 → 延展", "dist/Jelly.app 0.4.0 在隔离数据下，经 NSPerformService 收下一句话，本机 Codex 写回 1 句补充 + 3 个方向（local/codex）"],
             ["真实打包：同步", "两个隔离实例共用一个文件夹：空白一方收到 7 条灵感、事项（含提前 10 分钟提醒）、2 条无日期事项；“未分类”收敛到同一个 id"],
