@@ -70,6 +70,7 @@ struct PersonalCalendarApp: App {
                         transitionCoordinator: transitionCoordinator,
                         terminationCoordinator: terminationCoordinator,
                         materialDigestOperator: environment.materialDigestOperator,
+                        inspirationFollowUp: environment.inspirationFollowUp,
                         isDigestConfigured: {
                             DigestRuntimeConfiguration.isConfigured(
                                 endpoint: environment.digestSettingsStore.endpoint,

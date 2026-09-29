@@ -62,6 +62,19 @@ struct DigestSettingsView: View {
                     .toggleStyle(.switch)
                 caption("默认先用系统语音。系统没有时，首次转写会下载约 250 MB 的 SenseVoice。上传只在摘要服务是 MiniMax 时出现。")
             }
+            JellySettingsCard {
+                sectionTitle("灵感与拆解")
+                Toggle(
+                    "收下纯文本灵感后自动补一句、给几个方向",
+                    isOn: Binding(
+                        get: { settings.autoExpandInspirations },
+                        set: { settings.setAutoExpandInspirations($0) }
+                    )
+                )
+                .font(.system(size: 13))
+                .toggleStyle(.switch)
+                caption("延展、拆开并安排、观点追问和跨材料综合都用上面这个模型；选本机命令时不会改用云端。关掉后仍可在灵感详情里手动延展。")
+            }
             HStack(spacing: 12) {
                 Button("保存", action: save)
                     .buttonStyle(.plain)

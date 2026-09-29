@@ -873,6 +873,8 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
             (.modelNotConfigured, "尚未配置摘要模型，请先在设置中填写。")
         case .localRuntimeUnavailable:
             (.modelNotConfigured, "没有找到本机的 Codex 或 Claude。摘要已停止，没有改用云端。")
+        case .localRuntimeNotLoggedIn:
+            (.modelNotConfigured, "本机的 Codex 或 Claude 还没有登录，请先在终端里登录。摘要已停止，没有改用云端。")
         case .authenticationFailed:
             (.authenticationFailed, "摘要接口拒绝了密钥，请在设置中检查后重试。")
         case .accessDenied:

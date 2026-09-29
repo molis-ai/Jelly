@@ -158,6 +158,9 @@ final class LocalRuntimeMaterialSummarizer: MaterialSummarizing, @unchecked Send
         guard result.exitCode == 0 || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MaterialDigestPipelineError.summarizationFailed
         }
+        if LocalRuntimeTextModel.looksLikeLoginPrompt(text) {
+            throw MaterialDigestPipelineError.localRuntimeNotLoggedIn
+        }
         return try OpenAICompatibleMaterialSummarizer.finish(
             modelText: text,
             snapshot: snapshot,

@@ -1,3 +1,4 @@
+import CalendarDomain
 import Foundation
 import WorkspaceDomain
 
@@ -29,6 +30,7 @@ enum InspirationTextSaveState: Equatable {
     private let clock: @Sendable () -> Date
     private let metadataResolver: any URLMetadataResolving
     private let digestOperator: (any MaterialDigestOperating)?
+    let followUp: InspirationFollowUpService?
     private let isDigestConfigured: @MainActor () -> Bool
     private let searchIndex: WorkspaceSearchIndex
     private let textSaveDelay: Duration
@@ -53,6 +55,7 @@ enum InspirationTextSaveState: Equatable {
         store: WorkspaceStore,
         metadataResolver: any URLMetadataResolving = URLMetadataResolver(),
         digestOperator: (any MaterialDigestOperating)? = nil,
+        followUp: InspirationFollowUpService? = nil,
         isDigestConfigured: @escaping @MainActor () -> Bool = { true },
         searchIndex: WorkspaceSearchIndex = WorkspaceSearchIndex(),
         textSaveDelay: Duration = .milliseconds(450),
@@ -61,6 +64,7 @@ enum InspirationTextSaveState: Equatable {
         self.store = store
         self.metadataResolver = metadataResolver
         self.digestOperator = digestOperator
+        self.followUp = followUp
         self.isDigestConfigured = isDigestConfigured
         self.searchIndex = searchIndex
         self.textSaveDelay = textSaveDelay
@@ -265,36 +269,12 @@ enum InspirationTextSaveState: Equatable {
     @discardableResult
     func capture(_ raw: String) async throws -> InspirationID {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw InspirationCaptureError.empty }
-        let now = clock()
-        let id = InspirationID()
-        let inspiration: Inspiration
-        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            let classifiedKind = SourceKindClassifier.classify(url) ?? .unknown
-            inspiration = Inspiration(
-                id: id,
-                inputKind: .url,
-                rawText: nil,
-                rawURL: url,
-                rawFile: nil,
-                resolvedSourceKind: classifiedKind,
-                resolvedMetadata: SourceMetadata(
-                    title: nil, siteName: nil, domain: url.host, thumbnailURL: nil, fetchStatus: .loading
-                ),
-                categoryID: store.calendarState.uncategorizedID,
-                lifecycle: .active,
-                createdAt: now,
-                updatedAt: now
-            )
-        } else {
-            inspiration = Inspiration.text(
-                id: id,
-                rawText: trimmed,
-                categoryID: store.calendarState.uncategorizedID,
-                now: now
-            )
-        }
+        guard let inspiration = InspirationCaptureBuilder.inspiration(
+            from: trimmed,
+            categoryID: store.calendarState.uncategorizedID,
+            now: clock()
+        ) else { throw InspirationCaptureError.empty }
+        let id = inspiration.id
         let categoryName = store.calendarState.categories[inspiration.categoryID]?.name ?? "未分类"
         let outcome = try await store.sendWorkspace(
             .createInspiration(.init(inspiration: inspiration)),
@@ -309,6 +289,8 @@ enum InspirationTextSaveState: Equatable {
         refresh()
         if inspiration.inputKind == .url, let url = inspiration.rawURL {
             Task { await enrichURL(id: id, url: url) }
+        } else {
+            followUp?.expandIfEnabled(id)
         }
         return id
     }
@@ -629,6 +611,61 @@ enum InspirationTextSaveState: Equatable {
         return true
     }
 
+    /// Calendar items and undated to-dos that came from the selected thought.
+    var selectedFollowThrough: [String] {
+        guard let inspiration = selected else { return [] }
+        let scheduled = inspiration.scheduledItemIDs.compactMap { store.state.calendar.items[$0] }.map { item in
+            "\(item.schedule.startDate.month) 月 \(item.schedule.startDate.day) 日 · \(item.title)"
+        }
+        let undated = store.state.undatedItems.values
+            .filter { $0.sourceInspirationID == inspiration.id }
+            .sorted { $0.createdAt < $1.createdAt }
+            .map { "无日期 · \($0.title)" }
+        return scheduled + undated
+    }
+
+    @discardableResult
+    func scheduleSelected(
+        _ choice: InspirationScheduleChoice,
+        preferredTitle: String? = nil
+    ) async -> Bool {
+        await flushSelectedTextEdit()
+        guard let inspiration = selected else { return false }
+        return await Self.schedule(
+            inspiration,
+            choice: choice,
+            preferredTitle: preferredTitle,
+            store: store,
+            now: clock()
+        )
+    }
+
+    static func schedule(
+        _ inspiration: Inspiration,
+        choice: InspirationScheduleChoice,
+        preferredTitle: String? = nil,
+        store: WorkspaceStore,
+        now: Date
+    ) async -> Bool {
+        do {
+            let target = try InspirationActionFactory.target(
+                for: inspiration,
+                choice: choice,
+                preferredTitle: preferredTitle,
+                today: CalendarDate.today(now: now),
+                now: now
+            )
+            let outcome = try await store.sendWorkspace(
+                .scheduleInspiration(.init(inspirationID: inspiration.id, target: target)),
+                undoLabel: choice.confirmation
+            )
+            if case .committed = outcome { return true }
+            return false
+        } catch {
+            return false
+        }
+    }
+
     func retrySelectedMetadata() async {
         guard let id = selectedID,
               let current = store.state.inspirations[id],
@@ -664,53 +701,26 @@ enum InspirationTextSaveState: Equatable {
     }
 
     private func enrichURL(id: InspirationID, url: URL) async {
-        guard let current = store.state.inspirations[id] else { return }
-        let sourceChecksum = WorkspaceChecksum.inspirationSourceChecksum(current)
-        do {
-            let result = try await metadataResolver.resolve(url)
-            _ = try await store.sendWorkspace(
-                .updateInspirationMetadata(
-                    id,
-                    expectedSource: .init(sourceChecksum: sourceChecksum),
-                    metadata: result.metadata,
-                    resolvedKind: result.resolvedKind
-                )
-            )
-            updateStatusMessage(nil, for: id)
-            refresh()
-        } catch {
-            updateStatusMessage("链接元数据获取失败，原文已保存。", for: id)
-            if let latest = store.state.inspirations[id],
-               WorkspaceChecksum.inspirationSourceChecksum(latest) == sourceChecksum {
-                var failedMetadata = latest.resolvedMetadata ?? SourceMetadata(
-                    title: nil,
-                    siteName: nil,
-                    domain: latest.rawURL?.host,
-                    thumbnailURL: nil,
-                    fetchStatus: .failed
-                )
-                failedMetadata.fetchStatus = .failed
-                // 解析失败也要留下域名能判定的 kind，B 站 / 小宇宙播放页常不是规整 HTML。
-                let failedKind = SourceKindClassifier.classify(url) ?? latest.resolvedSourceKind
-                do {
-                    _ = try await store.sendWorkspace(
-                        .updateInspirationMetadata(
-                            id,
-                            expectedSource: .init(sourceChecksum: sourceChecksum),
-                            metadata: failedMetadata,
-                            resolvedKind: failedKind
-                        )
-                    )
-                } catch {
-                    updateStatusMessage(
-                        "链接元数据获取失败，原文已保存；失败状态未能写入。",
-                        for: id
-                    )
-                }
-            } else {
-                updateStatusMessage(nil, for: id)
+        let outcome = await InspirationMetadataEnricher.enrich(
+            store: store,
+            resolver: metadataResolver,
+            id: id,
+            url: url,
+            onResolveFailed: { [weak self] in
+                self?.updateStatusMessage("链接元数据获取失败，原文已保存。", for: id)
             }
-            refresh()
+        )
+        switch outcome {
+        case .updated, .sourceChanged:
+            updateStatusMessage(nil, for: id)
+        case .failedRecorded:
+            break
+        case .failedUnrecorded:
+            updateStatusMessage("链接元数据获取失败，原文已保存；失败状态未能写入。", for: id)
+        }
+        refresh()
+        if outcome == .updated {
+            followUp?.expandIfEnabled(id)
         }
     }
 
@@ -756,7 +766,29 @@ enum InspirationNoteDocumentBuilder {
                 sourceKind: inspiration.resolvedSourceKind
             ))
         }
+        blocks.append(contentsOf: followUpBlocks(for: inspiration))
         return .init(blocks: blocks)
+    }
+
+    /// Adopted expansion directions and the user's own view travel with the
+    /// note; ignored or pending directions stay behind on the inspiration.
+    static func followUpBlocks(for inspiration: Inspiration) -> [DocumentBlock] {
+        var blocks: [DocumentBlock] = []
+        if let expansion = inspiration.expansion,
+           expansion.sourceChecksum == WorkspaceChecksum.inspirationSourceChecksum(inspiration) {
+            let adopted = expansion.adoptedDirections
+            if !adopted.isEmpty {
+                blocks.append(heading2("延展"))
+                blocks.append(paragraph(expansion.supplement))
+                blocks.append(contentsOf: adopted.map { bullet($0.text) })
+            }
+        }
+        if let perspective = inspiration.perspective, perspective.hasAnswer {
+            blocks.append(heading2("我的看法"))
+            blocks.append(contentsOf: perspective.questions.map { bullet($0) })
+            blocks.append(paragraph(perspective.answer))
+        }
+        return blocks
     }
 
     static func summaryBlocks(

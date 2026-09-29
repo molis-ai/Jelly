@@ -16,6 +16,10 @@ struct AppEnvironment {
     let digestSettingsStore: DigestSettingsStore
     let digestCredentialStore: any DigestCredentialStoring
     let decompositionPlanner: any DecompositionPlanning
+    /// The one text model every AI follow-up uses; routed by 摘要设置.
+    let textModel: any TextModelGenerating
+    let inspirationFollowUp: InspirationFollowUpService
+    let captureService: InspirationCaptureService
     /// Nil only when MCP is explicitly disabled for this run (acceptance tests).
     let mcpController: MCPServiceController?
 
@@ -79,6 +83,13 @@ struct AppEnvironment {
                 )
             )
         )
+        let textModel = RoutingTextModel(settings: digestSettingsStore, credentials: digestCredentialStore)
+        let followUp = InspirationFollowUpService(
+            store: store,
+            model: textModel,
+            autoExpandEnabled: { digestSettingsStore.autoExpandInspirations }
+        )
+        let captureService = InspirationCaptureService(store: store, followUp: followUp)
         let mcpController: MCPServiceController?
         if environment["JELLY_MCP_DISABLED"]?.trimmingCharacters(in: .whitespaces) == "1" {
             mcpController = nil
@@ -97,6 +108,9 @@ struct AppEnvironment {
             digestSettingsStore: digestSettingsStore,
             digestCredentialStore: digestCredentialStore,
             decompositionPlanner: LiveDecompositionPlanner.make(),
+            textModel: textModel,
+            inspirationFollowUp: followUp,
+            captureService: captureService,
             mcpController: mcpController
         )
     }

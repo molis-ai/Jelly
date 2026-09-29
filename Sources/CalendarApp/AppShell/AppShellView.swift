@@ -100,6 +100,7 @@ struct AppShellView: View {
         transitionCoordinator: WorkspaceRouteTransitionCoordinator? = nil,
         terminationCoordinator: NotesApplicationTerminationCoordinator? = nil,
         materialDigestOperator: (any MaterialDigestOperating)? = nil,
+        inspirationFollowUp: InspirationFollowUpService? = nil,
         isDigestConfigured: @escaping @MainActor () -> Bool = { true },
         decompositionPlanner: any DecompositionPlanning = UnavailableDecompositionPlanner(
             reason: .systemVersionUnsupported
@@ -159,6 +160,7 @@ struct AppShellView: View {
                         deepLinkRouter: deepLinkRouter,
                         searchIndex: searchIndex,
                         digestOperator: materialDigestOperator,
+                        followUp: inspirationFollowUp,
                         isDigestConfigured: isDigestConfigured
                     )),
                     lifetimeToken: WorkspaceModuleLifetimeToken()

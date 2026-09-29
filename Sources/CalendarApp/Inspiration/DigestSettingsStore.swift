@@ -117,6 +117,7 @@ final class DigestSettingsStore {
     static let summarySourceKey = "digest.summary.source.v1"
     static let summaryServiceKey = "digest.summary.service.v1"
     static let localRuntimeKey = "digest.summary.runtime.v1"
+    static let autoExpandInspirationsKey = "digest.inspiration.autoExpand.v1"
 
     private let defaults: UserDefaults
     private(set) var endpoint: String
@@ -126,6 +127,8 @@ final class DigestSettingsStore {
     private(set) var summarySource: DigestSummarySource
     private(set) var summaryService: DigestSummaryService
     private(set) var localRuntime: LocalSummaryRuntime
+    /// 收下纯文本灵感后自动请模型补一句。只在模型已配置时生效。
+    private(set) var autoExpandInspirations: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -138,6 +141,7 @@ final class DigestSettingsStore {
         summaryService = DigestSummaryService(rawValue: defaults.string(forKey: Self.summaryServiceKey) ?? "")
             ?? Self.inferredService(endpoint: storedEndpoint)
         localRuntime = LocalSummaryRuntime(rawValue: defaults.string(forKey: Self.localRuntimeKey) ?? "") ?? .codex
+        autoExpandInspirations = defaults.object(forKey: Self.autoExpandInspirationsKey) as? Bool ?? true
     }
 
     private static func inferredService(endpoint: String) -> DigestSummaryService {
@@ -183,6 +187,11 @@ final class DigestSettingsStore {
     func setLocalRuntime(_ runtime: LocalSummaryRuntime) {
         defaults.set(runtime.rawValue, forKey: Self.localRuntimeKey)
         localRuntime = runtime
+    }
+
+    func setAutoExpandInspirations(_ enabled: Bool) {
+        defaults.set(enabled, forKey: Self.autoExpandInspirationsKey)
+        autoExpandInspirations = enabled
     }
 
     var cloudSpeechUploadEnabled: Bool {

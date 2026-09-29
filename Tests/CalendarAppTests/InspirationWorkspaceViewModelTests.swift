@@ -901,7 +901,7 @@ final class RecordingMaterialDigestOperator: MaterialDigestOperating {
     func progress(for inspirationID: InspirationID) -> Double? { nil }
 }
 
-private func succeededDigest(for inspiration: Inspiration, now: Date) throws -> MaterialDigest {
+func succeededDigest(for inspiration: Inspiration, now: Date) throws -> MaterialDigest {
     let checksum = WorkspaceChecksum.inspirationSourceChecksum(inspiration)
     let snapshot = try materialSnapshot(for: checksum)
     return MaterialDigest(
@@ -985,7 +985,7 @@ private func seedSucceededDigest(
     )))
 }
 
-private func materialSnapshot(for sourceChecksum: String) throws -> MaterialSnapshot {
+func materialSnapshot(for sourceChecksum: String) throws -> MaterialSnapshot {
     let blocks = [
         MaterialBlock(
             id: MaterialBlockID(UUID(uuidString: "00000000-0000-0000-0000-00000000a001")!),

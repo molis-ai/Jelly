@@ -37,6 +37,7 @@ struct InspirationSplitView: View {
         deepLinkRouter: WorkspaceDeepLinkRouter = WorkspaceDeepLinkRouter(),
         searchIndex: WorkspaceSearchIndex = WorkspaceSearchIndex(),
         digestOperator: (any MaterialDigestOperating)? = nil,
+        followUp: InspirationFollowUpService? = nil,
         isDigestConfigured: @escaping @MainActor () -> Bool = { true }
     ) {
         self.store = store
@@ -47,6 +48,7 @@ struct InspirationSplitView: View {
         _model = State(initialValue: InspirationViewModel(
             store: store,
             digestOperator: digestOperator,
+            followUp: followUp,
             isDigestConfigured: isDigestConfigured,
             searchIndex: searchIndex
         ))
@@ -721,6 +723,20 @@ struct InspirationDetailView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         contentSection(inspiration)
+                        if let followUp = model.followUp {
+                            InspirationExpansionSection(
+                                inspiration: inspiration,
+                                followUp: followUp,
+                                onScheduleDirection: { direction in
+                                    Task {
+                                        if await model.scheduleSelected(.today, preferredTitle: direction.text) {
+                                            onLifecycleChanged(InspirationScheduleChoice.today.confirmation)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        followThroughSection
                         if let metadata = inspiration.resolvedMetadata {
                             sourceSection(inspiration, metadata: metadata)
                         }
@@ -734,6 +750,13 @@ struct InspirationDetailView: View {
                             onPasteRecovery: onPasteRecovery,
                             onChooseFileRecovery: onChooseFileRecovery
                         )
+                        if let followUp = model.followUp, model.selectedDigest?.result != nil {
+                            InspirationPerspectiveSection(
+                                inspiration: inspiration,
+                                title: model.displayTitle(for: inspiration),
+                                followUp: followUp
+                            )
+                        }
                         statusSection
                     }
                     .frame(maxWidth: 680, alignment: .leading)
@@ -1031,6 +1054,24 @@ struct InspirationDetailView: View {
     }
 
     @ViewBuilder
+    private var followThroughSection: some View {
+        let lines = model.selectedFollowThrough
+        if !lines.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("已变成待办")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.top, 18)
+                ForEach(lines, id: \.self) { line in
+                    Label(line, systemImage: "checklist")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var statusSection: some View {
         if let status = model.statusMessage {
             Text(status)
@@ -1090,6 +1131,17 @@ struct InspirationDetailView: View {
             .buttonStyle(.bordered)
             .controlSize(.regular)
             .accessibilityIdentifier(InspirationDetailAction.archive.rawValue)
+
+            if inspiration.lifecycle == .active {
+                InspirationScheduleMenu { choice in
+                    Task {
+                        if await model.scheduleSelected(choice) {
+                            onLifecycleChanged(choice.confirmation)
+                        }
+                    }
+                }
+                .controlSize(.regular)
+            }
 
             if let url = inspiration.rawURL {
                 Button("复制链接") {
