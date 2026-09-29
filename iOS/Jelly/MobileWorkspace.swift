@@ -76,6 +76,31 @@ final class MobileWorkspace {
         ai = try MobileAIServices(store: store, rootURL: resolvedRoot)
     }
 
+    // MARK: One workspace per process
+
+    @ObservationIgnored private static var sharedInstance: MobileWorkspace?
+    @ObservationIgnored private static var sharedLoad: Task<Void, Never>?
+
+    /// The app window and App Intents (Siri, Shortcuts, share-sheet shortcuts)
+    /// must write through the same store, never two stores on one file.
+    static func shared() throws -> MobileWorkspace {
+        if let sharedInstance { return sharedInstance }
+        let workspace = try MobileWorkspace()
+        sharedInstance = workspace
+        return workspace
+    }
+
+    static func loadedShared() async throws -> MobileWorkspace {
+        let workspace = try shared()
+        if workspace.store.phase == .notLoaded {
+            if sharedLoad == nil {
+                sharedLoad = Task { @MainActor in await workspace.load() }
+            }
+            await sharedLoad?.value
+        }
+        return workspace
+    }
+
     func load() async {
         guard await flushEditors() else { return }
         await store.load()

@@ -11,6 +11,8 @@ final class MobileAIServices {
     let credentials: any DigestCredentialStoring
     let digest: MaterialDigestCoordinator
     let planner: any DecompositionPlanning
+    /// Same follow-ups as the Mac: expansion, perspective questions, synthesis.
+    let followUp: InspirationFollowUpService
     private(set) var isConfigured: Bool
     private(set) var hasSavedCredential: Bool
 
@@ -31,6 +33,11 @@ final class MobileAIServices {
         self.settings = settings
         self.credentials = credentials
         planner = LiveDecompositionPlanner.make()
+        followUp = InspirationFollowUpService(
+            store: store,
+            model: RoutingTextModel(settings: settings, credentials: credentials),
+            autoExpandEnabled: { settings.autoExpandInspirations }
+        )
         hasSavedCredential = credentials.isConfigured
         isConfigured = DigestRuntimeConfiguration.isConfigured(
             endpoint: settings.endpoint, model: settings.model, secret: try? credentials.load()

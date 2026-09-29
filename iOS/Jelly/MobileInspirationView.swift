@@ -16,7 +16,7 @@ struct MobileInspirationView: View {
     init(workspace: MobileWorkspace) {
         self.workspace = workspace
         _model = State(initialValue: InspirationViewModel(store: workspace.store,
-            digestOperator: workspace.ai.digest, isDigestConfigured: { workspace.ai.isConfigured }))
+            digestOperator: workspace.ai.digest, followUp: workspace.ai.followUp, isDigestConfigured: { workspace.ai.isConfigured }))
     }
 
     private var items: [Inspiration] {
@@ -132,7 +132,7 @@ struct MobileInspirationDetailView: View {
     init(workspace: MobileWorkspace, inspiration: Inspiration) {
         self.workspace = workspace
         let model = InspirationViewModel(store: workspace.store, digestOperator: workspace.ai.digest,
-            isDigestConfigured: { workspace.ai.isConfigured })
+            followUp: workspace.ai.followUp, isDigestConfigured: { workspace.ai.isConfigured })
         model.select(inspiration.id)
         _model = State(initialValue: model)
     }
@@ -178,6 +178,7 @@ struct MobileInspirationDetailView: View {
                             }
                         }
                     }
+                    MobileExpansionSection(inspiration: inspiration, followUp: workspace.ai.followUp)
                     if let url = inspiration.rawURL {
                         Section("来源") {
                             Link(destination: url) { Label(url.absoluteString, systemImage: "arrow.up.right.square").lineLimit(3) }
@@ -210,6 +211,14 @@ struct MobileInspirationDetailView: View {
                             Label(model.selectedPrimaryActionTitle, systemImage: "doc.text")
                                 .frame(maxWidth: .infinity, minHeight: 44)
                         }.buttonStyle(.borderedProminent).disabled(busy)
+                        if inspiration.lifecycle == .active {
+                            MobileScheduleMenu { choice in
+                                Task {
+                                    if await model.scheduleSelected(choice) { actionError = choice.confirmation }
+                                    else { actionError = "没能变成待办，这条灵感还在。" }
+                                }
+                            }.disabled(busy)
+                        }
                         Button(inspiration.lifecycle == .archived ? "恢复灵感" : "归档灵感",
                                systemImage: inspiration.lifecycle == .archived ? "arrow.uturn.backward" : "archivebox") {
                             Task { await changeLifecycle() }
@@ -336,7 +345,7 @@ private struct MobileInspirationCaptureSheet: View {
         self.chooseFileInitially = chooseFileInitially
         self.onCaptured = onCaptured
         _model = State(initialValue: InspirationViewModel(store: workspace.store,
-            digestOperator: workspace.ai.digest, isDigestConfigured: { workspace.ai.isConfigured }))
+            digestOperator: workspace.ai.digest, followUp: workspace.ai.followUp, isDigestConfigured: { workspace.ai.isConfigured }))
     }
 
     var body: some View {

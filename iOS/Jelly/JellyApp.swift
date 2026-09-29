@@ -24,9 +24,9 @@ struct JellyIOSApp: App {
             .task {
                 guard workspace == nil, startupError == nil else { return }
                 do {
-                    let value = try MobileWorkspace()
+                    let value = try MobileWorkspace.shared()
                     workspace = value
-                    await value.load()
+                    _ = try await MobileWorkspace.loadedShared()
                 } catch {
                     startupError = "本地工作空间暂时无法读取。\(error.localizedDescription)"
                 }
