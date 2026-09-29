@@ -109,7 +109,7 @@ struct AppEnvironment {
             materialDigestOperator: coordinator,
             digestSettingsStore: digestSettingsStore,
             digestCredentialStore: digestCredentialStore,
-            decompositionPlanner: LiveDecompositionPlanner.make(),
+            decompositionPlanner: SettingsRoutedDecompositionPlanner(textModel: textModel),
             textModel: textModel,
             inspirationFollowUp: followUp,
             captureService: captureService,

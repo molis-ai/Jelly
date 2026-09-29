@@ -118,7 +118,7 @@ final class DecompositionWorkbenchModel {
         timeZone: TimeZone = .autoupdatingCurrent,
         sleeper: any DecompositionSleeping = ContinuousClockDecompositionSleeper(),
         uuid: @escaping @Sendable () -> UUID = UUID.init,
-        requestTimeout: Duration = .seconds(20)
+        requestTimeout: Duration? = nil
     ) {
         self.planner = planner
         self.store = store
@@ -126,7 +126,7 @@ final class DecompositionWorkbenchModel {
         self.timeZone = timeZone
         self.sleeper = sleeper
         self.uuid = uuid
-        self.requestTimeout = requestTimeout
+        self.requestTimeout = requestTimeout ?? planner.suggestedRequestTimeout
         self.draft = DecompositionDraft(
             source: snapshot,
             stage: .understand,

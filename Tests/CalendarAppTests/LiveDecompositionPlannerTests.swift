@@ -229,13 +229,10 @@ struct LiveDecompositionPlannerTests {
         #expect(!name.localizedCaseInsensitiveContains("scripted"))
         #expect(!name.localizedCaseInsensitiveContains("mock"))
         #expect(!name.localizedCaseInsensitiveContains("fixture"))
-#if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
-            #expect(name.contains("AppleFoundationModelsDecompositionPlanner"))
-            return
-        }
-#endif
-        #expect(environment.decompositionPlanner is UnavailableDecompositionPlanner)
+        // Production routes through 摘要设置; with no model configured in an
+        // isolated data directory it behaves exactly like the Apple path.
+        #expect(name == "SettingsRoutedDecompositionPlanner")
+        #expect(environment.decompositionPlanner.availability == LiveDecompositionPlanner.make().availability)
     }
 
     private static func makeSnapshot() throws -> DecompositionSourceSnapshot {

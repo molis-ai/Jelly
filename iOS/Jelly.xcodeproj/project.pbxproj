@@ -237,6 +237,7 @@
 				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
 				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
 				E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */,
+				8BC587CEA4D3EB45129975DE /* TextModelDecompositionPlanner.swift */,
 				63BD212F1F43F03E5012190F /* InspirationActions.swift */,
 				D7B1AC9A81837CABD622409E /* InspirationFollowUpService.swift */,
 				C5C10D64229A64FB6D4E4E33 /* InspirationCaptureService.swift */,
@@ -434,6 +435,17 @@
 		};
 		2E6CAF0E494876D2302D9904 /* InspirationActions.swift in Sources */ = {
 			fileRef = 63BD212F1F43F03E5012190F /* InspirationActions.swift */;
+			isa = "PBXBuildFile";
+		};
+		8BC587CEA4D3EB45129975DE /* TextModelDecompositionPlanner.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "TextModelDecompositionPlanner.swift";
+			path = "../Sources/CalendarApp/Decomposition/TextModelDecompositionPlanner.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		ED57574E918E324394F505C0 /* TextModelDecompositionPlanner.swift in Sources */ = {
+			fileRef = 8BC587CEA4D3EB45129975DE /* TextModelDecompositionPlanner.swift */;
 			isa = "PBXBuildFile";
 		};
 		E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */ = {
@@ -734,6 +746,7 @@
 				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
 				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
 				F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */,
+				ED57574E918E324394F505C0 /* TextModelDecompositionPlanner.swift in Sources */,
 				2E6CAF0E494876D2302D9904 /* InspirationActions.swift in Sources */,
 				CD5258ABFEC85B35081BE381 /* InspirationFollowUpService.swift in Sources */,
 				4E632F8A60B93280876F33EB /* InspirationCaptureService.swift in Sources */,

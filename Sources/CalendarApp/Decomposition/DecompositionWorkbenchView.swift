@@ -956,9 +956,9 @@ enum DecompositionWorkbenchCopy {
         case .systemVersionUnsupported:
             "当前系统版本不支持智能拆解，你仍可手动添加和安排行动"
         case .deviceNotEligible:
-            "这台设备不支持智能拆解，你仍可手动添加和安排行动"
+            "这台设备不支持 Apple 智能，可在设置 › 摘要里选一个模型来拆解；你仍可手动添加和安排行动"
         case .appleIntelligenceNotEnabled:
-            "尚未开启 Apple 智能，你仍可手动添加和安排行动"
+            "尚未开启 Apple 智能，可在设置 › 摘要里选一个模型来拆解；你仍可手动添加和安排行动"
         case .modelNotReady:
             "智能拆解模型还在准备中，你仍可手动添加和安排行动"
         case .localeUnsupported:

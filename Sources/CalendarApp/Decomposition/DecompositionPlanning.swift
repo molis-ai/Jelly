@@ -2,9 +2,16 @@ import Foundation
 
 protocol DecompositionPlanning: Sendable {
     var availability: DecompositionPlannerAvailability { get }
+    /// On-device answers arrive in seconds; a cloud service or a local
+    /// command line needs longer before Jelly falls back to manual.
+    var suggestedRequestTimeout: Duration { get }
     func clarification(for request: ClarificationRequest) async throws -> ClarificationDecision
     func candidates(for request: CandidateRequest) async throws -> [PlannerCandidate]
     func splitCandidate(for request: SplitCandidateRequest) async throws -> [PlannerCandidate]
+}
+
+extension DecompositionPlanning {
+    var suggestedRequestTimeout: Duration { .seconds(20) }
 }
 
 struct UnavailableDecompositionPlanner: DecompositionPlanning, Sendable {

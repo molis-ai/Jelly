@@ -32,10 +32,11 @@ final class MobileAIServices {
         let client = MaterialHTTPClient()
         self.settings = settings
         self.credentials = credentials
-        planner = LiveDecompositionPlanner.make()
+        let textModel = RoutingTextModel(settings: settings, credentials: credentials)
+        planner = SettingsRoutedDecompositionPlanner(textModel: textModel)
         followUp = InspirationFollowUpService(
             store: store,
-            model: RoutingTextModel(settings: settings, credentials: credentials),
+            model: textModel,
             autoExpandEnabled: { settings.autoExpandInspirations }
         )
         hasSavedCredential = credentials.isConfigured
