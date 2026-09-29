@@ -6,6 +6,7 @@ struct MaterialSourceDescriptor: Equatable, Sendable {
         case bilibiliVideo
         case xiaoyuzhouEpisode
         case publicWebArticle
+        case wechatArticle
         case xiaohongshuNote(noteID: String)
         case localText
         case localFile
@@ -48,6 +49,9 @@ enum MaterialSourceResolver {
     static func descriptorKind(for url: URL) -> MaterialSourceDescriptor.Kind {
         if let noteID = SourceKindClassifier.xiaohongshuNoteID(for: url) {
             return .xiaohongshuNote(noteID: noteID)
+        }
+        if WeChatArticleParser.isArticleURL(url) {
+            return .wechatArticle
         }
         switch SourceKindClassifier.classify(url) {
         case .video:

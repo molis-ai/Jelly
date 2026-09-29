@@ -301,7 +301,7 @@ final class MaterialDigestCoordinator: MaterialDigestOperating {
         case .localFile:
             try await runLocalFile(source: source, runID: runID)
             return
-        case .bilibiliVideo, .xiaoyuzhouEpisode, .publicWebArticle, .xiaohongshuNote:
+        case .bilibiliVideo, .xiaoyuzhouEpisode, .publicWebArticle, .wechatArticle, .xiaohongshuNote:
             break
         }
         let acquisition: MaterialAcquisition

@@ -13,6 +13,7 @@ enum SourceKindClassifier {
         if (host == "xiaoyuzhoufm.com" || host.hasSuffix(".xiaoyuzhoufm.com")),
            path.hasPrefix("/episode/") { return .audio }
         if xiaohongshuNoteID(for: url) != nil { return .socialPost }
+        if WeChatArticleParser.isArticleURL(url) { return .article }
         return nil
     }
 

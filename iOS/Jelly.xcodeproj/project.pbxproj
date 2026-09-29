@@ -237,6 +237,7 @@
 				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
 				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
 				E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */,
+				A14F0B453A782330D0424FE2 /* WeChatArticleAcquirer.swift */,
 				67BA39DF89535CC9D59198F0 /* UndatedListModel.swift */,
 				1CAA7B4377AE626E3AB4A689 /* QuickAddDraft.swift */,
 				8BC587CEA4D3EB45129975DE /* TextModelDecompositionPlanner.swift */,
@@ -470,6 +471,17 @@
 		};
 		18B43E555C88E69BC5863952 /* UndatedListModel.swift in Sources */ = {
 			fileRef = 67BA39DF89535CC9D59198F0 /* UndatedListModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		A14F0B453A782330D0424FE2 /* WeChatArticleAcquirer.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WeChatArticleAcquirer.swift";
+			path = "../Sources/CalendarApp/Inspiration/WeChatArticleAcquirer.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		BC1CEE595D88B00826FE7A61 /* WeChatArticleAcquirer.swift in Sources */ = {
+			fileRef = A14F0B453A782330D0424FE2 /* WeChatArticleAcquirer.swift */;
 			isa = "PBXBuildFile";
 		};
 		E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */ = {
@@ -770,6 +782,7 @@
 				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
 				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
 				F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */,
+				BC1CEE595D88B00826FE7A61 /* WeChatArticleAcquirer.swift in Sources */,
 				18B43E555C88E69BC5863952 /* UndatedListModel.swift in Sources */,
 				1D67E53BD599FCB1EC2AC7D8 /* QuickAddDraft.swift in Sources */,
 				ED57574E918E324394F505C0 /* TextModelDecompositionPlanner.swift in Sources */,

@@ -545,6 +545,7 @@ struct RoutedMaterialAcquirer: MaterialAcquiring {
     let xiaoyuzhou: XiaoyuzhouMaterialAcquirer
     let xiaohongshu: XiaohongshuMaterialAcquirer
     let article: PublicWebArticleAcquirer
+    let wechat: WeChatArticleAcquirer
     private let recorder: InvocationRecorder?
 
     init(client: MaterialHTTPClient = MaterialHTTPClient()) {
@@ -567,6 +568,7 @@ struct RoutedMaterialAcquirer: MaterialAcquiring {
         self.xiaoyuzhou = xiaoyuzhou
         self.xiaohongshu = xiaohongshu ?? XiaohongshuMaterialAcquirer(client: bilibili.client)
         self.article = article ?? PublicWebArticleAcquirer(client: bilibili.client)
+        wechat = WeChatArticleAcquirer(client: bilibili.client)
         self.recorder = recorder
     }
 
@@ -594,6 +596,8 @@ struct RoutedMaterialAcquirer: MaterialAcquiring {
             return try await xiaoyuzhou.acquire(source)
         case .publicWebArticle:
             return try await article.acquire(source)
+        case .wechatArticle:
+            return try await wechat.acquire(source)
         case .xiaohongshuNote:
             return .composite(try await xiaohongshu.acquire(source))
         case .localText, .localFile:
