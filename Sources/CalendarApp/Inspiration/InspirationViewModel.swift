@@ -616,7 +616,7 @@ enum InspirationTextSaveState: Equatable {
     }
 
     var synthesisCandidateCount: Int {
-        MaterialSynthesisSheet.candidates(in: store.state).count
+        InspirationFollowUpService.synthesisCandidates(in: store.state).count
     }
 
     /// Calendar items and undated to-dos that came from the selected thought.

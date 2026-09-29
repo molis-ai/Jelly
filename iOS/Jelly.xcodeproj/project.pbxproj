@@ -237,6 +237,10 @@
 				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
 				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
 				E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */,
+				63BD212F1F43F03E5012190F /* InspirationActions.swift */,
+				D7B1AC9A81837CABD622409E /* InspirationFollowUpService.swift */,
+				C5C10D64229A64FB6D4E4E33 /* InspirationCaptureService.swift */,
+				667766B16EF35FED0D5296C0 /* DigestTextModel.swift */,
 				45C44CE1735FD9AA129C6FA5 /* BackupRecoveryPolicy.swift */,
 				CED66C183BD51136C31E1B92 /* MCPServiceController.swift */,
 				AE8F3909AB00B49562864E33 /* JellyMCPCalGateway.swift */,
@@ -386,6 +390,50 @@
 		};
 		3C46E95F2D843D7E0909815A /* MaterialDigestCoordinator.swift in Sources */ = {
 			fileRef = 318B9CC976DC2555B5892740 /* MaterialDigestCoordinator.swift */;
+			isa = "PBXBuildFile";
+		};
+		667766B16EF35FED0D5296C0 /* DigestTextModel.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "DigestTextModel.swift";
+			path = "../Sources/CalendarApp/Inspiration/DigestTextModel.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		DAC0FCE820EAD9479437BD0B /* DigestTextModel.swift in Sources */ = {
+			fileRef = 667766B16EF35FED0D5296C0 /* DigestTextModel.swift */;
+			isa = "PBXBuildFile";
+		};
+		C5C10D64229A64FB6D4E4E33 /* InspirationCaptureService.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "InspirationCaptureService.swift";
+			path = "../Sources/CalendarApp/Inspiration/InspirationCaptureService.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		4E632F8A60B93280876F33EB /* InspirationCaptureService.swift in Sources */ = {
+			fileRef = C5C10D64229A64FB6D4E4E33 /* InspirationCaptureService.swift */;
+			isa = "PBXBuildFile";
+		};
+		D7B1AC9A81837CABD622409E /* InspirationFollowUpService.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "InspirationFollowUpService.swift";
+			path = "../Sources/CalendarApp/Inspiration/InspirationFollowUpService.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		CD5258ABFEC85B35081BE381 /* InspirationFollowUpService.swift in Sources */ = {
+			fileRef = D7B1AC9A81837CABD622409E /* InspirationFollowUpService.swift */;
+			isa = "PBXBuildFile";
+		};
+		63BD212F1F43F03E5012190F /* InspirationActions.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "InspirationActions.swift";
+			path = "../Sources/CalendarApp/Inspiration/InspirationActions.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		2E6CAF0E494876D2302D9904 /* InspirationActions.swift in Sources */ = {
+			fileRef = 63BD212F1F43F03E5012190F /* InspirationActions.swift */;
 			isa = "PBXBuildFile";
 		};
 		E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */ = {
@@ -686,6 +734,10 @@
 				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
 				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
 				F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */,
+				2E6CAF0E494876D2302D9904 /* InspirationActions.swift in Sources */,
+				CD5258ABFEC85B35081BE381 /* InspirationFollowUpService.swift in Sources */,
+				4E632F8A60B93280876F33EB /* InspirationCaptureService.swift in Sources */,
+				DAC0FCE820EAD9479437BD0B /* DigestTextModel.swift in Sources */,
 				81C103D9F8CDF7CFDD03E63F /* BackupRecoveryPolicy.swift in Sources */,
 				8775F1452BBF0661F6829CAF /* MCPServiceController.swift in Sources */,
 				0C9AE807C47162C66A986724 /* JellyMCPCalGateway.swift in Sources */,

@@ -6,6 +6,9 @@ set -euo pipefail
 TASK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$TASK_ROOT"
 
+# The manifest and the Xcode project's explicit references must agree.
+python3 Scripts/ios-shared-sources.py check
+
 # Build the real dependencies, including WhisperKit used by mobile AI services.
 # The generated executable's link list is the authoritative dependency closure.
 swift build --product PersonalCalendar

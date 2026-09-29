@@ -90,3 +90,7 @@ Sources/CalendarApp/Backup/BackupRecoveryPolicy.swift
 # Same authenticated loopback toolbox; iOS scene lifecycle stops on background.
 Sources/CalendarApp/MCP/MCPServiceController.swift
 Sources/CalendarApp/MCP/JellyMCPCalGateway.swift
+Sources/CalendarApp/Inspiration/DigestTextModel.swift
+Sources/CalendarApp/Inspiration/InspirationCaptureService.swift
+Sources/CalendarApp/Inspiration/InspirationFollowUpService.swift
+Sources/CalendarApp/Inspiration/InspirationActions.swift

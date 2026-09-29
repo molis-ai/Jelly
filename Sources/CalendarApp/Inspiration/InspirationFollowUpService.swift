@@ -320,6 +320,12 @@ final class InspirationFollowUpService {
 
     // MARK: 跨材料综合
 
+    static func synthesisCandidates(in state: WorkspaceState) -> [Inspiration] {
+        state.inspirations.values
+            .filter { state.materialDigests[$0.id]?.result != nil }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
     static func synthesisSources(for ids: [InspirationID], in state: WorkspaceState) -> [MaterialSynthesisSource] {
         ids.compactMap { id in
             guard let inspiration = state.inspirations[id],

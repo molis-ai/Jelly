@@ -17,13 +17,9 @@ struct MaterialSynthesisSheet: View {
         CalendarTheme.appearance(for: colorScheme)
     }
 
-    static func candidates(in state: WorkspaceState) -> [Inspiration] {
-        state.inspirations.values
-            .filter { state.materialDigests[$0.id]?.result != nil }
-            .sorted { $0.createdAt > $1.createdAt }
+    private var candidates: [Inspiration] {
+        InspirationFollowUpService.synthesisCandidates(in: store.state)
     }
-
-    private var candidates: [Inspiration] { Self.candidates(in: store.state) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
