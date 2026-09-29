@@ -162,6 +162,26 @@ public enum WorkspaceReducer {
             try deleteCategory(id, in: &candidate, now: now)
         case let .applyDecompositionPlan(payload):
             return try applyDecompositionPlan(payload, in: &candidate, now: now, metadata: &metadata)
+        case let .reviewInspiration(id, at):
+            return try reviewInspiration(id, in: &candidate, now: at)
+        case let .scheduleInspiration(payload):
+            try scheduleInspiration(payload, in: &candidate, now: now, metadata: &metadata)
+        case let .setInspirationExpansion(id, expansion):
+            return try setInspirationExpansion(id, expansion: expansion, in: &candidate)
+        case let .decideExpansionDirection(id, directionID, decision):
+            return try decideExpansionDirection(id, directionID: directionID, decision: decision, in: &candidate)
+        case let .setInspirationPerspective(id, perspective):
+            return try setInspirationPerspective(id, perspective: perspective, in: &candidate)
+        case let .createUndatedItem(item):
+            try createUndatedItem(item, in: &candidate)
+        case let .updateUndatedItem(item):
+            try updateUndatedItem(item, in: &candidate)
+        case let .deleteUndatedItem(id):
+            guard candidate.undatedItems.removeValue(forKey: id) != nil else {
+                throw WorkspaceReducerError.missingUndatedItem(id)
+            }
+        case let .scheduleUndatedItem(id, item):
+            try scheduleUndatedItem(id, item: item, in: &candidate, now: now, metadata: &metadata)
         case .repairConsistency, .restoreContent:
             preconditionFailure("special commands are handled before the ordinary pipeline")
         }
@@ -324,6 +344,7 @@ public enum WorkspaceReducer {
               payload.content.notes.allSatisfy({ $0.key == $0.value.id }),
               payload.content.inspirations.allSatisfy({ $0.key == $0.value.id }),
               payload.content.materialDigests.allSatisfy({ $0.key == $0.value.inspirationID }),
+              payload.content.undatedItems.allSatisfy({ $0.key == $0.value.id }),
               payload.sourceNoteRevisions.values.allSatisfy({
                   $0 >= 0 && $0 <= payload.sourceRevisionHighWatermark
               })

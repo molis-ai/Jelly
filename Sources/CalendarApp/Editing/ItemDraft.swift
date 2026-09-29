@@ -32,6 +32,8 @@ struct ItemDraft: Equatable {
     var isPinned: Bool
     /// Markdown 随记 (style-only checklists, lists, emphasis).
     var notes: String = ""
+    /// One-off items only; series occurrences never carry a reminder.
+    var reminder: ItemReminder? = nil
 }
 
 extension ItemDraft {
@@ -50,7 +52,8 @@ extension ItemDraft {
             recurrenceEndDate: nil,
             priority: item.priority,
             isPinned: item.isPinned,
-            notes: item.notes
+            notes: item.notes,
+            reminder: item.reminder
         )
     }
 

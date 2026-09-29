@@ -42,6 +42,7 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
     public var taskBlockLinks: Set<TaskBlockCalendarLink>
     public var inspirationNoteLinks: Set<InspirationNoteLink>
     public var materialDigests: [InspirationID: MaterialDigest]
+    public var undatedItems: [UUID: UndatedItem]
 
     public init(state: WorkspaceState) {
         calendar = state.calendar
@@ -51,6 +52,30 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
         taskBlockLinks = state.taskBlockLinks
         inspirationNoteLinks = state.inspirationNoteLinks
         materialDigests = state.materialDigests
+        undatedItems = state.undatedItems
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case calendar
+        case notes
+        case inspirations
+        case calendarNoteRelations
+        case taskBlockLinks
+        case inspirationNoteLinks
+        case materialDigests
+        case undatedItems
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        calendar = try container.decode(CalendarState.self, forKey: .calendar)
+        notes = try container.decode([NoteID: WorkspaceNoteContent].self, forKey: .notes)
+        inspirations = try container.decode([InspirationID: Inspiration].self, forKey: .inspirations)
+        calendarNoteRelations = try container.decode(CalendarNoteRelationGraph.self, forKey: .calendarNoteRelations)
+        taskBlockLinks = try container.decode(Set<TaskBlockCalendarLink>.self, forKey: .taskBlockLinks)
+        inspirationNoteLinks = try container.decode(Set<InspirationNoteLink>.self, forKey: .inspirationNoteLinks)
+        materialDigests = try container.decode([InspirationID: MaterialDigest].self, forKey: .materialDigests)
+        undatedItems = try container.decodeIfPresent([UUID: UndatedItem].self, forKey: .undatedItems) ?? [:]
     }
 
     func materialized(revisions: [NoteID: Int64], workspaceRevision: Int64) -> WorkspaceState {
@@ -62,7 +87,8 @@ public struct WorkspaceContentSnapshot: Codable, Equatable, Sendable {
             calendarNoteRelations: calendarNoteRelations,
             taskBlockLinks: taskBlockLinks,
             inspirationNoteLinks: inspirationNoteLinks,
-            materialDigests: materialDigests
+            materialDigests: materialDigests,
+            undatedItems: undatedItems
         )
     }
 }

@@ -90,6 +90,8 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
     public var notes: String
     /// Manual order among untimed single-day items. Timed items ignore this.
     public var untimedRank: Int
+    /// Optional phone/desktop alert. Only one-off items carry one; nil when unused.
+    public var reminder: ItemReminder?
     public var completedAt: Date?
     public var createdAt: Date
     public var updatedAt: Date
@@ -105,6 +107,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
         isPinned: Bool = false,
         notes: String = "",
         untimedRank: Int = 0,
+        reminder: ItemReminder? = nil,
         completedAt: Date?,
         createdAt: Date,
         updatedAt: Date
@@ -127,6 +130,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
         self.isPinned = isPinned
         self.notes = notes
         self.untimedRank = untimedRank
+        self.reminder = reminder
         self.completedAt = completedAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -151,6 +155,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
         let isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         let notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         let untimedRank = try container.decodeIfPresent(Int.self, forKey: .untimedRank) ?? 0
+        let reminder = try container.decodeIfPresent(ItemReminder.self, forKey: .reminder)
         let completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
         let createdAt = try container.decode(Date.self, forKey: .createdAt)
         let updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -167,6 +172,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
                 isPinned: isPinned,
                 notes: notes,
                 untimedRank: untimedRank,
+                reminder: reminder,
                 completedAt: completedAt,
                 createdAt: createdAt,
                 updatedAt: updatedAt
@@ -194,6 +200,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
         if untimedRank != 0 {
             try container.encode(untimedRank, forKey: .untimedRank)
         }
+        try container.encodeIfPresent(reminder, forKey: .reminder)
         try container.encodeIfPresent(completedAt, forKey: .completedAt)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
@@ -212,6 +219,7 @@ public struct CalendarItem: Identifiable, Codable, Equatable, Sendable {
         case isPinned
         case notes
         case untimedRank
+        case reminder
         case completedAt
         case createdAt
         case updatedAt

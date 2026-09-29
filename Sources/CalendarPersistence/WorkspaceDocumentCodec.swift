@@ -50,7 +50,7 @@ public enum WorkspaceDocumentCodec {
             return try loadAndInspect(migrateV3TaskTitles(try decodeWorkspace(data)), provenance)
         case 4:
             return try loadAndInspect(try migrateWorkspaceV4(data), provenance)
-        case WorkspaceDocument.currentSchemaVersion:
+        case 5, WorkspaceDocument.currentSchemaVersion:
             return try loadAndInspect(try decodeWorkspace(data), provenance)
         default:
             throw WorkspacePersistenceError.unsupportedSchema(schema)
@@ -185,7 +185,7 @@ public enum WorkspaceDocumentCodec {
         }
         guard [
             "categories", "items", "series", "exceptions", "completions", "notes",
-            "inspirations", "baselines", "occurrenceOverrides", "materialDigests"
+            "inspirations", "baselines", "occurrenceOverrides", "materialDigests", "undatedItems"
         ].contains(key), values.count.isMultiple(of: 2)
         else { return values }
         return stride(from: 0, to: values.count, by: 2)

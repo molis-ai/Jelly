@@ -35,6 +35,8 @@ public enum WorkspaceValidationError: Error, Equatable, Sendable {
     case invalidMaterialDigestResult(InspirationID)
     case invalidMaterialDigestFailure(InspirationID)
     case invalidMaterialSnapshot(InspirationID)
+    case invalidInspirationFollowUp(InspirationID)
+    case invalidUndatedItem(UUID)
 }
 
 public enum WorkspaceValidator {
@@ -54,6 +56,21 @@ public enum WorkspaceValidator {
         try validateTaskBlockLinks(state)
         try validateInspirationLinks(state)
         try validateMaterialDigests(state)
+        try validateUndatedItems(state)
+    }
+
+    private static func validateUndatedItems(_ state: WorkspaceState) throws {
+        for (key, item) in state.undatedItems {
+            guard key == item.id, item.isValid else {
+                throw WorkspaceValidationError.invalidUndatedItem(key)
+            }
+            guard state.calendar.categories[item.categoryID] != nil else {
+                throw WorkspaceValidationError.unknownCategory(item.categoryID)
+            }
+            if let source = item.sourceInspirationID, state.inspirations[source] == nil {
+                throw WorkspaceValidationError.invalidUndatedItem(key)
+            }
+        }
     }
 
     private static func validateNotes(_ state: WorkspaceState) throws {
@@ -82,6 +99,11 @@ public enum WorkspaceValidator {
             }
             guard state.calendar.categories[inspiration.categoryID] != nil else {
                 throw WorkspaceValidationError.unknownCategory(inspiration.categoryID)
+            }
+            guard inspiration.expansion?.isValid ?? true,
+                  inspiration.perspective?.isValid ?? true
+            else {
+                throw WorkspaceValidationError.invalidInspirationFollowUp(inspiration.id)
             }
             guard hasValidRawInput(inspiration) else {
                 throw WorkspaceValidationError.invalidInspirationInput(inspiration.id)

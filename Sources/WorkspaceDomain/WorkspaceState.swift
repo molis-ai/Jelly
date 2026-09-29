@@ -10,6 +10,8 @@ public struct WorkspaceState: Codable, Equatable, Sendable {
     public var taskBlockLinks: Set<TaskBlockCalendarLink>
     public var inspirationNoteLinks: Set<InspirationNoteLink>
     public var materialDigests: [InspirationID: MaterialDigest]
+    /// To-dos without a day ("以后再说").
+    public var undatedItems: [UUID: UndatedItem]
 
     public init(
         revision: Int64,
@@ -19,7 +21,8 @@ public struct WorkspaceState: Codable, Equatable, Sendable {
         calendarNoteRelations: CalendarNoteRelationGraph,
         taskBlockLinks: Set<TaskBlockCalendarLink>,
         inspirationNoteLinks: Set<InspirationNoteLink>,
-        materialDigests: [InspirationID: MaterialDigest]
+        materialDigests: [InspirationID: MaterialDigest],
+        undatedItems: [UUID: UndatedItem] = [:]
     ) {
         self.revision = revision
         self.calendar = calendar
@@ -29,6 +32,7 @@ public struct WorkspaceState: Codable, Equatable, Sendable {
         self.taskBlockLinks = taskBlockLinks
         self.inspirationNoteLinks = inspirationNoteLinks
         self.materialDigests = materialDigests
+        self.undatedItems = undatedItems
     }
 
     public static func empty(calendar: CalendarState) -> WorkspaceState {
@@ -53,6 +57,7 @@ public struct WorkspaceState: Codable, Equatable, Sendable {
         case taskBlockLinks
         case inspirationNoteLinks
         case materialDigests
+        case undatedItems
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,5 +73,6 @@ public struct WorkspaceState: Codable, Equatable, Sendable {
             [InspirationID: MaterialDigest].self,
             forKey: .materialDigests
         ) ?? [:]
+        undatedItems = try container.decodeIfPresent([UUID: UndatedItem].self, forKey: .undatedItems) ?? [:]
     }
 }

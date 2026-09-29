@@ -229,6 +229,7 @@ public struct JellyMCPToolbox: MCPToolHandler {
             isPinned: pinned,
             notes: args.notes ?? current.notes,
             untimedRank: current.untimedRank,
+            reminder: current.reminder?.adapted(to: schedule),
             completedAt: current.completedAt,
             createdAt: current.createdAt,
             updatedAt: Date()
@@ -604,8 +605,10 @@ public struct JellyMCPToolbox: MCPToolHandler {
              .legacyDiagnosticsRequireConfirmation, .permanentDeleteRequiresArchivedSubject,
              .primaryReplacementDispositionRequired, .revisionOverflow,
              .linkedTaskDispositionRequired, .unexpectedLinkedTaskDisposition,
-             .unexpectedPrimaryReplacementDisposition:
+             .unexpectedPrimaryReplacementDisposition, .invalidUndatedItem:
             return ("internal_error", String(describing: error))
+        case .missingUndatedItem:
+            return ("not_found", "无日期待办不存在。")
         }
     }
 

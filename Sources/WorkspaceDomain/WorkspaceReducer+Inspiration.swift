@@ -234,6 +234,9 @@ extension WorkspaceReducer {
         })
         candidate.materialDigests.removeValue(forKey: id)
         candidate.inspirations.removeValue(forKey: id)
+        for itemID in candidate.undatedItems.keys where candidate.undatedItems[itemID]?.sourceInspirationID == id {
+            candidate.undatedItems[itemID]?.sourceInspirationID = nil
+        }
         return .proceed
     }
 }

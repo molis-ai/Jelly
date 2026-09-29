@@ -406,6 +406,22 @@ public enum WorkspaceCommand: Sendable {
     case repairConsistency(WorkspaceConsistencyRepairPayload)
     case restoreContent(WorkspaceRestoreContentPayload)
     case applyDecompositionPlan(ApplyDecompositionPlanPayload)
+    /// 回顾里的“留着”：记下这次看过，按节奏之后再带回来。
+    case reviewInspiration(InspirationID, at: Date)
+    /// 把灵感变成日历事项或无日期待办；原灵感保持不变。
+    case scheduleInspiration(ScheduleInspirationPayload)
+    case setInspirationExpansion(InspirationID, InspirationExpansion?)
+    case decideExpansionDirection(
+        InspirationID,
+        directionID: UUID,
+        decision: ExpansionDirectionDecision
+    )
+    case setInspirationPerspective(InspirationID, InspirationPerspective?)
+    case createUndatedItem(UndatedItem)
+    case updateUndatedItem(UndatedItem)
+    case deleteUndatedItem(UUID)
+    /// 给无日期待办定一天：变成普通日历事项并从清单移除。
+    case scheduleUndatedItem(UUID, item: CalendarItem)
 }
 
 public enum WorkspaceNoChangeReason: Equatable, Sendable {
@@ -422,6 +438,7 @@ public enum WorkspaceNoChangeReason: Equatable, Sendable {
     case materialDigestAlreadyRunning
     case materialDigestAlreadyWritten(NoteID)
     case staleMaterialDigestNote
+    case staleInspirationExpansion
 }
 
 public enum WorkspaceConflict: Equatable, Sendable {
@@ -518,6 +535,8 @@ public enum WorkspaceReducerError: Error, Equatable, Sendable {
     case finalValidationFailed
     case invalidMaterialDigestStage
     case invalidDecompositionPlan
+    case invalidUndatedItem
+    case missingUndatedItem(UUID)
 }
 
 public struct LegacyMarkdownMigrationPreview: Equatable, Sendable {

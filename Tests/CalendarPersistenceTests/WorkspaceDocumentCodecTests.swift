@@ -176,7 +176,10 @@ struct WorkspaceDocumentCodecTests {
         let encoded = try WorkspaceDocumentCodec.encode(
             try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
         )
-        #expect(try JSONDecoder.workspaceDeterministic.decode(SchemaEnvelopeFixture.self, from: encoded).schemaVersion == 5)
+        #expect(
+            try JSONDecoder.workspaceDeterministic.decode(SchemaEnvelopeFixture.self, from: encoded).schemaVersion
+                == WorkspaceDocument.currentSchemaVersion
+        )
         #expect(throws: DecodingError.self) {
             _ = try JSONDecoder.workspaceDeterministic.decode(LegacyWorkspaceDocumentV3V4.self, from: encoded)
         }
@@ -186,9 +189,26 @@ struct WorkspaceDocumentCodecTests {
         let expected = try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
         let encoded = try WorkspaceDocumentCodec.encode(expected)
         let decoded = try WorkspaceDocumentCodec.decode(encoded)
-        #expect(decoded.provenance.sourceSchema == 5)
+        #expect(decoded.provenance.sourceSchema == WorkspaceDocument.currentSchemaVersion)
         #expect(decoded.state == expected)
         #expect(decoded.state.materialDigests.count == 3)
+        #expect(try WorkspaceDocumentCodec.encode(decoded.state) == encoded)
+    }
+
+    @Test func v5DocumentLoadsWithEmptyFollowUpFieldsAndWritesV6() throws {
+        let expected = try WorkspacePersistenceFixtures.workspaceWithMaterialDigests()
+        let encoded = try WorkspaceDocumentCodec.encode(expected)
+        var object = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["schemaVersion"] = 5
+        var state = try #require(object["state"] as? [String: Any])
+        state.removeValue(forKey: "undatedItems")
+        object["state"] = state
+        let v5 = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+
+        let decoded = try WorkspaceDocumentCodec.decode(v5)
+        #expect(decoded.provenance.sourceSchema == 5)
+        #expect(decoded.state.undatedItems.isEmpty)
+        #expect(decoded.state == expected)
         #expect(try WorkspaceDocumentCodec.encode(decoded.state) == encoded)
     }
 
@@ -256,7 +276,6 @@ struct WorkspaceDocumentCodecTests {
         let encoded = try WorkspaceDocumentCodec.encode(expected)
         let decoded = try WorkspaceDocumentCodec.decode(encoded)
 
-        #expect(decoded.provenance.sourceSchema == 5)
         #expect(decoded.provenance.sourceSchema == WorkspaceDocument.currentSchemaVersion)
         #expect(decoded.state.notes == expected.notes)
         #expect(decoded.state.inspirations == expected.inspirations)

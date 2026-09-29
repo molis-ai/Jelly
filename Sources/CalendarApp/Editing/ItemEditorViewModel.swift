@@ -116,6 +116,7 @@ final class ItemEditorViewModel: ObservableObject {
                     priority: draft.priority,
                     isPinned: draft.isPinned,
                     notes: draft.notes,
+                    reminder: draft.reminder?.adapted(to: schedule),
                     completedAt: nil,
                     createdAt: now,
                     updatedAt: now
@@ -135,6 +136,7 @@ final class ItemEditorViewModel: ObservableObject {
                     priority: draft.priority,
                     isPinned: draft.isPinned,
                     notes: draft.notes,
+                    reminder: draft.reminder?.adapted(to: schedule),
                     completedAt: original.completedAt,
                     createdAt: original.createdAt,
                     updatedAt: now

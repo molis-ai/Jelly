@@ -69,11 +69,12 @@ private struct CalendarItemFieldWrite: Equatable, Sendable {
     let isPinned: ValueChange<Bool>?
     let notes: ValueChange<String>?
     let untimedRank: ValueChange<Int>?
+    let reminder: ValueChange<ItemReminder?>?
     let completedAt: ValueChange<Date?>?
     let updatedAt: ValueChange<Date>?
 
     var isEmpty: Bool {
-        kind == nil && title == nil && categoryID == nil && schedule == nil && creationTimeZoneIdentifier == nil && priority == nil && isPinned == nil && notes == nil && untimedRank == nil && completedAt == nil && updatedAt == nil
+        kind == nil && title == nil && categoryID == nil && schedule == nil && creationTimeZoneIdentifier == nil && priority == nil && isPinned == nil && notes == nil && untimedRank == nil && reminder == nil && completedAt == nil && updatedAt == nil
     }
 }
 
@@ -90,8 +91,13 @@ private struct InspirationFieldWrite: Equatable, Sendable {
     let resolvedMetadata: ValueChange<SourceMetadata?>?
     let categoryID: ValueChange<UUID>?
     let lifecycle: ValueChange<InspirationLifecycle>?
+    let lastReviewedAt: ValueChange<Date?>?
+    let expansion: ValueChange<InspirationExpansion?>?
+    let perspective: ValueChange<InspirationPerspective?>?
+    let scheduledItemIDs: ValueChange<[UUID]>?
     var isEmpty: Bool {
         rawText == nil && rawURL == nil && rawFile == nil && resolvedSourceKind == nil && resolvedMetadata == nil && categoryID == nil && lifecycle == nil
+            && lastReviewedAt == nil && expansion == nil && perspective == nil && scheduledItemIDs == nil
     }
 }
 
@@ -156,6 +162,7 @@ public struct WorkspaceUndoRecord: Equatable, Sendable {
     fileprivate let removedTaskLinks: Set<TaskBlockCalendarLink>
     fileprivate let addedInspirationLinks: Set<InspirationNoteLink>
     fileprivate let removedInspirationLinks: Set<InspirationNoteLink>
+    fileprivate let undatedItems: [UUID: ValueChange<UndatedItem>]
 
     fileprivate init(label: String?, before: WorkspaceState, after: WorkspaceState) {
         self.label = label
@@ -177,10 +184,11 @@ public struct WorkspaceUndoRecord: Equatable, Sendable {
         removedTaskLinks = before.taskBlockLinks.subtracting(after.taskBlockLinks)
         addedInspirationLinks = after.inspirationNoteLinks.subtracting(before.inspirationNoteLinks)
         removedInspirationLinks = before.inspirationNoteLinks.subtracting(after.inspirationNoteLinks)
+        undatedItems = makeChanges(before.undatedItems, after.undatedItems)
     }
 
     fileprivate var isEmpty: Bool {
-        calendar.isEmpty && notes.isEmpty && inspirations.isEmpty && baselines.isEmpty && occurrenceOverrides.isEmpty && addedTaskLinks.isEmpty && removedTaskLinks.isEmpty && addedInspirationLinks.isEmpty && removedInspirationLinks.isEmpty
+        calendar.isEmpty && notes.isEmpty && inspirations.isEmpty && baselines.isEmpty && occurrenceOverrides.isEmpty && addedTaskLinks.isEmpty && removedTaskLinks.isEmpty && addedInspirationLinks.isEmpty && removedInspirationLinks.isEmpty && undatedItems.isEmpty
     }
 }
 
@@ -225,6 +233,7 @@ private func makeItemChanges(_ before: [UUID: CalendarItem], _ after: [UUID: Cal
             isPinned: old.isPinned == new.isPinned ? nil : .init(before: old.isPinned, after: new.isPinned),
             notes: old.notes == new.notes ? nil : .init(before: old.notes, after: new.notes),
             untimedRank: old.untimedRank == new.untimedRank ? nil : .init(before: old.untimedRank, after: new.untimedRank),
+            reminder: old.reminder == new.reminder ? nil : .init(before: old.reminder, after: new.reminder),
             completedAt: old.completedAt == new.completedAt ? nil : .init(before: old.completedAt, after: new.completedAt),
             updatedAt: old.updatedAt == new.updatedAt ? nil : .init(before: old.updatedAt, after: new.updatedAt)
         )
@@ -284,7 +293,11 @@ private func makeInspirationChanges(_ before: [InspirationID: Inspiration], _ af
             resolvedSourceKind: old.resolvedSourceKind == new.resolvedSourceKind ? nil : .init(before: old.resolvedSourceKind, after: new.resolvedSourceKind),
             resolvedMetadata: old.resolvedMetadata == new.resolvedMetadata ? nil : .init(before: old.resolvedMetadata, after: new.resolvedMetadata),
             categoryID: old.categoryID == new.categoryID ? nil : .init(before: old.categoryID, after: new.categoryID),
-            lifecycle: old.lifecycle == new.lifecycle ? nil : .init(before: old.lifecycle, after: new.lifecycle)
+            lifecycle: old.lifecycle == new.lifecycle ? nil : .init(before: old.lifecycle, after: new.lifecycle),
+            lastReviewedAt: old.lastReviewedAt == new.lastReviewedAt ? nil : .init(before: old.lastReviewedAt, after: new.lastReviewedAt),
+            expansion: old.expansion == new.expansion ? nil : .init(before: old.expansion, after: new.expansion),
+            perspective: old.perspective == new.perspective ? nil : .init(before: old.perspective, after: new.perspective),
+            scheduledItemIDs: old.scheduledItemIDs == new.scheduledItemIDs ? nil : .init(before: old.scheduledItemIDs, after: new.scheduledItemIDs)
         )
         return fields.isEmpty ? nil : (id, .update(fields))
     })
@@ -349,6 +362,7 @@ public enum WorkspaceUndoReducer {
         )
         try applyLinks(added: record.addedTaskLinks, removed: record.removedTaskLinks, to: &candidate.taskBlockLinks, undo: undo)
         try applyLinks(added: record.addedInspirationLinks, removed: record.removedInspirationLinks, to: &candidate.inspirationNoteLinks, undo: undo)
+        try apply(record.undatedItems, to: &candidate.undatedItems, undo: undo, normalize: { $0 })
         candidate.revision = state.revision + 1
         var ledger = noteRevisionHighWatermarks
         for id in record.notes.keys {
@@ -413,6 +427,7 @@ public enum WorkspaceUndoReducer {
                 try applyItem(fields.isPinned, value: &next.isPinned, undo: undo)
                 try applyItem(fields.notes, value: &next.notes, undo: undo)
                 try applyItem(fields.untimedRank, value: &next.untimedRank, undo: undo)
+                try applyItem(fields.reminder, value: &next.reminder, undo: undo)
                 try applyItem(fields.completedAt, value: &next.completedAt, undo: undo)
                 restoreTimestamp(fields.updatedAt, value: &next.updatedAt, undo: undo)
                 items[id] = next
@@ -485,6 +500,10 @@ public enum WorkspaceUndoReducer {
                 try applyField(fields.resolvedMetadata, value: &next.resolvedMetadata, undo: undo)
                 try applyField(fields.categoryID, value: &next.categoryID, undo: undo)
                 try applyField(fields.lifecycle, value: &next.lifecycle, undo: undo)
+                try applyField(fields.lastReviewedAt, value: &next.lastReviewedAt, undo: undo)
+                try applyField(fields.expansion, value: &next.expansion, undo: undo)
+                try applyField(fields.perspective, value: &next.perspective, undo: undo)
+                try applyField(fields.scheduledItemIDs, value: &next.scheduledItemIDs, undo: undo)
                 inspirations[id] = next
             case let .structural(change):
                 let expected = undo ? change.after : change.before

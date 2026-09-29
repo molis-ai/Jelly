@@ -76,6 +76,7 @@ final class JellyMCPCalGateway: JellyMCPGateway {
         case .materialDigestAlreadyRunning: "材料提炼任务已在运行"
         case .materialDigestAlreadyWritten: "材料提炼结果已写入笔记"
         case .staleMaterialDigestNote: "目标笔记已过期"
+        case .staleInspirationExpansion: "灵感原文已改动，延展结果过期"
         }
     }
 

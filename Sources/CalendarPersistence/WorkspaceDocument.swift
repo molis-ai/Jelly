@@ -133,7 +133,9 @@ public struct WorkspaceDocument: Codable, Equatable, Sendable {
     // V5 persists source-agnostic snapshots and block-level evidence. V4 is
     // migrated on read; older app builds cannot open a V5 workspace and must
     // not be used as writers after this schema is adopted.
-    public static let currentSchemaVersion = 5
+    /// 6 adds item reminders, undated items and inspiration follow-up fields.
+    /// Schema 5 documents decode unchanged with those fields empty.
+    public static let currentSchemaVersion = 6
 
     public var schemaVersion: Int
     public var state: WorkspaceState

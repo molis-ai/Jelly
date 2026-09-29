@@ -30,5 +30,9 @@ extension WorkspaceReducer {
             candidate.inspirations[inspirationID]?.categoryID = fallback
             candidate.inspirations[inspirationID]?.updatedAt = now
         }
+        for itemID in candidate.undatedItems.keys where candidate.undatedItems[itemID]?.categoryID == id {
+            candidate.undatedItems[itemID]?.categoryID = fallback
+            candidate.undatedItems[itemID]?.updatedAt = now
+        }
     }
 }
