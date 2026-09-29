@@ -15,6 +15,8 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
     public var isPinned: Bool
     /// Markdown notes / 随记 shared by series instances unless overridden.
     public var notes: String
+    /// Rings for every occurrence; single-occurrence edits keep the series'.
+    public var reminder: ItemReminder?
     public var creationTimeZoneIdentifier: String
     public var createdAt: Date
     public var updatedAt: Date
@@ -33,6 +35,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
         priority: ItemPriority = .none,
         isPinned: Bool = false,
         notes: String = "",
+        reminder: ItemReminder? = nil,
         creationTimeZoneIdentifier: String = TimeZone.current.identifier,
         createdAt: Date,
         updatedAt: Date
@@ -82,6 +85,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
         self.priority = isPinned && priority == .none ? .p0 : priority
         self.isPinned = isPinned
         self.notes = notes
+        self.reminder = reminder
         self.creationTimeZoneIdentifier = creationTimeZoneIdentifier
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -109,6 +113,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
         let priority = try container.decodeIfPresent(ItemPriority.self, forKey: .priority) ?? .none
         let isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         let notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        let reminder = try container.decodeIfPresent(ItemReminder.self, forKey: .reminder)
         let creationTimeZoneIdentifier = try container.decode(String.self, forKey: .creationTimeZoneIdentifier)
         let createdAt = try container.decode(Date.self, forKey: .createdAt)
         let updatedAt = try container.decode(Date.self, forKey: .updatedAt)
@@ -128,6 +133,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
                 priority: priority,
                 isPinned: isPinned,
                 notes: notes,
+                reminder: reminder,
                 creationTimeZoneIdentifier: creationTimeZoneIdentifier,
                 createdAt: createdAt,
                 updatedAt: updatedAt
@@ -156,6 +162,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
         try container.encode(priority, forKey: .priority)
         try container.encode(isPinned, forKey: .isPinned)
         try container.encode(notes, forKey: .notes)
+        try container.encodeIfPresent(reminder, forKey: .reminder)
         try container.encode(creationTimeZoneIdentifier, forKey: .creationTimeZoneIdentifier)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(updatedAt, forKey: .updatedAt)
@@ -190,6 +197,7 @@ public struct WeeklySeries: Identifiable, Codable, Equatable, Sendable {
         case priority
         case isPinned
         case notes
+        case reminder
         case creationTimeZoneIdentifier
         case createdAt
         case updatedAt

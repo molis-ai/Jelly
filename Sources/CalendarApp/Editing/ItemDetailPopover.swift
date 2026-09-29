@@ -352,7 +352,18 @@ struct ItemEditForm: View {
                 titleField
                 categoryBlock
                 scheduleBlock
-                if !model.draft.repeatsWeekly {
+                switch configuration.mode {
+                case .editOccurrence(_, _, .onlyThis):
+                    Text("提醒跟随整个重复系列；要改提醒，请选“此后全部”编辑。")
+                        .font(EditorFormStyle.caption)
+                        .foregroundStyle(theme.secondaryText)
+                case .editOccurrence:
+                    EditorReminderPicker(
+                        reminder: $model.draft.reminder,
+                        usesTime: model.draft.usesTime,
+                        appliesToWholeSeries: true
+                    )
+                default:
                     EditorReminderPicker(reminder: $model.draft.reminder, usesTime: model.draft.usesTime)
                 }
                 EditorMoreDetailsDisclosure(isExpanded: $showMoreDetails) {

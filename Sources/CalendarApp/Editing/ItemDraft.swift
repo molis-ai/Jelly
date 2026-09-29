@@ -32,7 +32,7 @@ struct ItemDraft: Equatable {
     var isPinned: Bool
     /// Markdown 随记 (style-only checklists, lists, emphasis).
     var notes: String = ""
-    /// One-off items only; series occurrences never carry a reminder.
+    /// One-off item's reminder, or the series' reminder when editing a series.
     var reminder: ItemReminder? = nil
 }
 
@@ -72,7 +72,8 @@ extension ItemDraft {
             recurrenceEndDate: series.recurrenceEndDate,
             priority: series.priority,
             isPinned: series.isPinned,
-            notes: series.notes
+            notes: series.notes,
+            reminder: series.reminder
         )
     }
 
@@ -91,7 +92,8 @@ extension ItemDraft {
             recurrenceEndDate: series.recurrenceEndDate,
             priority: occurrence.priority,
             isPinned: occurrence.isPinned,
-            notes: occurrence.notes
+            notes: occurrence.notes,
+            reminder: series.reminder
         )
     }
 

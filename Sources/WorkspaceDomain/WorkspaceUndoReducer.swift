@@ -46,11 +46,12 @@ private struct WeeklySeriesFieldWrite: Equatable, Sendable {
     let priority: ValueChange<ItemPriority>?
     let isPinned: ValueChange<Bool>?
     let notes: ValueChange<String>?
+    let reminder: ValueChange<ItemReminder?>?
     let creationTimeZoneIdentifier: ValueChange<String>?
     let updatedAt: ValueChange<Date>?
 
     var isEmpty: Bool {
-        kind == nil && title == nil && categoryID == nil && ruleStartDate == nil && recurrenceEndDate == nil && weekdays == nil && durationDays == nil && startTime == nil && endTime == nil && priority == nil && isPinned == nil && notes == nil && creationTimeZoneIdentifier == nil && updatedAt == nil
+        kind == nil && title == nil && categoryID == nil && ruleStartDate == nil && recurrenceEndDate == nil && weekdays == nil && durationDays == nil && startTime == nil && endTime == nil && priority == nil && isPinned == nil && notes == nil && reminder == nil && creationTimeZoneIdentifier == nil && updatedAt == nil
     }
 }
 
@@ -274,6 +275,7 @@ private func makeSeriesChanges(_ before: [UUID: WeeklySeries], _ after: [UUID: W
             priority: old.priority == new.priority ? nil : .init(before: old.priority, after: new.priority),
             isPinned: old.isPinned == new.isPinned ? nil : .init(before: old.isPinned, after: new.isPinned),
             notes: old.notes == new.notes ? nil : .init(before: old.notes, after: new.notes),
+            reminder: old.reminder == new.reminder ? nil : .init(before: old.reminder, after: new.reminder),
             creationTimeZoneIdentifier: old.creationTimeZoneIdentifier == new.creationTimeZoneIdentifier ? nil : .init(before: old.creationTimeZoneIdentifier, after: new.creationTimeZoneIdentifier),
             updatedAt: old.updatedAt == new.updatedAt ? nil : .init(before: old.updatedAt, after: new.updatedAt)
         )
@@ -476,6 +478,7 @@ public enum WorkspaceUndoReducer {
                 try applyField(fields.priority, value: &next.priority, undo: undo)
                 try applyField(fields.isPinned, value: &next.isPinned, undo: undo)
                 try applyField(fields.notes, value: &next.notes, undo: undo)
+                try applyField(fields.reminder, value: &next.reminder, undo: undo)
                 try applyField(fields.creationTimeZoneIdentifier, value: &next.creationTimeZoneIdentifier, undo: undo)
                 restoreTimestamp(fields.updatedAt, value: &next.updatedAt, undo: undo)
                 series[id] = next

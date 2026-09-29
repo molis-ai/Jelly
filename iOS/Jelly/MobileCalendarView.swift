@@ -349,7 +349,11 @@ struct MobileItemEditor: View {
                         DatePicker("结束时间", selection: timeBinding(\.endTime), displayedComponents: .hourAndMinute)
                     }
                 }
-                if !model.draft.repeatsWeekly {
+                if case .editOccurrence(_, _, .onlyThis) = request.mode {
+                    Section {
+                        Text("提醒跟随整个重复系列；要改提醒，请选“此后全部”编辑。").font(.footnote).foregroundStyle(.secondary)
+                    }
+                } else {
                     Section {
                         Picker("提醒", selection: $model.draft.reminder) {
                             Text("不提醒").tag(ItemReminder?.none)

@@ -66,6 +66,8 @@ public struct SeriesPatch: Sendable {
     public var isPinned: Bool?
     /// nil = leave notes unchanged; non-nil (including "") replaces notes.
     public var notes: String?
+    /// Series-level only: an only-this edit that changes it is rejected.
+    public var reminder: OptionalPatch<ItemReminder>
 
     public init(
         title: String? = nil,
@@ -79,7 +81,8 @@ public struct SeriesPatch: Sendable {
         endTime: OptionalPatch<MinuteOfDay> = .unchanged,
         priority: ItemPriority? = nil,
         isPinned: Bool? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        reminder: OptionalPatch<ItemReminder> = .unchanged
     ) {
         self.title = title
         self.kind = kind
@@ -93,6 +96,7 @@ public struct SeriesPatch: Sendable {
         self.priority = priority
         self.isPinned = isPinned
         self.notes = notes
+        self.reminder = reminder
     }
 }
 
@@ -200,7 +204,10 @@ public enum SeriesMutationEngine {
             result.completions.removeValue(forKey: key)
             return result
         case let .patch(patch):
-            guard patch.weekdays == nil, isUnchanged(patch.recurrenceEndDate) else {
+            guard patch.weekdays == nil,
+                  isUnchanged(patch.recurrenceEndDate),
+                  isUnchanged(patch.reminder)
+            else {
                 throw SeriesMutationError.invalidOnlyThisRulePatch
             }
 
@@ -328,6 +335,7 @@ public enum SeriesMutationEngine {
             priority: priority,
             isPinned: isPinned,
             notes: patch.notes ?? series.notes,
+            reminder: applying(patch.reminder, to: series.reminder),
             creationTimeZoneIdentifier: series.creationTimeZoneIdentifier,
             createdAt: now,
             updatedAt: now

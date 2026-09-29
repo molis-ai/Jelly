@@ -50,6 +50,11 @@ public enum ReminderPlanner {
 
     public static func itemKey(_ id: UUID) -> String { "item:\(id.uuidString)" }
 
+    public static func occurrenceKey(_ key: OccurrenceKey) -> String {
+        let day = key.originalDate
+        return String(format: "occurrence:%@/%04d-%02d-%02d", key.seriesID.uuidString, day.year, day.month, day.day)
+    }
+
     public static func requests(
         in state: WorkspaceState,
         now: Date,
@@ -75,6 +80,35 @@ public enum ReminderPlanner {
                 dueDay: item.schedule.startDate,
                 dueTime: item.schedule.startTime
             ))
+        }
+        let graph = state.calendar.recurrence
+        let window = CalendarDateRange(
+            start: CalendarDate.localDay(containing: now.addingTimeInterval(-retention), in: timeZone),
+            end: CalendarDate.localDay(containing: horizon, in: timeZone)
+        )
+        for series in graph.series.values {
+            guard let reminder = series.reminder else { continue }
+            let occurrences = RecurrenceEngine.occurrences(
+                of: series,
+                in: window,
+                exceptions: graph.exceptions,
+                completions: graph.completions
+            )
+            for occurrence in occurrences where occurrence.completedAt == nil {
+                guard let fire = reminder.adapted(to: occurrence.schedule)
+                    .fireDate(for: occurrence.schedule, timeZone: timeZone),
+                      fire >= now.addingTimeInterval(-retention),
+                      fire <= horizon
+                else { continue }
+                result.append(ReminderRequest(
+                    key: occurrenceKey(occurrence.key),
+                    title: occurrence.title,
+                    notes: notes(title: reminder.title, body: occurrence.notes),
+                    fireDate: fire,
+                    dueDay: occurrence.schedule.startDate,
+                    dueTime: occurrence.schedule.startTime
+                ))
+            }
         }
         if let review, review.dueCount > 0, let request = reviewRequest(review, now: now, timeZone: timeZone) {
             result.append(request)
@@ -113,9 +147,13 @@ public enum ReminderPlanner {
     }
 
     private static func notes(for item: CalendarItem, reminder: ItemReminder) -> String {
-        var lines = ["来自 Jelly · \(reminder.title)"]
-        let body = item.notes.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !body.isEmpty { lines.append(String(body.prefix(500))) }
+        notes(title: reminder.title, body: item.notes)
+    }
+
+    private static func notes(title: String, body: String) -> String {
+        var lines = ["来自 Jelly · \(title)"]
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { lines.append(String(trimmed.prefix(500))) }
         return lines.joined(separator: "\n")
     }
 }

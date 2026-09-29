@@ -6,6 +6,8 @@ import SwiftUI
 struct EditorReminderPicker: View {
     @Binding var reminder: ItemReminder?
     let usesTime: Bool
+    /// Editing a series from this occurrence on: the reminder is the series'.
+    var appliesToWholeSeries = false
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: CalendarSemanticAppearance {
@@ -21,6 +23,18 @@ struct EditorReminderPicker: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            row
+            if appliesToWholeSeries {
+                Text("会改整个重复系列今后每一次的提醒。")
+                    .font(EditorFormStyle.caption)
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.leading, EditorFormStyle.labelWidth + 8)
+            }
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 8) {
             Text("提醒")
                 .font(EditorFormStyle.label)

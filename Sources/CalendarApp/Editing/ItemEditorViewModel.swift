@@ -101,6 +101,7 @@ final class ItemEditorViewModel: ObservableObject {
                         priority: draft.priority,
                         isPinned: draft.isPinned,
                         notes: draft.notes,
+                        reminder: draft.reminder?.adapted(to: schedule),
                         creationTimeZoneIdentifier: timeZoneIdentifier,
                         createdAt: now,
                         updatedAt: now
@@ -316,8 +317,17 @@ final class ItemEditorViewModel: ObservableObject {
             endTime: endTime,
             priority: draft.priority == originalDraft.priority ? nil : draft.priority,
             isPinned: draft.isPinned == originalDraft.isPinned ? nil : draft.isPinned,
-            notes: draft.notes == originalDraft.notes ? nil : draft.notes
+            notes: draft.notes == originalDraft.notes ? nil : draft.notes,
+            reminder: reminderPatch(schedule: schedule, scope: scope)
         )
+    }
+
+    /// The reminder belongs to the whole series, so only “this and future”
+    /// edits carry it; single-occurrence edits leave it alone.
+    private func reminderPatch(schedule: CalendarSchedule, scope: SeriesScope) -> OptionalPatch<ItemReminder> {
+        guard scope == .thisAndFuture, draft.reminder != originalDraft.reminder else { return .unchanged }
+        guard let reminder = draft.reminder else { return .clear }
+        return .set(reminder.adapted(to: schedule))
     }
 
     private func pairedTimePatch(
