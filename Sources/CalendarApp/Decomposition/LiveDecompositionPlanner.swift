@@ -48,7 +48,7 @@ struct LiveSystemLanguageModelCapability: SystemLanguageModelCapabilityChecking 
 
     static func snapshot(locale: Locale) -> SystemLanguageModelAvailabilitySnapshot {
 #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             return FoundationModelsAvailabilityProbe.snapshot(locale: locale)
         }
 #endif
@@ -67,7 +67,7 @@ enum LiveDecompositionPlanner {
         generator: (any DecompositionModelGenerating)? = nil
     ) -> any DecompositionPlanning {
 #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             return AppleFoundationModelsDecompositionPlanner(
                 locale: locale,
                 capability: capability,

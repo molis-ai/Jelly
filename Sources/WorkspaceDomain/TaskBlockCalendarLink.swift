@@ -1,7 +1,7 @@
 import Foundation
 
-enum TaskBlockCalendarTitle {
-    static func normalized(_ title: String) -> String {
+public enum TaskBlockCalendarTitle {
+    public static func normalized(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

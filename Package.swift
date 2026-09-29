@@ -13,11 +13,12 @@ let testingLinkerSettings: [LinkerSetting] = [
 
 let package = Package(
     name: "PersonalCalendar",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "CalendarDomain", targets: ["CalendarDomain"]),
         .library(name: "WorkspaceDomain", targets: ["WorkspaceDomain"]),
         .library(name: "CalendarPersistence", targets: ["CalendarPersistence"]),
+        .library(name: "JellyMCP", targets: ["JellyMCP"]),
         .executable(name: "PersonalCalendar", targets: ["CalendarApp"]),
         .executable(name: "jelly-mcp", targets: ["JellyMCPBridge"])
     ],

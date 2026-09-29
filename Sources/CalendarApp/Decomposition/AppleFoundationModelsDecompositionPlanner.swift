@@ -7,7 +7,7 @@ import FoundationModels
 enum FoundationModelsAvailabilityProbe {
     static func snapshot(locale: Locale) -> SystemLanguageModelAvailabilitySnapshot {
 #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             let model = SystemLanguageModel.default
             switch model.availability {
             case .available:
@@ -85,7 +85,7 @@ final class AppleFoundationModelsDecompositionPlanner: DecompositionPlanning, @u
 struct LiveDecompositionModelGenerator: DecompositionModelGenerating {
     func clarification(instructions: String, prompt: String) async throws -> ClarificationDecision {
 #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             let content = try await FoundationModelsSessionClient.respond(
                 instructions: instructions,
                 prompt: prompt,
@@ -112,7 +112,7 @@ struct LiveDecompositionModelGenerator: DecompositionModelGenerating {
 
     private func generateActions(instructions: String, prompt: String) async throws -> [PlannerCandidate] {
 #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(iOS 26.0, macOS 26.0, *) {
             let content = try await FoundationModelsSessionClient.respond(
                 instructions: instructions,
                 prompt: prompt,
@@ -134,7 +134,7 @@ struct LiveDecompositionModelGenerator: DecompositionModelGenerating {
 }
 
 #if canImport(FoundationModels)
-@available(macOS 26.0, *)
+@available(iOS 26.0, macOS 26.0, *)
 enum FoundationModelsSessionClient {
     static func respond<T: Generable>(
         instructions: String,
@@ -169,7 +169,7 @@ enum FoundationModelsSessionClient {
 // so `@Generable` fails with "plugin not found". These types use the public Generable
 // protocol and GenerationSchema for equivalent structured output; do not delete them
 // to "switch back" to the macro until the plugin is actually available in this toolchain.
-@available(macOS 26.0, *)
+@available(iOS 26.0, macOS 26.0, *)
 struct GeneratedActionList: Generable {
     var actions: [GeneratedAction]
 
@@ -198,7 +198,7 @@ struct GeneratedActionList: Generable {
     }
 }
 
-@available(macOS 26.0, *)
+@available(iOS 26.0, macOS 26.0, *)
 struct GeneratedAction: Generable {
     var existingID: String?
     var title: String
@@ -238,7 +238,7 @@ struct GeneratedAction: Generable {
     }
 }
 
-@available(macOS 26.0, *)
+@available(iOS 26.0, macOS 26.0, *)
 struct GeneratedClarification: Generable {
     var needsFollowUp: Bool
     var question: String

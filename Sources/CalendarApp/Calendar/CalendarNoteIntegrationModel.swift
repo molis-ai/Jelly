@@ -148,6 +148,17 @@ enum CalendarNotePresentedSheet: Equatable, Sendable {
         return try await attachPrimary(noteID, legacyResolution: nil)
     }
 
+    /// A workspace imported from the calendar-only format may not contain any
+    /// notes yet. Preview the same migration without inventing a target note.
+    func previewLegacyForNewPrimary() throws {
+        let prepared = try prepareLegacyMigrationPreview()
+        legacyMigrationPreview = prepared.preview
+        legacyPreviewCheckedTaskCompletedAt = prepared.checkedTaskCompletedAt
+        legacyPreviewNoteRevision = nil
+        presentedSheet = nil
+        statusMessage = nil
+    }
+
     @discardableResult
     func mergeLegacyIntoExistingPrimary(_ noteID: NoteID) async throws -> Bool {
         guard let preview = legacyMigrationPreview,

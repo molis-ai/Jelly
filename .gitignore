@@ -3,3 +3,5 @@
 dist/
 .DS_Store
 .zcode/
+iOS/**/xcuserdata/
+iOS/**/*.xcuserstate

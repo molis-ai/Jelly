@@ -346,8 +346,8 @@ final class ItemEditorViewModel: ObservableObject {
     }
 }
 
-private extension ItemEditorError {
-    init(domainError: DomainValidationError) {
+extension ItemEditorError {
+    fileprivate init(domainError: DomainValidationError) {
         switch domainError {
         case .emptyTitle: self = .emptyTitle
         case .invalidDateRange: self = .invalidDateRange

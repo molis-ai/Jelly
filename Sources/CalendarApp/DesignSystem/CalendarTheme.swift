@@ -1,4 +1,6 @@
+#if canImport(AppKit)
 import AppKit
+#endif
 import SwiftUI
 
 struct CalendarSemanticAppearance: Equatable, Sendable {
@@ -235,6 +237,7 @@ enum CalendarTheme {
         return categoryAccent(hex, appearance: appearance)
     }
 
+    #if canImport(AppKit)
     /// Baked non-template image so macOS menus keep true category colors.
     static func categoryTagDotImage(
         _ hex: String,
@@ -252,6 +255,7 @@ enum CalendarTheme {
         image.isTemplate = false
         return Image(nsImage: image)
     }
+    #endif
 
     static func categorySoftBackground(_ hex: String, appearance: CalendarAppearance) -> Color {
         guard let roles = categoryRoles(hex, appearance: appearance) else {

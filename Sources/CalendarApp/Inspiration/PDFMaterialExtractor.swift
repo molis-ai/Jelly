@@ -1,4 +1,8 @@
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 import Foundation
 import PDFKit
 import WorkspaceDomain
@@ -52,15 +56,19 @@ struct PDFKitMaterialPageLoader: PDFMaterialPageLoading, Sendable {
         let bounds = page.bounds(for: .mediaBox)
         guard bounds.width > 0, bounds.height > 0 else { return nil }
         let scale = min(3, maximumDimension / max(bounds.width, bounds.height))
-        let size = NSSize(
+        let size = CGSize(
             width: max(1, bounds.width * scale),
             height: max(1, bounds.height * scale)
         )
         let image = page.thumbnail(of: size, for: .mediaBox)
+        #if canImport(UIKit)
+        return image.pngData()
+        #else
         guard let tiff = image.tiffRepresentation,
               let representation = NSBitmapImageRep(data: tiff)
         else { return nil }
         return representation.representation(using: .png, properties: [:])
+        #endif
     }
 }
 

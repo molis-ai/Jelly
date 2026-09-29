@@ -1,0 +1,92 @@
+# Repo-relative sources compiled into JellyIOS, not copied or made public.
+# CalendarDomain, WorkspaceDomain and CalendarPersistence are package products.
+
+# Workspace transaction, draft protection, recovery and search closure.
+Sources/CalendarApp/Workspace/WorkspaceStore.swift
+Sources/CalendarApp/Workspace/WorkspaceTransactionQueue.swift
+Sources/CalendarApp/Workspace/WorkspaceUndoRecord.swift
+Sources/CalendarApp/Workspace/DraftJournalCoordinator.swift
+Sources/CalendarApp/Workspace/WorkspaceMutationOutcomePresenter.swift
+Sources/CalendarApp/Search/WorkspaceSearchIndex.swift
+Sources/CalendarApp/Notes/NoteAutosaveCoordinator.swift
+Sources/CalendarApp/Notes/NotesViewModel.swift
+Sources/CalendarApp/Notes/NotesBrowserLocation.swift
+Sources/CalendarApp/Notes/NoteCalendarArrangementProjection.swift
+Sources/CalendarApp/AppShell/WorkspaceDeepLinkRouter.swift
+Sources/CalendarApp/AppShell/WorkspaceRoute.swift
+Sources/CalendarApp/AppShell/WorkspaceCreationFeedback.swift
+Sources/CalendarApp/Notes/TaskBlockCalendarIntegration.swift
+
+# Platform-independent editing semantics. UIKit owns the text input bridge.
+Sources/CalendarApp/Notes/BlockEditor/BlockEditorSelection.swift
+Sources/CalendarApp/Notes/BlockEditor/BlockInputReducer.swift
+Sources/CalendarApp/Notes/BlockEditor/BlockPasteParser.swift
+
+# Calendar, scheduling, recurrence editing, notes relations and progress.
+Sources/CalendarApp/Editing/ItemDraft.swift
+Sources/CalendarApp/Editing/ItemEditorConfiguration.swift
+Sources/CalendarApp/Editing/ItemEditorViewModel.swift
+Sources/CalendarApp/Editing/ItemActions.swift
+Sources/CalendarApp/Calendar/CalendarNoteIntegrationModel.swift
+Sources/CalendarApp/Month/MonthViewModel.swift
+Sources/CalendarApp/Month/WeekStreamModel.swift
+Sources/CalendarApp/Week/WeekViewModel.swift
+Sources/CalendarApp/Week/WeekTimeGridMetrics.swift
+Sources/CalendarApp/DayDrawer/DayDrawerViewModel.swift
+Sources/CalendarApp/DesignSystem/CalendarPrimaryViewMode.swift
+Sources/CalendarApp/DesignSystem/CalendarTheme.swift
+Sources/CalendarApp/Categories/CategoryPalette.swift
+Sources/CalendarApp/Categories/CategoryManagerViewModel.swift
+Sources/CalendarApp/Progress/ProgressSummaryModels.swift
+Sources/CalendarApp/Progress/ProgressSummaryEngine.swift
+
+# Decomposition uses the same candidate validation, preview and atomic commit.
+# FoundationModels availability annotations must cover both iOS and macOS.
+Sources/CalendarApp/Decomposition/DecompositionModels.swift
+Sources/CalendarApp/Decomposition/DecompositionPlanning.swift
+Sources/CalendarApp/Decomposition/DecompositionPromptBuilder.swift
+Sources/CalendarApp/Decomposition/DecompositionSourceCapture.swift
+Sources/CalendarApp/Decomposition/DecompositionPlanBuilder.swift
+Sources/CalendarApp/Decomposition/CalendarProposalEngine.swift
+Sources/CalendarApp/Decomposition/DecompositionWorkbenchModel.swift
+Sources/CalendarApp/Decomposition/LiveDecompositionPlanner.swift
+Sources/CalendarApp/Decomposition/AppleFoundationModelsDecompositionPlanner.swift
+
+# Inspiration, acquisition, evidence, extraction, summarization and credentials.
+# PDFMaterialExtractor and LocalMaterialFileAccess require iOS platform branches.
+Sources/CalendarApp/Inspiration/InspirationViewModel.swift
+Sources/CalendarApp/Inspiration/MaterialDigestPresentation.swift
+Sources/CalendarApp/Inspiration/MaterialDigestCoordinator.swift
+Sources/CalendarApp/Inspiration/MaterialDigestProtocols.swift
+Sources/CalendarApp/Inspiration/MaterialSourceResolver.swift
+Sources/CalendarApp/Inspiration/MaterialSourceProviders.swift
+Sources/CalendarApp/Inspiration/SourceKindClassifier.swift
+Sources/CalendarApp/Inspiration/URLMetadataResolver.swift
+Sources/CalendarApp/Inspiration/TextMaterialExtractor.swift
+Sources/CalendarApp/Inspiration/HTMLMaterialExtractor.swift
+Sources/CalendarApp/Inspiration/ImageMaterialExtractor.swift
+Sources/CalendarApp/Inspiration/MediaMaterialExtractor.swift
+Sources/CalendarApp/Inspiration/PDFMaterialExtractor.swift
+Sources/CalendarApp/Inspiration/LocalMaterialFileAccess.swift
+Sources/CalendarApp/Inspiration/XiaohongshuPageParser.swift
+Sources/CalendarApp/Inspiration/XiaohongshuMaterialAcquirer.swift
+Sources/CalendarApp/Inspiration/DigestSettingsStore.swift
+Sources/CalendarApp/Inspiration/DigestCredentialStore.swift
+Sources/CalendarApp/Inspiration/OpenAICompatibleMaterialSummarizer.swift
+Sources/CalendarApp/Inspiration/HierarchicalMaterialSummarizer.swift
+Sources/CalendarApp/Inspiration/WhisperKitMaterialTranscriber.swift
+Sources/CalendarApp/Inspiration/TranscriptionRouting.swift
+Sources/CalendarApp/Inspiration/SenseVoiceMaterialTranscriber.swift
+Sources/CalendarApp/Inspiration/RoutingMaterialSummarizer.swift
+
+# Optional existing helpers; add to the active list when their UI uses them.
+# Sources/CalendarApp/Workspace/EditorFocusRegistry.swift
+Sources/CalendarApp/Backup/BackupRecoveryPolicy.swift
+# Sources/CalendarApp/Calendar/CalendarNewItemRequestPolicy.swift
+# BlockSelectionController still depends on the AppKit text projection; the
+# mobile UITextView bridge must adapt its offsets before adding that source.
+# Sources/CalendarApp/Notes/BlockEditor/BlockSelectionController.swift
+
+# Same authenticated loopback toolbox; iOS scene lifecycle stops on background.
+Sources/CalendarApp/MCP/MCPServiceController.swift
+Sources/CalendarApp/MCP/JellyMCPCalGateway.swift

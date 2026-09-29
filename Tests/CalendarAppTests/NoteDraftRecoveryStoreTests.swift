@@ -16,15 +16,23 @@ struct NoteDraftRecoveryStoreTests {
         var draft = persisted
         draft.revision = 2
         draft.updatedAt = Date(timeIntervalSince1970: 50)
-        let fixture = try await controlledRecoveryFixture(
-            state: recoveryState(persisted: persisted, categoryID: categoryID),
-            drafts: [draft]
+        let state = recoveryState(persisted: persisted, categoryID: categoryID)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "jelly-identical-persisted-recovery-\(UUID())", isDirectory: true
         )
-        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let documentURL = directory.appendingPathComponent("workspace.json")
+        try WorkspaceDocumentCodec.encode(state).write(to: documentURL)
+        let journal = DraftJournalRepository(fileURL: directory.appendingPathComponent("draft.json"))
+        try await journal.persist(recoveryEntry(draft: draft, session: UUID(), workspaceRevision: state.revision))
+        let repository = JSONWorkspaceRepository(documentURL: documentURL, seed: { state })
+        let store = WorkspaceStore(initialState: .empty(calendar: state.calendar), repository: repository, journal: journal)
+        await store.load()
 
-        #expect(fixture.store.phase == .ready)
-        #expect(try await fixture.journal.current()?.records.isEmpty == true)
-        #expect(fixture.store.state.notes[persisted.id] == persisted)
+        #expect(store.phase == .ready)
+        #expect(try await journal.current()?.records.isEmpty == true)
+        #expect(store.state.notes[persisted.id] == persisted)
     }
     @Test func continuousEditorRecoveryPreservesSoftBreaksFormattingEmptyBlocksAndLinkedTasks() async throws {
         let categoryID = UUID()
