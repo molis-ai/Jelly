@@ -45,12 +45,29 @@ public struct QuickAddParse: Equatable, Sendable {
 
 public enum QuickAddParser {
     public static func parse(_ text: String, today: CalendarDate) -> QuickAddParse {
+        guard text.contains(where: { !$0.isWhitespace }) else { return QuickAddParse(title: text) }
         var scanner = Scanner(text: text, today: today)
         scanner.run()
         return scanner.result(original: text)
     }
 
     // MARK: - Implementation
+
+    /// Parsing runs while the user types; compile each pattern once.
+    final class RegexCache: @unchecked Sendable {
+        static let shared = RegexCache()
+        private let lock = NSLock()
+        private var expressions: [String: NSRegularExpression] = [:]
+
+        func expression(_ pattern: String) -> NSRegularExpression? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let cached = expressions[pattern] { return cached }
+            guard let compiled = try? NSRegularExpression(pattern: pattern) else { return nil }
+            expressions[pattern] = compiled
+            return compiled
+        }
+    }
 
     private static let cnDigits: [Character: Int] = [
         "零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
@@ -150,7 +167,7 @@ public enum QuickAddParser {
         }
 
         private func matches(_ pattern: String) -> [NSTextCheckingResult] {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+            guard let regex = RegexCache.shared.expression(pattern) else { return [] }
             let source = masked
             return regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
         }

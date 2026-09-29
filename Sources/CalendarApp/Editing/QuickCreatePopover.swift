@@ -242,7 +242,7 @@ struct QuickCreatePopover: View {
             Text("新建事项")
                 .font(EditorFormStyle.title)
 
-            TextField("标题，可以直接写“明天下午 3 点开会”", text: $model.draft.title)
+            TextField("标题", text: $model.draft.title)
                 .textFieldStyle(.roundedBorder)
                 .font(EditorFormStyle.body)
                 .focused($titleFocused)
