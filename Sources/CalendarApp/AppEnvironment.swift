@@ -141,7 +141,14 @@ struct AppEnvironment {
         quickCapture.diagnostics = { AcceptanceDiagnostics.record($0, root: root) }
         reminderSync.diagnostics = { AcceptanceDiagnostics.record($0, root: root) }
         quickCapture.start()
-        reminderSync.start()
+        if AcceptanceDiagnostics.isAcceptanceRun,
+           ProcessInfo.processInfo.environment["JELLY_ACCEPTANCE_REMINDERS_CLEANUP"] == "1" {
+            // Acceptance only: take back the test reminders written earlier.
+            let reminders = reminderSync
+            Task { @MainActor in await reminders.disable() }
+        } else {
+            reminderSync.start()
+        }
         workspaceSync.start()
         AcceptanceDiagnostics.record(
             "background services started; hot key \(quickCapture.settings.shortcut.title) registered: \(!quickCapture.registrationFailed)",
@@ -168,6 +175,10 @@ struct AppEnvironment {
 /// Only in acceptance runs (isolated data directory): a plain-text trail of
 /// background-service startup, since those services have no window.
 enum AcceptanceDiagnostics {
+    static var isAcceptanceRun: Bool {
+        ProcessInfo.processInfo.environment["JELLY_ACCEPTANCE_DATA_DIRECTORY"] != nil
+    }
+
     static func record(
         _ line: String,
         root: URL,

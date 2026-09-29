@@ -55,6 +55,33 @@ struct AcceptanceFixtureWriter {
             updatedAt: now
         )
         state.calendar.items[meeting.id] = meeting
+        if ProcessInfo.processInfo.environment["JELLY_FIXTURE_SOON_REMINDER"] == "1" {
+            // Rings a few minutes after the fixture is written.
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .current
+            let soon = now.addingTimeInterval(4 * 60)
+            let parts = calendar.dateComponents([.hour, .minute], from: soon)
+            let start = MinuteOfDay(hour: parts.hour!, minute: parts.minute!)!
+            let end = MinuteOfDay(hour: parts.hour!, minute: min(59, parts.minute! + 30)) ?? start
+            let check = try CalendarItem(
+                id: UUID(),
+                kind: .task,
+                title: "Jelly 提醒验收",
+                categoryID: uncategorized,
+                schedule: CalendarSchedule(
+                    startDate: CalendarDate.localDay(containing: soon, in: .current),
+                    endDate: CalendarDate.localDay(containing: soon, in: .current),
+                    startTime: start,
+                    endTime: end > start ? end : MinuteOfDay(hour: min(23, parts.hour! + 1), minute: 0)!
+                ),
+                notes: "这是 Jelly 提醒功能的验收提醒，验收后会自动移除。",
+                reminder: .beforeStart(minutes: 0),
+                completedAt: nil,
+                createdAt: now,
+                updatedAt: now
+            )
+            state.calendar.items[check.id] = check
+        }
         for title in ["学尤克里里", "整理 2025 年的照片"] {
             let item = UndatedItem(title: title, categoryID: uncategorized, createdAt: now, updatedAt: now)
             state.undatedItems[item.id] = item
