@@ -8,8 +8,8 @@
   <key>CFBundleDisplayName</key><string>Jelly</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleShortVersionString</key><string>0.3.7</string>
-  <key>CFBundleVersion</key><string>19</string>
+  <key>CFBundleShortVersionString</key><string>0.4.0</string>
+  <key>CFBundleVersion</key><string>20</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSRemindersFullAccessUsageDescription</key><string>Jelly 会把你标了提醒的事项写进“提醒事项”里的 Jelly 列表，让 iPhone 按时提醒你。</string>
@@ -22,7 +22,7 @@
         <key>default</key><string>收进 Jelly 灵感</string>
       </dict>
       <key>NSMessage</key><string>captureInspiration</string>
-      <key>NSPortName</key><string>Jelly</string>
+      <key>NSPortName</key><string>PersonalCalendar</string>
       <key>NSRequiredContext</key><dict/>
       <key>NSSendTypes</key>
       <array>

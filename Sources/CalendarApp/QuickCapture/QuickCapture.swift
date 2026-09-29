@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Observation
+import OSLog
 import SwiftUI
 
 /// A system-wide shortcut. Carbon hot keys need no Accessibility permission
@@ -287,6 +288,7 @@ final class QuickCaptureCoordinator: NSObject {
     private let model: QuickCaptureModel
     private var started = false
     private(set) var registrationFailed = false
+    var diagnostics: (String) -> Void = { _ in }
 
     init(captureService: InspirationCaptureService, settings: QuickCaptureSettings = QuickCaptureSettings()) {
         self.captureService = captureService
@@ -297,12 +299,18 @@ final class QuickCaptureCoordinator: NSObject {
         super.init()
     }
 
+    private static let log = Logger(subsystem: "com.oreal.personalcalendar", category: "capture")
+    /// Must equal NSPortName in Info.plist (the executable name).
+    static let servicesPortName = "PersonalCalendar"
+
     func start() {
         guard !started else { return }
         started = true
         NSApplication.shared.servicesProvider = self
+        NSRegisterServicesProvider(self, Self.servicesPortName)
         NSUpdateDynamicServices()
         applySettings()
+        Self.log.notice("quick capture started; hot key \(self.settings.shortcut.title, privacy: .public) registered: \(!self.registrationFailed, privacy: .public)")
     }
 
     /// Re-registers after the user changes the shortcut in 设置.
@@ -367,12 +375,19 @@ final class QuickCaptureCoordinator: NSObject {
         let text = pasteboard.string(forType: .URL)
             ?? pasteboard.string(forType: .string)
             ?? (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.first?.absoluteString
+        diagnostics("services capture requested; types=\(pasteboard.types?.map(\.rawValue) ?? [])")
         guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             error.pointee = "没有可以收下的文字或链接。" as NSString
             return
         }
+        Self.log.notice("services capture requested")
         Task { @MainActor in
-            _ = try? await captureService.capture(text, origin: .servicesMenu)
+            do {
+                _ = try await captureService.capture(text, origin: .servicesMenu)
+                diagnostics("services capture saved")
+            } catch {
+                diagnostics("services capture failed: \(error)")
+            }
         }
     }
 }

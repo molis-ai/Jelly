@@ -137,9 +137,15 @@ struct AppEnvironment {
     /// Global shortcut, Services menu and other services that must run
     /// whether or not the main window is open. Safe to call repeatedly.
     func startBackgroundServices() {
+        let root = dataURLs.root
+        quickCapture.diagnostics = { AcceptanceDiagnostics.record($0, root: root) }
         quickCapture.start()
         reminderSync.start()
         workspaceSync.start()
+        AcceptanceDiagnostics.record(
+            "background services started; hot key \(quickCapture.settings.shortcut.title) registered: \(!quickCapture.registrationFailed)",
+            root: dataURLs.root
+        )
     }
 
     static func loadLive(
@@ -153,6 +159,28 @@ struct AppEnvironment {
                 fileManager: fileManager,
                 defaultApplicationSupportURL: defaultApplicationSupportURL
             )
+        }
+    }
+}
+
+
+/// Only in acceptance runs (isolated data directory): a plain-text trail of
+/// background-service startup, since those services have no window.
+enum AcceptanceDiagnostics {
+    static func record(
+        _ line: String,
+        root: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard environment["JELLY_ACCEPTANCE_DATA_DIRECTORY"] != nil else { return }
+        let url = root.appendingPathComponent("acceptance-diagnostics.log")
+        let entry = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(entry.utf8))
+            try? handle.close()
+        } else {
+            try? Data(entry.utf8).write(to: url)
         }
     }
 }

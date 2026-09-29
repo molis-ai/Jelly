@@ -2,11 +2,11 @@
 
 Local-first personal productivity app for macOS, with a native iOS app in development.
 
-**Now:** calendar and list-style items, structured Block notes, calendar–note relations, and a raw-first inspiration inbox.
+**Now:** calendar with natural-language quick add (“明天下午 3 点开会”), an undated list, and item reminders delivered through Apple Reminders; structured Block notes and calendar–note relations; a raw-first inspiration inbox with system-wide capture (⌃⌥J panel, Services menu, menu bar, Siri / Shortcuts on iOS), AI expansion, a daily review, and one-step “turn into a to-do”; material digests (web, 公众号, PDF, images, 小红书, B 站, podcasts) with “my view” prompts and cross-material synthesis.
+**AI:** expansion, decomposition, digests and synthesis all use the model chosen in Settings › 摘要 — a cloud preset with your own key, or the logged-in Codex / Claude CLI on the Mac.
 **Also built in:** a built-in MCP server that exposes calendar/schedule operations to AI clients over loopback HTTP (plus a bundled `jelly-mcp` stdio bridge) — see [docs/Jelly-MCP.md](docs/Jelly-MCP.md).
-**Next (not built yet):** AI-assisted processing, material digests into a personal knowledge base (source → digest → wiki-style notes), and related workflows.
 
-Data stays on each device. The macOS and iOS apps share domain models and persistence code; automatic cross-device sync is not implemented.
+Data stays local. Mac and iPhone can sync through a folder you choose in iCloud Drive (each device writes only its own file) — see [docs/sync.md](docs/sync.md).
 
 | Platform | Entry point | Status |
 | --- | --- | --- |

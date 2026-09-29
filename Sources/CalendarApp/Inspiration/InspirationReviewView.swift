@@ -304,6 +304,7 @@ struct InspirationReviewNudgeView: View {
             Text("\(dueCount) 条旧灵感等你回顾")
             Button("开始", action: onStart)
                 .buttonStyle(.borderedProminent)
+                .tint(theme.controlAccent)
                 .controlSize(.small)
             Button("今天不看", action: onDismiss)
                 .buttonStyle(.borderless)

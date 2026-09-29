@@ -38,18 +38,28 @@ struct MaterialSynthesisSheet: View {
                     .font(.system(size: 12))
                     .foregroundStyle(theme.secondaryText)
             } else {
-                List(candidates) { inspiration in
-                    Toggle(isOn: binding(for: inspiration.id)) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(displayTitle(inspiration)).lineLimit(1)
-                            if inspiration.perspective?.hasAnswer == true {
-                                Text("有我的看法").font(.system(size: 10)).foregroundStyle(theme.controlAccent)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(candidates) { inspiration in
+                            Toggle(isOn: binding(for: inspiration.id)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(displayTitle(inspiration)).lineLimit(1)
+                                    if inspiration.perspective?.hasAnswer == true {
+                                        Text("有我的看法").font(.system(size: 10)).foregroundStyle(theme.controlAccent)
+                                    }
+                                }
                             }
+                            .toggleStyle(.checkbox)
                         }
                     }
-                    .toggleStyle(.checkbox)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
                 }
-                .frame(minHeight: 180, maxHeight: 280)
+                .frame(minHeight: 120, maxHeight: 280)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(theme.elevatedSurface.opacity(0.6))
+                )
                 TextField("笔记标题", text: $title)
                     .textFieldStyle(.roundedBorder)
             }

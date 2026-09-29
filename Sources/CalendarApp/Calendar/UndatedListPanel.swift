@@ -78,14 +78,15 @@ struct UndatedListPanel: View {
                 .padding(.top, 36)
                 Spacer()
             } else {
-                List {
-                    ForEach(model.items) { item in
-                        row(item)
-                            .listRowSeparator(.hidden)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(model.items) { item in
+                            row(item)
+                                .padding(.horizontal, 14)
+                        }
                     }
+                    .padding(.vertical, 6)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
             }
         }
         .frame(width: Self.width)
@@ -144,6 +145,7 @@ struct UndatedListPanel: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .tint(theme.controlAccent)
             .fixedSize()
             .help("安排到某天")
             .accessibilityLabel("安排「\(item.title)」")

@@ -37,12 +37,14 @@ struct PersonalCalendarApp: App {
         let launch = AppEnvironment.loadLive()
         let initialEnvironment = try? launch.get()
         if let initialEnvironment {
-            NotificationCenter.default.addObserver(
-                forName: NSApplication.didFinishLaunchingNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                MainActor.assumeIsolated { initialEnvironment.startBackgroundServices() }
+            // The global shortcut, Services menu, reminders and sync must work
+            // even when macOS restores the app with its window closed, so they
+            // do not wait for the window's .task. Runs once the run loop starts.
+            Task { @MainActor in
+                if initialEnvironment.store.phase == .notLoaded {
+                    await initialEnvironment.store.load()
+                }
+                initialEnvironment.startBackgroundServices()
             }
             NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,

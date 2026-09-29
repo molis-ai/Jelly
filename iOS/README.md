@@ -41,6 +41,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer Scripts/build-ios.sh
 
 脚本先检查完整 Xcode、目标 SDK 与 Swift 版本。产物保存在 `dist/ios/Debug-iphonesimulator/Jelly.app` 等独立目录，DerivedData 位于 `dist/ios/DerivedData`。脚本不会修改系统 Xcode 选择、配置签名、自动安装、上传或发布；`device` 产物没有签名，不能直接作为可安装的发行包。
 
+## 从别的 App 丢进来、提醒与同步
+
+- **Siri / 快捷指令**：App 自带 App Shortcuts，“用 Jelly 记灵感”会追问“要记下什么？”，可以直接口述。动作“收进 Jelly 灵感”（文字、链接）和“把文件收进 Jelly”（截图、图片、PDF、音频、视频）都不打开 App。
+- **分享表单**：在“快捷指令”里新建一个快捷指令，打开“在共享表单中显示”，输入类型选文本、URL、图像，然后加一步“收进 Jelly 灵感”（图片用“把文件收进 Jelly”）。之后在任何 App 里点分享就能看到它。
+- **提醒**：事项表单里的“提醒”到点由这台 iPhone 发本地通知；Mac 上标的提醒通过系统“提醒事项”的 Jelly 列表经 iCloud 送达。
+- **同步**：设置 › 同步，选 iCloud Drive 里的“Jelly 同步”文件夹（Mac 默认就用它）。规则见 [docs/sync.md](../docs/sync.md)。
+- 这些都只做过 macOS SDK 下的类型检查（`Scripts/test-ios-shared.sh`），**还没有在模拟器或真机上运行过**。
+
 ## 工程约定与验收
 
 - Bundle ID：`com.oreal.jelly.ios`；显示名称：Jelly。
