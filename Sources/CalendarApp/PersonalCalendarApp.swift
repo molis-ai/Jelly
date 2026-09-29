@@ -44,6 +44,13 @@ struct PersonalCalendarApp: App {
             ) { _ in
                 MainActor.assumeIsolated { initialEnvironment.startBackgroundServices() }
             }
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { initialEnvironment.workspaceSync.scheduleSync(after: .seconds(1)) }
+            }
         }
         _environment = State(initialValue: initialEnvironment)
         _startupError = State(initialValue: launch.failureDescription)
@@ -160,6 +167,10 @@ struct PersonalCalendarApp: App {
                     ReminderSettingsView(service: environment.reminderSync)
                         .tabItem {
                             Label("提醒", systemImage: "bell")
+                        }
+                    SyncSettingsView(service: environment.workspaceSync)
+                        .tabItem {
+                            Label("同步", systemImage: "arrow.triangle.2.circlepath")
                         }
                     MCPServerSettingsView(controller: environment.mcpController)
                         .tabItem {

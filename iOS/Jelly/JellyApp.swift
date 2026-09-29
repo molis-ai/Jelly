@@ -78,6 +78,8 @@ struct MobileRootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, workspace.isReady {
                 Task { await reminders.sync(state: workspace.state) }
+                workspace.sync.start()
+                workspace.sync.scheduleSync(after: .seconds(1))
             }
             if phase == .active, workspace.isReady { workspace.mcp.startIfNeeded() }
             else if phase == .background {
@@ -86,6 +88,7 @@ struct MobileRootView: View {
             }
         }
         .onChange(of: workspace.isReady) { _, ready in
+            if ready { workspace.sync.start() }
             if ready, scenePhase == .active { workspace.mcp.startIfNeeded() }
         }
         .sheet(isPresented: $showingSettings) { MobileSettingsView(workspace: workspace) }

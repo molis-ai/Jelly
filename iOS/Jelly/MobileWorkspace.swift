@@ -2,6 +2,9 @@ import CalendarDomain
 import CalendarPersistence
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 import WorkspaceDomain
 
 /// The mobile shell uses the desktop transaction owner and document format.
@@ -14,6 +17,7 @@ final class MobileWorkspace {
     let searchIndex: WorkspaceSearchIndex
     let mcp: MCPServiceController
     let ai: MobileAIServices
+    let sync: WorkspaceSyncService
 
     var errorMessage: String?
     private(set) var statusMessage: String?
@@ -74,6 +78,20 @@ final class MobileWorkspace {
             endpointFileURL: resolvedRoot.appendingPathComponent("mcp-server.json")
         )
         ai = try MobileAIServices(store: store, rootURL: resolvedRoot)
+        sync = WorkspaceSyncService(
+            store: store,
+            dataRoot: resolvedRoot,
+            settings: SyncSettings(defaults: ai.settings.defaultsForCompanionSettings),
+            deviceName: Self.deviceName
+        )
+    }
+
+    private static var deviceName: String {
+        #if canImport(UIKit)
+        UIDevice.current.model
+        #else
+        "iPhone"
+        #endif
     }
 
     // MARK: One workspace per process

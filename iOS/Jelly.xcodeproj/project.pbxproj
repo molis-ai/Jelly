@@ -237,6 +237,7 @@
 				A11A11A11A11A11A11A11A11 /* TranscriptionRouting.swift */,
 				C66C66C66C66C66C66C66C66 /* SenseVoiceMaterialTranscriber.swift */,
 				E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */,
+				AB33FD40611A97AF9FA3545B /* WorkspaceSyncService.swift */,
 				A14F0B453A782330D0424FE2 /* WeChatArticleAcquirer.swift */,
 				67BA39DF89535CC9D59198F0 /* UndatedListModel.swift */,
 				1CAA7B4377AE626E3AB4A689 /* QuickAddDraft.swift */,
@@ -482,6 +483,17 @@
 		};
 		BC1CEE595D88B00826FE7A61 /* WeChatArticleAcquirer.swift in Sources */ = {
 			fileRef = A14F0B453A782330D0424FE2 /* WeChatArticleAcquirer.swift */;
+			isa = "PBXBuildFile";
+		};
+		AB33FD40611A97AF9FA3545B /* WorkspaceSyncService.swift */ = {
+			isa = "PBXFileReference";
+			lastKnownFileType = "sourcecode.swift";
+			name = "WorkspaceSyncService.swift";
+			path = "../Sources/CalendarApp/Sync/WorkspaceSyncService.swift";
+			sourceTree = "SOURCE_ROOT";
+		};
+		2FAB3891CA39654B79BBB30C /* WorkspaceSyncService.swift in Sources */ = {
+			fileRef = AB33FD40611A97AF9FA3545B /* WorkspaceSyncService.swift */;
 			isa = "PBXBuildFile";
 		};
 		E88E88E88E88E88E88E88E88 /* RoutingMaterialSummarizer.swift */ = {
@@ -782,6 +794,7 @@
 				B22B22B22B22B22B22B22B22 /* TranscriptionRouting.swift in Sources */,
 				D77D77D77D77D77D77D77D77 /* SenseVoiceMaterialTranscriber.swift in Sources */,
 				F99F99F99F99F99F99F99F99 /* RoutingMaterialSummarizer.swift in Sources */,
+				2FAB3891CA39654B79BBB30C /* WorkspaceSyncService.swift in Sources */,
 				BC1CEE595D88B00826FE7A61 /* WeChatArticleAcquirer.swift in Sources */,
 				18B43E555C88E69BC5863952 /* UndatedListModel.swift in Sources */,
 				1D67E53BD599FCB1EC2AC7D8 /* QuickAddDraft.swift in Sources */,
