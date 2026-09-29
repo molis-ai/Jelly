@@ -95,3 +95,5 @@ Sources/CalendarApp/Inspiration/InspirationCaptureService.swift
 Sources/CalendarApp/Inspiration/InspirationFollowUpService.swift
 Sources/CalendarApp/Inspiration/InspirationActions.swift
 Sources/CalendarApp/Decomposition/TextModelDecompositionPlanner.swift
+Sources/CalendarApp/Editing/QuickAddDraft.swift
+Sources/CalendarApp/Calendar/UndatedListModel.swift

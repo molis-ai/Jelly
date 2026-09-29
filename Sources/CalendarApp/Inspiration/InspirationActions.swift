@@ -102,9 +102,6 @@ enum InspirationActionFactory {
 
 extension CalendarDate {
     static func today(in timeZone: TimeZone = .current, now: Date = Date()) -> CalendarDate {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let parts = calendar.dateComponents([.year, .month, .day], from: now)
-        return CalendarDate(year: parts.year!, month: parts.month!, day: parts.day!)!
+        localDay(containing: now, in: timeZone)
     }
 }

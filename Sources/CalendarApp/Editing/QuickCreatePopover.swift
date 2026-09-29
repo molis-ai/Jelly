@@ -166,6 +166,8 @@ struct QuickCreatePopover: View {
     @State private var localError: String?
     @State private var recoveryAction: WorkspaceRecoveryAction?
     @State private var showMoreDetails = false
+    /// The user tapped “按原样” on the recognized date/time hint.
+    @State private var ignoresParsedSchedule = false
 
     private var theme: CalendarSemanticAppearance {
         CalendarTheme.appearance(for: colorScheme)
@@ -240,10 +242,28 @@ struct QuickCreatePopover: View {
             Text("新建事项")
                 .font(EditorFormStyle.title)
 
-            TextField("标题", text: $model.draft.title)
+            TextField("标题，可以直接写“明天下午 3 点开会”", text: $model.draft.title)
                 .textFieldStyle(.roundedBorder)
                 .font(EditorFormStyle.body)
                 .focused($titleFocused)
+                .onChange(of: model.draft.title) { _, _ in ignoresParsedSchedule = false }
+
+            if let parsed = recognizedParse,
+               let summary = QuickAddPresentation.summary(parsed, defaultDate: model.draft.startDate) {
+                HStack(spacing: 6) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("保存为「\(parsed.title)」· \(summary)")
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    Button("按原样") { ignoresParsedSchedule = true }
+                        .buttonStyle(.borderless)
+                        .help("不识别日期时间，标题原样保存")
+                }
+                .font(EditorFormStyle.caption)
+                .foregroundStyle(theme.controlAccent)
+                .accessibilityIdentifier("quick-add-recognized")
+            }
 
             HStack(spacing: EditorFormStyle.categoryLabelSpacing) {
                 Text("分类")
@@ -471,12 +491,27 @@ struct QuickCreatePopover: View {
         }
     }
 
+    private var recognizedParse: QuickAddParse? {
+        guard !ignoresParsedSchedule, !model.draft.repeatsWeekly else { return nil }
+        let parse = QuickAddParser.parse(
+            model.draft.title,
+            today: CalendarDate.localDay(containing: Date(), in: .current)
+        )
+        guard parse.recognizedSchedule || parse.wantsReminder,
+              parse.title != model.draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        else { return nil }
+        return parse
+    }
+
     private func save() {
         localError = nil
         recoveryAction = nil
         guard store.phase == .ready else {
             localError = "日历尚未准备好，请稍候再试"
             return
+        }
+        if let parsed = recognizedParse, let applied = try? model.draft.applying(parsed) {
+            model.draft = applied
         }
         let command: CalendarCommand
         do {

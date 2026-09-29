@@ -227,6 +227,8 @@ struct MonthView: View {
     private let deepLinkRequest: WorkspaceDeepLinkRequest?
     private let consumeDeepLinkRequest: ((UUID, WorkspaceDeepLinkTarget) -> WorkspaceDeepLinkRequest?)?
     private let onOpenNote: (NoteID) -> Void
+    private let undatedCount: Int?
+    private let onToggleUndated: (() -> Void)?
     private let todayRefreshPolicy: MonthViewTodayRefreshPolicy
     private let todayRefreshController: MonthViewTodayRefreshController
     @Environment(\.scenePhase) private var scenePhase
@@ -281,9 +283,13 @@ struct MonthView: View {
         consumeNewItemRequest: ((UUID, WorkspaceRoute) -> WorkspaceNewItemRequest?)? = nil,
         deepLinkRequest: WorkspaceDeepLinkRequest? = nil,
         consumeDeepLinkRequest: ((UUID, WorkspaceDeepLinkTarget) -> WorkspaceDeepLinkRequest?)? = nil,
-        onOpenNote: @escaping (NoteID) -> Void = { _ in }
+        onOpenNote: @escaping (NoteID) -> Void = { _ in },
+        undatedCount: Int? = nil,
+        onToggleUndated: (() -> Void)? = nil
     ) {
         self.store = store
+        self.undatedCount = undatedCount
+        self.onToggleUndated = onToggleUndated
         self.newItemRequest = newItemRequest
         self.consumeNewItemRequest = consumeNewItemRequest
         self.deepLinkRequest = deepLinkRequest
@@ -694,6 +700,7 @@ struct MonthView: View {
                 progressSummaryButton
                 categoryControl
                 appearanceToggle
+                undatedListButton
             }
             .disabled(store.phase != .ready)
         }
@@ -713,6 +720,32 @@ struct MonthView: View {
             )
             .padding(20)
             .background(theme.canvas.opacity(0.001)) // sheet chrome host
+        }
+    }
+
+    @ViewBuilder
+    private var undatedListButton: some View {
+        if let onToggleUndated {
+            Button(action: onToggleUndated) {
+                HStack(spacing: 5) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(undatedCount.map { $0 > 0 ? "清单 \($0)" : "清单" } ?? "清单")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(theme.primaryText)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(
+                    theme.subtleBorder.opacity(0.22),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("没有日期的事（以后再说）")
+            .accessibilityLabel("无日期清单")
+            .accessibilityIdentifier("calendar-undated-toggle")
         }
     }
 

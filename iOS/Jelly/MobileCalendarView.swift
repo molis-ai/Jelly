@@ -12,6 +12,7 @@ struct MobileCalendarView: View {
     @State private var scopeSchedule: CalendarSchedule?
     @State private var showingScope = false
     @State private var showingReview = false
+    @State private var showingUndated = false
     @Environment(\.colorScheme) private var colorScheme
     private let modes = ["月", "周", "日", "日程"]
     private var theme: CalendarSemanticAppearance { CalendarTheme.appearance(for: colorScheme) }
@@ -40,7 +41,12 @@ struct MobileCalendarView: View {
                     }
                 } label: { Image(systemName: "line.3.horizontal.decrease.circle").frame(width: 44, height: 44) }
                 .accessibilityLabel("筛选分类")
+                Button { showingUndated = true } label: {
+                    Image(systemName: "tray").frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("无日期清单")
             }.padding(.horizontal, 16)
+            .sheet(isPresented: $showingUndated) { MobileUndatedListView(workspace: workspace) }
             if mode == "月" {
                 MobileMonthStream(workspace: workspace, selectedDay: $day, hiddenCategories: hiddenCategories,
                                   open: open, create: { create(on: $0) })
@@ -319,8 +325,13 @@ struct MobileItemEditor: View {
                             Text("完成状态只影响这一次。日期和内容修改仍按所选范围保存。").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    TextField("想做什么？", text: $model.draft.title, axis: .vertical)
+                    TextField("想做什么？可以写“明天下午3点开会”", text: $model.draft.title, axis: .vertical)
                         .font(.title3).lineLimit(1...5).accessibilityIdentifier("item-title")
+                    if isCreating, let parse = recognizedParse,
+                       let summary = QuickAddPresentation.summary(parse, defaultDate: model.draft.startDate) {
+                        Label("保存为「\(parse.title)」· \(summary)", systemImage: "wand.and.stars")
+                            .font(.caption).foregroundStyle(.tint)
+                    }
                     Picker("分类", selection: $model.draft.categoryID) {
                         ForEach(workspace.store.calendarState.categories.values.sorted { $0.sortIndex < $1.sortIndex }) { category in Text(category.name).tag(category.id) }
                     }
@@ -451,11 +462,21 @@ struct MobileItemEditor: View {
                     localMessage = workspace.errorMessage ?? "关联笔记仍有未保存的修改，输入已保留。"
                     return
                 }
+                if isCreating, let parse = recognizedParse, let applied = try? model.draft.applying(parse) {
+                    model.draft = applied
+                }
                 let command = try MobileItemEditing.command(request: request, edited: model.draft, state: workspace.state)
                 if await workspace.send(.calendar(command), label: isCreating ? "创建事项" : "编辑事项") { dismiss() }
                 else { localMessage = workspace.errorMessage ?? "保存尚未确认，输入已保留。" }
             } catch { localMessage = (error as? ItemEditorError)?.message ?? error.localizedDescription }
         }
+    }
+    private var recognizedParse: QuickAddParse? {
+        guard !model.draft.repeatsWeekly else { return nil }
+        let parse = QuickAddParser.parse(model.draft.title, today: .localDay(containing: Date(), in: .current))
+        guard parse.recognizedSchedule || parse.wantsReminder,
+              parse.title != model.draft.title.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        return parse
     }
     private func cancel() {
         guard !saving else { return }
