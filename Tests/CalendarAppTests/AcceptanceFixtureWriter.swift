@@ -86,6 +86,22 @@ struct AcceptanceFixtureWriter {
             let item = UndatedItem(title: title, categoryID: uncategorized, createdAt: now, updatedAt: now)
             state.undatedItems[item.id] = item
         }
+        var principle = Note.empty(categoryID: uncategorized, now: now)
+        principle.title = "深度工作的三个前提"
+        principle.document = BlockDocument(blocks: [
+            DocumentBlock(id: BlockID(), kind: .paragraph, inlineContent: .plain("一、整块的时间；二、关掉通知；三、事先想清楚要做什么。"), taskState: nil, indentLevel: 0)
+        ])
+        var plan = Note.empty(categoryID: uncategorized, now: now)
+        plan.title = "本周计划"
+        plan.document = BlockDocument(blocks: [
+            DocumentBlock(id: BlockID(), kind: .paragraph, inlineContent: InlineContent(spans: [
+                InlineSpan(text: "上午整块留出来，参考 "),
+                InlineSpan(text: principle.title, linkURL: NoteLinkURL.url(for: principle.id)),
+                InlineSpan(text: "。")
+            ]), taskState: nil, indentLevel: 0)
+        ])
+        state.notes[principle.id] = principle
+        state.notes[plan.id] = plan
         try WorkspaceValidator.validate(state)
         try WorkspaceDocumentCodec.encode(state).write(to: root.appendingPathComponent("calendar-v1.json"), options: .atomic)
         print("ACCEPTANCE FIXTURE written to \(root.path)")

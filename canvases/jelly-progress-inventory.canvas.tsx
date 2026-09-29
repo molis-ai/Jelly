@@ -50,7 +50,7 @@ const loops: Loop[] = [
   {
     title: "灵感",
     goal: "最低成本收下 → AI 补充延展 → 回头看 → 链到待办",
-    usage: "9 条灵感停在 2026-08-26（未重读）。新入口要装上 0.4.0 才有",
+    usage: "9 条灵感停在 2026-08-26（未重读）。新入口要装上 0.4.1 才有",
     steps: [
       { name: "随手收下", status: "done", note: "Mac：任何 App 里按 ⌃⌥J 弹小窗、回车收下；右键 › 服务 › 收进 Jelly 灵感；菜单栏灯泡。iPhone：Siri“用 Jelly 记灵感”、分享表单快捷指令、截图 / 文件收进材料" },
       { name: "原样保留", status: "done", note: "文字、链接、文件原样保存，链接自动取标题和站点；延展和看法都另存，不改原文" },
@@ -208,7 +208,7 @@ export default function JellyProgressInventory() {
       <Stack gap={6}>
         <H1>Jelly 现状盘点：离你要的样子还差什么</H1>
         <Text size="small" tone="tertiary">
-          依据：分支 claude/inventory-followup（合入 codex/jelly-ios 后的 13 个提交，打包为 0.4.0）、自动化测试、隔离数据下的真实打包实测，以及 2026-09-23 的数量统计（未重读内容）· 2026-09-29
+          依据：分支 claude/inventory-followup（合入 codex/jelly-ios 后的 13 个提交，打包为 0.4.1）、自动化测试、隔离数据下的真实打包实测，以及 2026-09-23 的数量统计（未重读内容）· 2026-09-29
         </Text>
       </Stack>
 
@@ -218,7 +218,7 @@ export default function JellyProgressInventory() {
             “当前必须”和“可以延后”都已做进代码并验收；手机提醒已由你确认按时响。剩下两件只有你能做的。
           </Text>
           <Text tone="secondary" style={{ lineHeight: 1.6 }}>
-            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步；笔记之间能用 [[ 互链，并看到谁链到了自己。还需要你：装上 0.4.0；在装了 Xcode 的机器上跑一次 iOS App。
+            灵感现在能在任何 App 里一键收下、自动补一句、定期被带回来、一步变成待办；日历能直接写“明天下午 3 点开会”，有了无日期清单和提醒；拆解、观点和综合都用你选的模型；Mac 和 iPhone 可以经 iCloud Drive 文件夹同步；笔记之间能用 [[ 互链，并看到谁链到了自己。还需要你：装上 0.4.1；在装了 Xcode 的机器上跑一次 iOS App。
           </Text>
         </Stack>
       </div>
@@ -263,7 +263,7 @@ export default function JellyProgressInventory() {
           </Finding>
           <Finding title="能用了，还没被用起来">
             <Text tone="secondary" style={{ lineHeight: 1.6 }}>
-              你的日常数据里灵感仍停在 8 月，提炼仍是 0。0.4.0 数据格式升到 6，旧版会拒绝打开而不是悄悄丢字段；装上后先让“回顾”把那 9 条旧灵感带回来过一遍。
+              你的日常数据里灵感仍停在 8 月，提炼仍是 0。0.4.x 数据格式升到 6，旧版会拒绝打开而不是悄悄丢字段；装上后先让“回顾”把那 9 条旧灵感带回来过一遍。
             </Text>
           </Finding>
         </Grid>
@@ -326,7 +326,7 @@ export default function JellyProgressInventory() {
           <Stack gap={4}>
             <Text weight="semibold">还需要你本人做的</Text>
             <Text size="small" tone="secondary" style={{ lineHeight: 1.6 }}>
-              1. 用 Scripts/install-desktop-app-safely.sh 装上 dist/Jelly.app（0.4.0，会先备份应用和数据），在设置 › 提醒 打开手机提醒（这台 Mac 已授权过测试版，同一应用标识）。2. 在装了 Xcode 的机器上跑 Scripts/build-ios.sh 和 test-ios-ui.sh，并在快捷指令里把“收进 Jelly 灵感”放进分享表单试一次。3. 两端设置 › 同步 选同一个 iCloud Drive 文件夹。
+              1. 用 Scripts/install-desktop-app-safely.sh 装上 dist/Jelly.app（0.4.1，会先备份应用和数据），在设置 › 提醒 打开手机提醒（这台 Mac 已授权过测试版，同一应用标识）。2. 在装了 Xcode 的机器上跑 Scripts/build-ios.sh 和 test-ios-ui.sh，并在快捷指令里把“收进 Jelly 灵感”放进分享表单试一次。3. 两端设置 › 同步 选同一个 iCloud Drive 文件夹。
             </Text>
           </Stack>
         </div>
