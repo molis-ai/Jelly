@@ -28,6 +28,12 @@ protocol ReminderStoreGateway: AnyObject {
     func update(_ identifier: String, with request: ReminderRequest) throws
     func delete(_ identifier: String) throws
     func commit() throws
+    /// Acceptance diagnostics: what the system actually stored.
+    func describe(_ identifier: String) -> String?
+}
+
+extension ReminderStoreGateway {
+    func describe(_ identifier: String) -> String? { nil }
 }
 
 enum ReminderGatewayError: Error, Equatable {
@@ -97,6 +103,16 @@ final class EventKitReminderGateway: ReminderStoreGateway {
 
     func commit() throws {
         try store.commit()
+    }
+
+    func describe(_ identifier: String) -> String? {
+        guard let reminder = store.calendarItem(withIdentifier: identifier) as? EKReminder else { return nil }
+        let due = reminder.dueDateComponents.map { parts in
+            String(format: "%04d-%02d-%02d %02d:%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0, parts.hour ?? 0, parts.minute ?? 0)
+        } ?? "-"
+        let alarms = (reminder.alarms ?? []).compactMap(\.absoluteDate).map { $0.formatted(date: .omitted, time: .standard) }
+        let source = reminder.calendar.source
+        return "\(reminder.title ?? "") | due \(due) | alarms \(alarms) | list \(reminder.calendar.title) | account \(source?.title ?? "-") (\(source?.sourceType.rawValue ?? -1)) | completed \(reminder.isCompleted)"
     }
 
     private func apply(_ request: ReminderRequest, to reminder: EKReminder) {
@@ -323,6 +339,11 @@ final class ReminderSyncService {
             lastSyncedAt = now
             lastError = nil
             diagnostics("reminders synced: \(outcome.summary); mapped \(mapping.entries.count)")
+            for entry in mapping.entries.values {
+                if let description = gateway.describe(entry.identifier) {
+                    diagnostics("  stored: \(description)")
+                }
+            }
         } catch {
             lastError = "写入提醒事项失败，下次改动时会再试。"
             diagnostics("reminders sync failed: \(error)")
