@@ -478,6 +478,7 @@ struct NotesSplitView: View {
                 onPermanentDelete: requestPermanentDeleteSelected,
                 onOpenCalendarItem: openCalendarItem,
                 onOpenCalendarTarget: openCalendarTarget,
+                onOpenNote: openLinkedNote,
                 showsBrowserButton: showsBrowserButton,
                 onToggleBrowser: { browserCollapsed = false },
                 sessionSink: { session in
@@ -584,6 +585,15 @@ struct NotesSplitView: View {
             guard await transitionCoordinator.requestActivation(.calendar) else { return }
             deepLinkRouter.request(target)
         }
+    }
+
+    private func openLinkedNote(_ noteID: NoteID) {
+        guard store.state.notes[noteID] != nil else {
+            statusBanner = "链接的笔记已被永久删除。"
+            return
+        }
+        guard noteID != editorIdentity?.noteID else { return }
+        Task { await selectNote(noteID, initialFocus: .bodyStart) }
     }
 
     private func consumeNoteDeepLink(_ request: WorkspaceDeepLinkRequest?) {

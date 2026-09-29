@@ -9,6 +9,9 @@ import WorkspaceDomain
 struct MobileDocumentTextView: UIViewRepresentable {
     let session: MobileNoteSession
     let editable: Bool
+    /// Asks the host to pick a note; the callback inserts a link to it.
+    var onRequestNoteLink: ((@escaping (NoteID, String) -> Void) -> Void)?
+    var onOpenNote: (NoteID) -> Void = { _ in }
     @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -87,6 +90,7 @@ struct MobileDocumentTextView: UIViewRepresentable {
                 UIBarButtonItem(title: "斜", style: .plain, target: self, action: #selector(italic)),
                 UIBarButtonItem(title: "代码", style: .plain, target: self, action: #selector(code)),
                 UIBarButtonItem(title: "链接", style: .plain, target: self, action: #selector(link)),
+                UIBarButtonItem(title: "笔记", style: .plain, target: self, action: #selector(noteLink)),
                 UIBarButtonItem(systemItem: .flexibleSpace),
                 UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(done))
             ]
@@ -259,6 +263,29 @@ struct MobileDocumentTextView: UIViewRepresentable {
         @objc func italic() { send(.toggleInlineMark(.italic)) }
         @objc func code() { send(.toggleInlineMark(.code)) }
         @objc func done() { view?.endEditing(true) }
+        @objc func noteLink() {
+            guard let view, view.markedTextRange == nil, let request = parent.onRequestNoteLink,
+                  let selection = map.selection(in: view.selectedRange, attributes: typingAttributes()) else { return }
+            request { [weak self] id, title in
+                let content = InlineContent(spans: [
+                    InlineSpan(text: title, linkURL: NoteLinkURL.url(for: id)),
+                    InlineSpan(text: " ")
+                ])
+                self?.send(.replaceSelection(.inlineContent(content, fallbackPlainText: title + " ")), selection: selection)
+            }
+        }
+
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            guard case let .link(url) = textItem.content, let id = NoteLinkURL.noteID(from: url) else { return defaultAction }
+            return UIAction(title: "打开笔记") { [weak self] _ in self?.parent.onOpenNote(id) }
+        }
+
+        func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+            guard case let .link(url) = textItem.content, let id = NoteLinkURL.noteID(from: url) else { return .init(menu: defaultMenu) }
+            let open = UIAction(title: "打开笔记", image: UIImage(systemName: "doc.text")) { [weak self] _ in self?.parent.onOpenNote(id) }
+            return .init(menu: UIMenu(children: [open]))
+        }
+
         @objc func link() {
             guard let view, view.markedTextRange == nil,
                   let selection = map.selection(in: view.selectedRange, attributes: typingAttributes()) else { return }

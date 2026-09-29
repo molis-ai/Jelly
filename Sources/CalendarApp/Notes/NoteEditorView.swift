@@ -74,6 +74,7 @@ struct NoteEditorView: View {
     var onPermanentDelete: () -> Void
     var onOpenCalendarItem: (UUID) -> Void
     var onOpenCalendarTarget: (WorkspaceDeepLinkTarget) -> Void
+    var onOpenNote: (NoteID) -> Void
     var showsBrowserButton: Bool
     var onToggleBrowser: () -> Void
     var sessionSink: (BlockEditorSession?) -> Void
@@ -92,6 +93,7 @@ struct NoteEditorView: View {
     @State private var titleCoordinator: NoteTitleTextField.Coordinator?
     @State private var editorSession: BlockEditorSession?
     @State private var showCalendarLinks = false
+    @State private var showBacklinks = false
     @State private var showScheduleSheet = false
     @State private var lastAcceptedDocument: BlockDocument
     @State private var editorMount: EditorMount
@@ -156,6 +158,7 @@ struct NoteEditorView: View {
         onPermanentDelete: @escaping () -> Void = {},
         onOpenCalendarItem: @escaping (UUID) -> Void = { _ in },
         onOpenCalendarTarget: @escaping (WorkspaceDeepLinkTarget) -> Void = { _ in },
+        onOpenNote: @escaping (NoteID) -> Void = { _ in },
         showsBrowserButton: Bool = false,
         onToggleBrowser: @escaping () -> Void = {},
         sessionSink: @escaping (BlockEditorSession?) -> Void,
@@ -188,6 +191,7 @@ struct NoteEditorView: View {
         self.onPermanentDelete = onPermanentDelete
         self.onOpenCalendarItem = onOpenCalendarItem
         self.onOpenCalendarTarget = onOpenCalendarTarget
+        self.onOpenNote = onOpenNote
         self.showsBrowserButton = showsBrowserButton
         self.onToggleBrowser = onToggleBrowser
         self.sessionSink = sessionSink
@@ -302,6 +306,19 @@ struct NoteEditorView: View {
                 Button("安排这篇笔记…") { showScheduleSheet = true }
                     .accessibilityLabel("安排这篇笔记到日历")
 
+                let backlinks = self.backlinks
+                if !backlinks.isEmpty {
+                    Button("反向链接 · \(backlinks.count)") { showBacklinks = true }
+                        .help("其他笔记里链接到这篇的地方")
+                        .accessibilityLabel("反向链接，\(backlinks.count) 处")
+                        .popover(isPresented: $showBacklinks) {
+                            NoteBacklinksPopover(backlinks: backlinks) { noteID in
+                                showBacklinks = false
+                                onOpenNote(noteID)
+                            }
+                        }
+                }
+
                 if calendarArrangementCount > 0 {
                     Button("日历安排 · \(calendarArrangementCount)") { showCalendarLinks = true }
                     .popover(isPresented: $showCalendarLinks) {
@@ -349,6 +366,9 @@ struct NoteEditorView: View {
                         },
                         sessionSink: { session in
                             guard sessionBelongsToThisEditor(session) else { return }
+                            if session.noteLinkProvider == nil {
+                                session.noteLinkProvider = makeNoteLinkProvider()
+                            }
                             editorSession = session
                             sessionSink(session)
                             guard ownsCurrentAutosaveSession else { return }
@@ -364,6 +384,15 @@ struct NoteEditorView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.horizontal, NoteEditorLayout.horizontalSafetyMargin)
                     .padding(.vertical, 20)
+                }
+                .overlay(alignment: .bottom) {
+                    if let editorSession {
+                        NoteLinkMenuHost(session: editorSession)
+                            .frame(maxWidth: NoteEditorLayout.maximumContentWidth, alignment: .leading)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.horizontal, NoteEditorLayout.horizontalSafetyMargin)
+                            .padding(.bottom, 12)
+                    }
                 }
             }
 
@@ -565,6 +594,39 @@ struct NoteEditorView: View {
             sessionSink(nil)
             nativeFinalizerHook.wrappedValue = nil
         }
+    }
+
+    private var backlinks: [NoteBacklink] {
+        NoteLinkIndex.backlinks(to: identity.noteID, in: store.state)
+    }
+
+    private func makeNoteLinkProvider() -> NoteLinkProvider {
+        let store = store
+        let currentID = identity.noteID
+        let categoryID = note.categoryID
+        return NoteLinkProvider(
+            candidates: { query in
+                NoteLinkIndex.candidates(matching: query, in: store.state, excluding: currentID).map {
+                    NoteLinkCandidate(
+                        id: $0.id,
+                        title: $0.title.isEmpty ? "无标题" : $0.title,
+                        isArchived: $0.archivedAt != nil
+                    )
+                }
+            },
+            open: onOpenNote,
+            create: { title in
+                var created = Note.empty(categoryID: store.state.calendar.categories[categoryID] == nil
+                    ? store.calendarState.uncategorizedID
+                    : categoryID, now: Date())
+                created.title = title
+                guard case .committed = try? await store.sendWorkspace(
+                    .createNote(.init(note: created)),
+                    undoLabel: "新建笔记"
+                ) else { return nil }
+                return created.id
+            }
+        )
     }
 
     private var calendarArrangementCount: Int {
@@ -997,5 +1059,21 @@ private struct NoteWorkbenchFeedbackText: NSViewRepresentable {
         field.setAccessibilityLabel(message)
         field.setAccessibilityValue(message)
         field.setAccessibilityTitle(message)
+    }
+}
+
+/// Keeps the `[[` picker in view at the bottom of the editor, whatever the
+/// scroll position.
+private struct NoteLinkMenuHost: View {
+    @ObservedObject var session: BlockEditorSession
+
+    var body: some View {
+        if let state = session.noteLinkMenuState {
+            NoteLinkMenu(
+                state: state,
+                onChoose: { session.chooseNoteLinkOption($0) },
+                onDismiss: { session.dismissNoteLinkMenu() }
+            )
+        }
     }
 }

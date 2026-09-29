@@ -330,6 +330,7 @@ final class BlockEditorTextView: NSTextView, NSTextViewDelegate {
             editorSession?.cancelComposition(hostToken: hostToken, terminalValue: terminalValue)
             return
         }
+        if editorSession?.handleNoteLinkSelector(#selector(NSResponder.cancelOperation(_:))) == true { return }
         if editorSession?.handleSlashSelector(#selector(NSResponder.cancelOperation(_:))) == true { return }
         super.cancelOperation(sender)
     }
@@ -345,6 +346,7 @@ final class BlockEditorTextView: NSTextView, NSTextViewDelegate {
             super.doCommand(by: selector)
             return
         }
+        if editorSession?.handleNoteLinkSelector(selector) == true { return }
         if editorSession?.handleSlashSelector(selector) == true { return }
         if let command = Self.command(for: selector), let editorSession {
             if let outcome = editorSession.dispatchTextCommandOutcome(command) {

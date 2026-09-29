@@ -42,6 +42,11 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
     @Published private(set) var selection: BlockEditorSelection
     @Published private(set) var saveStatus: BlockEditorSaveStatus = .idle
     @Published private(set) var slashMenuState: BlockSlashMenuState?
+    @Published private(set) var noteLinkMenuState: NoteLinkMenuState?
+    /// Supplied by the note editor: which notes can be linked and how to open one.
+    var noteLinkProvider: NoteLinkProvider? {
+        didSet { refreshNoteLinkMenu() }
+    }
 
     private let focusRegistry: EditorFocusRegistry
     private let onDocumentChange: (BlockDocument) -> Void
@@ -59,6 +64,7 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
     private var isProjecting = false
     private var editorRevision: UInt = 0
     private var dismissedSlash: DismissedSlash?
+    private var dismissedNoteLinkStart: (blockID: BlockID, offset: Int)?
 
     init(
         noteID: NoteID,
@@ -220,6 +226,7 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
         guard isActiveHost(hostToken), hosts[hostToken]?.blockID == blockID else { return nil }
         guard let replacement = compositionSelection(blockID: blockID, replacementRange: replacementRange) else { return nil }
         slashMenuState = nil
+        if noteLinkMenuState != nil { noteLinkMenuState = nil }
         terminalComposition = nil
         compositionGeneration &+= 1
         composition = .init(
@@ -362,6 +369,7 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
         guard continuousHostToken == hostToken,
               let replacement = continuousSelection(for: replacementRange) else { return nil }
         slashMenuState = nil
+        if noteLinkMenuState != nil { noteLinkMenuState = nil }
         terminalComposition = nil
         compositionGeneration &+= 1
         let blockID: BlockID
@@ -838,6 +846,7 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
         selectionController.setSelection(snapshot.selection)
         editorRevision &+= 1
         refreshSlashMenu()
+        refreshNoteLinkMenu()
         projectAuthoritativeState()
         onDocumentChange(document)
     }
@@ -951,6 +960,7 @@ final class BlockEditorSession: ObservableObject, BlockEditorSessionContract {
         selectionController.setSelection(newSelection)
         if incrementingRevision { editorRevision &+= 1 }
         refreshSlashMenu()
+        refreshNoteLinkMenu()
         if project { projectAuthoritativeState() }
     }
 
@@ -1078,4 +1088,204 @@ private struct DismissedSlash {
     let queryRange: Range<Int>
     let query: String
     let revision: UInt
+}
+
+
+// MARK: - [[ note links
+
+struct NoteLinkCandidate: Identifiable, Equatable, Sendable {
+    let id: NoteID
+    let title: String
+    let isArchived: Bool
+}
+
+@MainActor
+struct NoteLinkProvider {
+    var candidates: (String) -> [NoteLinkCandidate]
+    var open: (NoteID) -> Void
+    /// Creates a note with this title and returns it; nil when not allowed.
+    var create: ((String) async -> NoteID?)?
+}
+
+enum NoteLinkMenuOption: Identifiable, Equatable, Sendable {
+    case existing(NoteLinkCandidate)
+    case create(String)
+
+    var id: String {
+        switch self {
+        case let .existing(candidate): candidate.id.rawValue.uuidString
+        case let .create(title): "create:\(title)"
+        }
+    }
+}
+
+struct NoteLinkMenuState: Equatable, Sendable {
+    let blockID: BlockID
+    /// From the first "[" of "[[" to the caret, in graphemes.
+    let queryRange: Range<Int>
+    let query: String
+    var options: [NoteLinkMenuOption]
+    var selectedIndex: Int
+
+    mutating func moveSelection(by delta: Int) {
+        guard !options.isEmpty else { return }
+        selectedIndex = min(max(selectedIndex + delta, 0), options.count - 1)
+    }
+}
+
+extension BlockEditorSession {
+    static let noteLinkQueryLimit = 40
+
+    func refreshNoteLinkMenu() {
+        let next = computeNoteLinkMenu()
+        if next != noteLinkMenuState { noteLinkMenuState = next }
+    }
+
+    private func computeNoteLinkMenu() -> NoteLinkMenuState? {
+        guard let provider = noteLinkProvider,
+              composition == nil,
+              case let .text(anchor, focus, _, _) = selection,
+              anchor == focus,
+              let block = document.blocks.first(where: { $0.id == anchor.blockID }),
+              block.kind != .code, block.kind != .divider
+        else {
+            return nil
+        }
+        let text = Self.text(block)
+        guard anchor.graphemeOffset >= 2, anchor.graphemeOffset <= text.count else {
+            return nil
+        }
+        let prefix = String(text.prefix(anchor.graphemeOffset))
+        // Chinese input methods turn "[" into "【", so both openers count.
+        let opens = ["[[", "【【"].compactMap { prefix.range(of: $0, options: .backwards) }
+        guard let open = opens.max(by: { $0.lowerBound < $1.lowerBound }) else {
+            return nil
+        }
+        let query = String(prefix[open.upperBound...])
+        let start = prefix.distance(from: prefix.startIndex, to: open.lowerBound)
+        guard !query.contains("]"), !query.contains("】"),
+              !query.contains(where: \.isNewline),
+              query.count <= Self.noteLinkQueryLimit,
+              !Self.hasLink(in: block, range: start..<anchor.graphemeOffset)
+        else {
+            return nil
+        }
+        if let dismissed = dismissedNoteLinkStart, dismissed.blockID == block.id, dismissed.offset == start {
+            return nil
+        }
+        var options = provider.candidates(query).map(NoteLinkMenuOption.existing)
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        if provider.create != nil, !trimmed.isEmpty,
+           !options.contains(where: {
+               if case let .existing(candidate) = $0 { return candidate.title == trimmed }
+               return false
+           }) {
+            options.append(.create(trimmed))
+        }
+        let previous = noteLinkMenuState
+        let selected = previous?.blockID == block.id && previous?.queryRange.lowerBound == start
+            ? min(previous?.selectedIndex ?? 0, max(0, options.count - 1))
+            : 0
+        return NoteLinkMenuState(
+            blockID: block.id,
+            queryRange: start..<anchor.graphemeOffset,
+            query: query,
+            options: options,
+            selectedIndex: selected
+        )
+    }
+
+    private static func hasLink(in block: DocumentBlock, range: Range<Int>) -> Bool {
+        var cursor = 0
+        for span in block.inlineContent.spans {
+            let end = cursor + span.text.count
+            if span.linkURL != nil, end > range.lowerBound, cursor < range.upperBound { return true }
+            cursor = end
+        }
+        return false
+    }
+
+    func handleNoteLinkSelector(_ selector: Selector) -> Bool {
+        guard let state = noteLinkMenuState, composition == nil else { return false }
+        switch selector.description {
+        case "moveUp:":
+            noteLinkMenuState?.moveSelection(by: -1)
+        case "moveDown:":
+            noteLinkMenuState?.moveSelection(by: 1)
+        case "insertNewline:", "insertTab:":
+            guard state.options.indices.contains(state.selectedIndex) else { return false }
+            chooseNoteLinkOption(state.options[state.selectedIndex])
+        case "cancelOperation:":
+            dismissNoteLinkMenu()
+        default:
+            return false
+        }
+        return true
+    }
+
+    func dismissNoteLinkMenu() {
+        guard let state = noteLinkMenuState else { return }
+        dismissedNoteLinkStart = (state.blockID, state.queryRange.lowerBound)
+        noteLinkMenuState = nil
+    }
+
+    func chooseNoteLinkOption(_ option: NoteLinkMenuOption) {
+        switch option {
+        case let .existing(candidate):
+            _ = insertNoteLink(to: candidate.id, title: candidate.title)
+        case let .create(title):
+            guard let create = noteLinkProvider?.create, let state = noteLinkMenuState else { return }
+            // Closed while the note is created so a second Return cannot make another.
+            dismissNoteLinkMenu()
+            Task { @MainActor [weak self] in
+                guard let id = await create(title), let self else { return }
+                _ = self.insertNoteLink(to: id, title: title, replacing: state)
+            }
+        }
+    }
+
+    /// Replaces "[[query" with a link to the note, followed by a plain space
+    /// so typing continues outside the link.
+    @discardableResult
+    func insertNoteLink(to noteID: NoteID, title: String, replacing expected: NoteLinkMenuState? = nil) -> Bool {
+        guard let state = expected ?? noteLinkMenuState, composition == nil,
+              let block = document.blocks.first(where: { $0.id == state.blockID }),
+              state.queryRange.upperBound <= Self.text(block).count
+        else { return false }
+        // The text may have changed while a new note was being created.
+        let typed = String(Self.text(block).dropFirst(state.queryRange.lowerBound).prefix(state.queryRange.count))
+        guard typed == "[[" + state.query || typed == "【【" + state.query else { return false }
+        if noteLinkMenuState != nil { noteLinkMenuState = nil }
+        dismissedNoteLinkStart = nil
+        let plain = BlockTypingAttributes(marks: [], linkURL: nil)
+        applySelection(
+            .text(
+                anchor: .init(blockID: state.blockID, graphemeOffset: state.queryRange.lowerBound),
+                focus: .init(blockID: state.blockID, graphemeOffset: state.queryRange.upperBound),
+                preferredColumn: nil,
+                typingAttributes: plain
+            ),
+            incrementingRevision: true,
+            project: false
+        )
+        let linkText = title.isEmpty ? "无标题" : title
+        let content = InlineContent(spans: [
+            InlineSpan(text: linkText, linkURL: NoteLinkURL.url(for: noteID)),
+            InlineSpan(text: " ")
+        ])
+        return dispatchTextCommand(.replaceSelection(.inlineContent(content, fallbackPlainText: linkText + " ")))
+    }
+
+    /// Formatting-bar entry point: types the opener so the picker appears.
+    func beginNoteLink() {
+        dismissedNoteLinkStart = nil
+        _ = dispatchTextCommand(.insertText("[["))
+    }
+
+    /// Clicking a note link inside the editor opens it in Jelly.
+    func openNoteLink(_ url: URL) -> Bool {
+        guard let id = NoteLinkURL.noteID(from: url) else { return false }
+        noteLinkProvider?.open(id)
+        return true
+    }
 }

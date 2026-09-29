@@ -390,6 +390,12 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
         super.mouseDown(with: event)
     }
 
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        let url = (link as? URL) ?? (link as? String).flatMap(URL.init(string:))
+        if let url, editorSession?.openNoteLink(url) == true { return }
+        super.clicked(onLink: link, at: charIndex)
+    }
+
     override func setAccessibilitySelectedTextRange(_ selectedTextRange: NSRange) {
         rememberDirectSelection(selectedTextRange)
         processingDirectSelectionInput = true
@@ -516,6 +522,7 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
             finishingComposition = false
             return
         }
+        if editorSession?.handleNoteLinkSelector(#selector(NSResponder.cancelOperation(_:))) == true { return }
         if editorSession?.handleSlashSelector(#selector(NSResponder.cancelOperation(_:))) == true { return }
         super.cancelOperation(sender)
     }
@@ -527,6 +534,7 @@ final class ContinuousBlockEditorTextView: NSTextView, NSTextViewDelegate {
             super.doCommand(by: selector)
             return
         }
+        if editorSession?.handleNoteLinkSelector(selector) == true { return }
         if editorSession?.handleSlashSelector(selector) == true { return }
         if Self.isNativeSelectionCommand(selector) {
             super.doCommand(by: selector)

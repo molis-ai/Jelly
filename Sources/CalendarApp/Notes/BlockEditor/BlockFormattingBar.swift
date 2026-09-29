@@ -16,6 +16,7 @@ enum BlockFormattingAction: CaseIterable, Equatable {
     case quote
     case divider
     case link
+    case noteLink
 
     var title: String {
         switch self {
@@ -32,6 +33,7 @@ enum BlockFormattingAction: CaseIterable, Equatable {
         case .quote: "❝"
         case .divider: "—"
         case .link: "链接"
+        case .noteLink: "[[笔记]]"
         }
     }
 
@@ -50,6 +52,7 @@ enum BlockFormattingAction: CaseIterable, Equatable {
         case .quote: "block-format-quote"
         case .divider: "block-format-divider"
         case .link: "block-format-link"
+        case .noteLink: "block-format-note-link"
         }
     }
 
@@ -68,6 +71,7 @@ enum BlockFormattingAction: CaseIterable, Equatable {
         case .quote: "设为引用"
         case .divider: "插入分隔线"
         case .link: "添加或移除链接"
+        case .noteLink: "链接到另一篇笔记"
         }
     }
 
@@ -85,7 +89,7 @@ enum BlockFormattingAction: CaseIterable, Equatable {
         case .task: .convert(.task)
         case .quote: .convert(.quote)
         case .divider: .insertDivider
-        case .link: nil
+        case .link, .noteLink: nil
         }
     }
 }
@@ -173,7 +177,7 @@ private struct ObservedFormattingActions: View {
                     prepareAction: { session.prepareAuxiliaryControlAction() },
                     action: { perform(action) }
                 )
-                .frame(minWidth: action == .paragraph || action == .link ? 46 : 30, minHeight: 28)
+                .frame(minWidth: action == .paragraph || action == .link || action == .noteLink ? 46 : 30, minHeight: 28)
             }
         }
     }
@@ -193,6 +197,7 @@ private struct ObservedFormattingActions: View {
         case .quote: session.focusedBlockKind == .quote
         case .divider: session.focusedBlockKind == .divider
         case .link: session.selectionContainsLink || session.currentTypingAttributes.linkURL != nil
+        case .noteLink: session.noteLinkMenuState != nil
         }
     }
 
@@ -200,6 +205,8 @@ private struct ObservedFormattingActions: View {
         session.performAuxiliaryControlAction {
             if let command = action.command {
                 _ = session.dispatchTextCommand(command)
+            } else if action == .noteLink {
+                session.beginNoteLink()
             } else {
                 toggleLink()
             }
@@ -234,7 +241,7 @@ private struct DisabledFormattingActions: View {
                     prepareAction: {},
                     action: {}
                 )
-                .frame(minWidth: action == .paragraph || action == .link ? 46 : 30, minHeight: 28)
+                .frame(minWidth: action == .paragraph || action == .link || action == .noteLink ? 46 : 30, minHeight: 28)
                 .disabled(true)
             }
         }

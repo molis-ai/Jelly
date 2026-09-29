@@ -79,7 +79,7 @@ struct BlockEditorAccessibilityTests {
         #expect(reduced.overlayAnimation == nil)
         #expect(reduced.shouldPresentOverlays)
         #expect(reduced.shouldAlignToWeek)
-        #expect(BlockFormattingAction.allCases.count == 13)
+        #expect(BlockFormattingAction.allCases.count == 14)
         #expect(BlockFormattingAction.allCases.allSatisfy { !$0.accessibilityLabel.isEmpty })
     }
 
@@ -185,7 +185,8 @@ struct BlockEditorAccessibilityTests {
             "block-format-paragraph", "block-format-heading-1", "block-format-heading-2",
             "block-format-heading-3", "block-format-bold", "block-format-italic",
             "block-format-code", "block-format-bullet", "block-format-ordered",
-            "block-format-task", "block-format-quote", "block-format-divider", "block-format-link"
+            "block-format-task", "block-format-quote", "block-format-divider", "block-format-link",
+            "block-format-note-link"
         ])
         #expect(actions.allSatisfy { !$0.accessibilityLabel.isEmpty })
         #expect(Set(actions.map(\.accessibilityLabel)).count == actions.count)

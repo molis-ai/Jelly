@@ -124,6 +124,8 @@ struct MobileNoteDetailView: View {
     @State private var showingRecoveryReview = false
     @State private var resolvingRecovery = false
     @State private var editorBarrierID = UUID()
+    @State private var linkedNoteID: NoteID?
+    @State private var noteLinkRequest: MobileNoteLinkRequest?
 
     init(workspace: MobileWorkspace, note: Note) {
         self.workspace = workspace
@@ -134,6 +136,9 @@ struct MobileNoteDetailView: View {
         workspace.store.calendarState.categories.values.sorted { $0.sortIndex < $1.sortIndex }
     }
     private var isArchived: Bool { session.draft.archivedAt != nil }
+    private var backlinks: [NoteBacklink] {
+        NoteLinkIndex.backlinks(to: session.draft.id, in: workspace.store.state)
+    }
     private var arrangements: [NoteCalendarArrangement] {
         NoteCalendarArrangementProjection.make(noteID: session.draft.id, state: workspace.store.state)
     }
@@ -167,7 +172,12 @@ struct MobileNoteDetailView: View {
                 if isArchived { Text("笔记已归档，恢复后可以继续编辑。").font(.caption).foregroundStyle(.secondary) }
             }
             Section {
-                MobileDocumentTextView(session: session, editable: !isArchived && !session.reviewingRecovery)
+                MobileDocumentTextView(
+                    session: session,
+                    editable: !isArchived && !session.reviewingRecovery,
+                    onRequestNoteLink: { insert in noteLinkRequest = MobileNoteLinkRequest(insert: insert) },
+                    onOpenNote: openLinkedNote
+                )
                     .frame(minHeight: 220)
                 DisclosureGroup("待办与内容块操作") {
                     ForEach(session.draft.document.blocks) { block in blockRow(block) }
@@ -179,6 +189,22 @@ struct MobileNoteDetailView: View {
                         }
                         Button("链接") { addingLink = true }
                     } label: { Label("添加内容", systemImage: "plus.circle").frame(minHeight: 44) }
+                }
+            }
+            if !backlinks.isEmpty {
+                Section("反向链接") {
+                    ForEach(backlinks) { backlink in
+                        Button { openLinkedNote(backlink.sourceNoteID) } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack {
+                                    Text(backlink.sourceTitle).font(.subheadline.weight(.medium))
+                                    if backlink.sourceIsArchived { Text("已归档").font(.caption).foregroundStyle(.secondary) }
+                                }
+                                Text(backlink.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }.frame(minHeight: 44, alignment: .leading)
+                        }
+                        .accessibilityLabel("打开 \(backlink.sourceTitle)")
+                    }
                 }
             }
             if !arrangements.isEmpty {
@@ -205,6 +231,15 @@ struct MobileNoteDetailView: View {
             }
         }
         .listStyle(.insetGrouped).jellySurface().scrollDismissesKeyboard(.interactively)
+        .navigationDestination(item: $linkedNoteID) { id in
+            if let note = workspace.store.state.notes[id] { MobileNoteDetailView(workspace: workspace, note: note) }
+        }
+        .sheet(item: $noteLinkRequest) { request in
+            MobileNoteLinkPicker(state: workspace.store.state, excluding: session.draft.id) { note in
+                noteLinkRequest = nil
+                request.insert(note.id, note.title.isEmpty ? "无标题" : note.title)
+            }
+        }
         .navigationTitle("笔记").navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .toolbar {
@@ -472,6 +507,14 @@ struct MobileNoteDetailView: View {
         }
     }
 
+    private func openLinkedNote(_ id: NoteID) {
+        guard id != session.draft.id, workspace.store.state.notes[id] != nil else { return }
+        Task {
+            guard await session.flush() else { return }
+            linkedNoteID = id
+        }
+    }
+
     private func openArrangement(_ target: WorkspaceDeepLinkTarget) {
         switch target {
         case let .calendarItem(id):
@@ -529,6 +572,44 @@ struct MobileNoteDetailView: View {
                 showingExport = true
             } catch { workspace.errorMessage = "无法导出笔记：\(error.localizedDescription)" }
         }
+    }
+}
+
+private struct MobileNoteLinkRequest: Identifiable {
+    let id = UUID()
+    let insert: (NoteID, String) -> Void
+}
+
+/// Searchable list of notes to link from the editor toolbar.
+private struct MobileNoteLinkPicker: View {
+    let state: WorkspaceState
+    let excluding: NoteID
+    let onPick: (Note) -> Void
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                let notes = NoteLinkIndex.candidates(matching: query, in: state, excluding: excluding, limit: 50)
+                if notes.isEmpty {
+                    Text(query.isEmpty ? "还没有其他笔记" : "没有标题包含这些字的笔记").foregroundStyle(.secondary)
+                }
+                ForEach(notes) { note in
+                    Button { onPick(note) } label: {
+                        HStack {
+                            Text(note.title.isEmpty ? "无标题" : note.title)
+                            Spacer()
+                            if note.archivedAt != nil { Text("已归档").font(.caption).foregroundStyle(.secondary) }
+                        }.frame(minHeight: 44)
+                    }
+                }
+            }
+            .searchable(text: $query, prompt: "按标题查找")
+            .navigationTitle("链接到笔记").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
