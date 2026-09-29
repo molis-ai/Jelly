@@ -20,6 +20,7 @@ struct AppEnvironment {
     let textModel: any TextModelGenerating
     let inspirationFollowUp: InspirationFollowUpService
     let captureService: InspirationCaptureService
+    let quickCapture: QuickCaptureCoordinator
     /// Nil only when MCP is explicitly disabled for this run (acceptance tests).
     let mcpController: MCPServiceController?
 
@@ -111,8 +112,18 @@ struct AppEnvironment {
             textModel: textModel,
             inspirationFollowUp: followUp,
             captureService: captureService,
+            quickCapture: QuickCaptureCoordinator(
+                captureService: captureService,
+                settings: QuickCaptureSettings(defaults: digestSettingsStore.defaultsForCompanionSettings)
+            ),
             mcpController: mcpController
         )
+    }
+
+    /// Global shortcut, Services menu and other services that must run
+    /// whether or not the main window is open. Safe to call repeatedly.
+    func startBackgroundServices() {
+        quickCapture.start()
     }
 
     static func loadLive(

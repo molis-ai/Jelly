@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum CalendarAppWindow {
@@ -35,6 +36,15 @@ struct PersonalCalendarApp: App {
     init() {
         let launch = AppEnvironment.loadLive()
         let initialEnvironment = try? launch.get()
+        if let initialEnvironment {
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didFinishLaunchingNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { initialEnvironment.startBackgroundServices() }
+            }
+        }
         _environment = State(initialValue: initialEnvironment)
         _startupError = State(initialValue: launch.failureDescription)
         let features = initialEnvironment?.features ?? .production
@@ -84,6 +94,7 @@ struct PersonalCalendarApp: App {
                         await environment.store.load()
                         await environment.materialDigestOperator?.reconcileInterruptedRuns()
                         environment.mcpController?.startIfNeeded()
+                        environment.startBackgroundServices()
                     }
                 } else {
                     AppStartupFailureView(
@@ -142,6 +153,10 @@ struct PersonalCalendarApp: App {
                     .tabItem {
                         Label("摘要", systemImage: "wand.and.stars")
                     }
+                    QuickCaptureSettingsView(coordinator: environment.quickCapture)
+                        .tabItem {
+                            Label("随手记", systemImage: "lightbulb")
+                        }
                     MCPServerSettingsView(controller: environment.mcpController)
                         .tabItem {
                             Label("MCP 服务器", systemImage: "server.rack")
@@ -151,6 +166,16 @@ struct PersonalCalendarApp: App {
             } else {
                 Text("无法打开摘要设置。")
                     .frame(minWidth: 360, minHeight: 180)
+            }
+        }
+
+        MenuBarExtra("Jelly", systemImage: "lightbulb", isInserted: .constant(environment != nil)) {
+            if let environment {
+                JellyMenuBarContent(
+                    store: environment.store,
+                    quickCapture: environment.quickCapture,
+                    followUp: environment.inspirationFollowUp
+                )
             }
         }
 

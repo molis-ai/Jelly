@@ -189,6 +189,10 @@ final class DigestSettingsStore {
         localRuntime = runtime
     }
 
+    /// Other preference stores (quick capture, reminders, sync) share this
+    /// suite so acceptance runs stay isolated from the everyday install.
+    var defaultsForCompanionSettings: UserDefaults { defaults }
+
     func setAutoExpandInspirations(_ enabled: Bool) {
         defaults.set(enabled, forKey: Self.autoExpandInspirationsKey)
         autoExpandInspirations = enabled
