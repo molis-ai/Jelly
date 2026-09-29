@@ -80,6 +80,7 @@ struct AppShellView: View {
     let searchIndex: WorkspaceSearchIndex
     let terminationCoordinator: NotesApplicationTerminationCoordinator?
     let decompositionPlanner: any DecompositionPlanning
+    let inspirationFollowUp: InspirationFollowUpService?
     @ObservedObject var routeState: WorkspaceRouteState
     @ObservedObject var newItemRouter: WorkspaceNewItemRouter
     @ObservedObject var deepLinkRouter: WorkspaceDeepLinkRouter
@@ -87,6 +88,7 @@ struct AppShellView: View {
     @ObservedObject var transitionCoordinator: WorkspaceRouteTransitionCoordinator
     @StateObject private var moduleHosts: WorkspaceModuleHostStore
     @State private var creationNotice: WorkspaceCreationNotice?
+    @State private var reviewNudgeDismissGeneration: UInt = 0
 
     init(
         store: WorkspaceStore,
@@ -113,6 +115,7 @@ struct AppShellView: View {
         self.searchIndex = searchIndex
         self.terminationCoordinator = terminationCoordinator
         self.decompositionPlanner = decompositionPlanner
+        self.inspirationFollowUp = inspirationFollowUp
         self.routeState = routeState
         self.newItemRouter = newItemRouter
         self.deepLinkRouter = deepLinkRouter
@@ -216,6 +219,36 @@ struct AppShellView: View {
                 router: searchRouter
             )
         }
+        .sheet(isPresented: reviewPresented) {
+            InspirationReviewSheet(store: store) { reviewPresented.wrappedValue = false }
+        }
+        .sheet(isPresented: synthesisPresented) {
+            if let followUp = inspirationFollowUp {
+                MaterialSynthesisSheet(
+                    store: store,
+                    followUp: followUp,
+                    onCreated: { noteID in
+                        followUp.isSynthesisPresented = false
+                        openNote(noteID)
+                    },
+                    onClose: { followUp.isSynthesisPresented = false }
+                )
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if inspirationFollowUp != nil, creationNotice == nil, reviewNudgeVisible {
+                InspirationReviewNudgeView(
+                    dueCount: reviewDueCount,
+                    onStart: { reviewPresented.wrappedValue = true },
+                    onDismiss: {
+                        InspirationReviewNudge.dismiss(now: Date())
+                        reviewNudgeDismissGeneration &+= 1
+                    }
+                )
+                .padding(.leading, WorkspaceWindowLayout.railWidth + 16)
+                .padding(.bottom, 16)
+            }
+        }
         .overlay(alignment: .bottom) {
             if let creationNotice {
                 WorkspaceCreationToast(
@@ -241,6 +274,36 @@ struct AppShellView: View {
             withAnimation(.easeOut(duration: 0.16)) {
                 creationNotice = nil
             }
+        }
+    }
+
+    private var reviewPresented: Binding<Bool> {
+        Binding(
+            get: { inspirationFollowUp?.isReviewPresented ?? false },
+            set: { inspirationFollowUp?.isReviewPresented = $0 }
+        )
+    }
+
+    private var synthesisPresented: Binding<Bool> {
+        Binding(
+            get: { inspirationFollowUp?.isSynthesisPresented ?? false },
+            set: { inspirationFollowUp?.isSynthesisPresented = $0 }
+        )
+    }
+
+    private var reviewDueCount: Int {
+        InspirationReviewQueue.due(in: store.state, now: Date()).count
+    }
+
+    private var reviewNudgeVisible: Bool {
+        _ = reviewNudgeDismissGeneration
+        return InspirationReviewNudge.shouldShow(dueCount: reviewDueCount, now: Date())
+    }
+
+    private func openNote(_ noteID: NoteID) {
+        Task {
+            guard await transitionCoordinator.requestActivation(.notes) else { return }
+            deepLinkRouter.request(.note(noteID))
         }
     }
 

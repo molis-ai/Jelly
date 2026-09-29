@@ -185,6 +185,10 @@ final class InspirationFollowUpService {
     private let clock: @Sendable () -> Date
     private var tasks: [InspirationID: Task<Void, Never>] = [:]
 
+    /// Shared by the inbox banner, the daily nudge and the menu bar so 回顾
+    /// opens as one sheet wherever it was requested.
+    var isReviewPresented = false
+    var isSynthesisPresented = false
     private(set) var runningExpansions: Set<InspirationID> = []
     private(set) var runningPerspectives: Set<InspirationID> = []
     private(set) var messages: [InspirationID: String] = [:]

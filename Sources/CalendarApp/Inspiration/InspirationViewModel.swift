@@ -611,6 +611,14 @@ enum InspirationTextSaveState: Equatable {
         return true
     }
 
+    var reviewDueCount: Int {
+        InspirationReviewQueue.due(in: store.state, now: clock()).count
+    }
+
+    var synthesisCandidateCount: Int {
+        MaterialSynthesisSheet.candidates(in: store.state).count
+    }
+
     /// Calendar items and undated to-dos that came from the selected thought.
     var selectedFollowThrough: [String] {
         guard let inspiration = selected else { return [] }

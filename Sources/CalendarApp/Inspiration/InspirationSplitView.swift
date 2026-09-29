@@ -319,6 +319,10 @@ struct InspirationInboxView: View {
                 Rectangle().fill(theme.separator.opacity(0.7)).frame(height: 0.5)
             }
 
+            if let followUp = model.followUp {
+                followUpBar(followUp)
+            }
+
             InspirationCaptureView(model: model, isFocused: captureFocused) { id in
                 scope = .pending
                 onCaptured(id)
@@ -387,6 +391,38 @@ struct InspirationInboxView: View {
         .onChange(of: model.selectedConvertedNoteID) { _, noteID in
             guard model.selected?.lifecycle == .active else { return }
             scope = noteID == nil ? .pending : .converted
+        }
+    }
+
+    @ViewBuilder
+    private func followUpBar(_ followUp: InspirationFollowUpService) -> some View {
+        let due = model.reviewDueCount
+        let synthesizable = model.synthesisCandidateCount
+        if due > 0 || synthesizable >= 2 {
+            HStack(spacing: 8) {
+                if due > 0 {
+                    Button {
+                        followUp.isReviewPresented = true
+                    } label: {
+                        Label("回顾 \(due) 条旧灵感", systemImage: "arrow.uturn.backward.circle")
+                    }
+                    .accessibilityIdentifier("inspiration-review-open")
+                }
+                Spacer(minLength: 0)
+                if synthesizable >= 2 {
+                    Button {
+                        followUp.isSynthesisPresented = true
+                    } label: {
+                        Label("综合…", systemImage: "square.stack.3d.up")
+                    }
+                    .help("把几份已提炼的材料综合成一篇笔记")
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(theme.controlAccent)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
         }
     }
 
